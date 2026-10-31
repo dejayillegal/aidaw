@@ -7,6 +7,7 @@ import {
   AutomationPoint,
   ClearArrangementOptions,
   HumanizationConfig,
+  MemoryLocationMarker,
   MidiNoteEvent,
   NoteGridDivision,
   PolyrhythmConfig,
@@ -14,10 +15,112 @@ import {
   StarterTemplateMeta,
   TechnoArchetype,
   TrackMixerParams,
+  VcaGroupId,
+  VcaGroupState,
   VelocityCurveConfig,
   VelocityCurvePreset,
   VoicingSpreadStyle,
 } from '../types/ableton';
+
+export const BROWSER_SUPPORTED_DEVICE_TAGS = new Set<string>([
+  'Operator',
+  'InstrumentVector',
+  'UltraAnalog',
+  'Drift',
+  'Collision',
+  'DrumGroupDevice',
+  'InstrumentGroupDevice',
+  'OriginalSimpler',
+  'EQEight',
+  'Compressor2',
+  'Roar',
+  'Saturator',
+  'Reverb',
+  'HybridReverb',
+  'Echo',
+  'DrumBuss',
+  'GlueCompressor',
+  'Limiter',
+  'AutoFilter',
+  'Overdrive',
+  'Erosion',
+  'AutoPan',
+  'ChorusEnsemble',
+  'PhaserNew',
+  'Redux2',
+  'MidiChord',
+  'MidiArpeggiator',
+  'Lfo',
+]);
+
+export function getDefaultVcaGroups(): VcaGroupState[] {
+  return [
+    { id: 'drums_vca', name: 'Drums & Perc VCA', color: '#F59E0B', gainDb: 0, muted: false, soloed: false },
+    { id: 'low_end_vca', name: 'Sub & Acid VCA', color: '#38BDF8', gainDb: 0, muted: false, soloed: false },
+    { id: 'synths_vca', name: 'Synths & Leads VCA', color: '#A855F7', gainDb: 0, muted: false, soloed: false },
+    { id: 'atmos_vca', name: 'Pads & Returns VCA', color: '#10B981', gainDb: 0, muted: false, soloed: false },
+  ];
+}
+
+export function defaultVcaGroupForArchetype(archetype: TechnoArchetype): VcaGroupId {
+  switch (archetype) {
+    case 'kick':
+    case 'percussion':
+    case 'hats':
+    case 'ride':
+      return 'drums_vca';
+    case 'rumble':
+    case 'acid':
+      return 'low_end_vca';
+    case 'synth':
+      return 'synths_vca';
+    case 'pad':
+      return 'atmos_vca';
+    default:
+      return 'unassigned';
+  }
+}
+
+export function getDefaultMemoryLocations(totalBars = 16): MemoryLocationMarker[] {
+  const scale = Math.max(1, Math.floor(totalBars / 16));
+  return [
+    { id: 'loc_1', number: 1, name: '01. Intro Lock', bar: 1, beat: 0, color: '#F59E0B', comment: 'Kick + Sub Anchor' },
+    { id: 'loc_2', number: 2, name: '02. Sub & Groove', bar: 1 + 4 * scale, beat: 16 * scale, color: '#38BDF8', comment: 'Rumble & Polyrhythm Entry' },
+    { id: 'loc_3', number: 3, name: '03. Breakdown Tension', bar: 1 + 8 * scale, beat: 32 * scale, color: '#EC4899', comment: 'Filter Sweep & Acid Mod' },
+    { id: 'loc_4', number: 4, name: '04. Peak Warehouse Drop', bar: 1 + 12 * scale, beat: 48 * scale, color: '#10B981', comment: 'Full 8-Track Peak Energy' },
+  ];
+}
+
+export function computeDeterministicHash(input: string): string {
+  let h1 = 0xdeadbeef ^ input.length;
+  let h2 = 0x41c6ce57 ^ input.length;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+}
+
+export async function computeSha256Hex(input: string | Uint8Array): Promise<string> {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const buf = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(buf).set(bytes);
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    } catch {
+      // Fallback below
+    }
+  }
+  const text = typeof input === 'string' ? input : new TextDecoder().decode(bytes);
+  return computeDeterministicHash(text) + computeDeterministicHash(text.split('').reverse().join(''));
+}
 
 export const STARTER_TEMPLATES: StarterTemplateMeta[] = [
   {
@@ -798,10 +901,20 @@ export function applySpectralAutoDuckToTrackXml(
     dc.appendChild(m2a);
   }
 
-  Array.from(devicesContainer.querySelectorAll('EQEight')).forEach((el) => el.remove());
+  // GATE 1 SAFETY: Only replace previous Parametric-injected Auto-Duck nodes; NEVER remove user-created EQEight or Compressor2
+  Array.from(devicesContainer.querySelectorAll('EQEight')).forEach((el) => {
+    if (el.getAttribute('Data-Parametric-AutoDuck') === 'true' || el.getAttribute('Id') === '8801') {
+      el.remove();
+    }
+  });
+
+  const effThreshold = config.sidechainThresholdDb ?? config.dynamicThresholdDb ?? -22.0;
+  const effSubCross = config.subCrossoverHz ?? 135.0;
+  const effRelease = config.releaseMs ?? config.sidechainReleaseMs ?? 115.0;
+  const effAttack = config.sidechainAttackMs ?? 0.25;
 
   const eqEightXml = `
-    <EQEight Id="8801">
+    <EQEight Id="8801" Data-Parametric-AutoDuck="true">
       <LomId Value="0" />
       <IsOn><Manual Value="${config.enabled ? 'true' : 'false'}" /></IsOn>
       <Band.1>
@@ -818,12 +931,12 @@ export function applySpectralAutoDuckToTrackXml(
         <Gain Value="${config.notchGainDb.toFixed(1)}" />
         <Q Value="${config.notchQ.toFixed(2)}" />
         <DynamicMode Value="true" />
-        <DynamicThreshold Value="${(config.sidechainThresholdDb ?? config.dynamicThresholdDb).toFixed(1)}" />
+        <DynamicThreshold Value="${effThreshold.toFixed(1)}" />
       </Band.2>
       <Band.3>
         <IsOn Value="true" />
         <FilterType Value="LowShelf" />
-        <Freq Value="${config.subCrossoverHz.toFixed(1)}" />
+        <Freq Value="${effSubCross.toFixed(1)}" />
         <Gain Value="-1.8" />
         <Q Value="0.90" />
       </Band.3>
@@ -833,9 +946,13 @@ export function applySpectralAutoDuckToTrackXml(
   const eqDoc = new DOMParser().parseFromString(eqEightXml, 'application/xml');
   devicesContainer.appendChild(xmlDoc.importNode(eqDoc.documentElement, true));
 
-  Array.from(devicesContainer.querySelectorAll('Compressor2')).forEach((el) => el.remove());
+  Array.from(devicesContainer.querySelectorAll('Compressor2')).forEach((el) => {
+    if (el.getAttribute('Data-Parametric-AutoDuck') === 'true' || el.getAttribute('Id') === '8802') {
+      el.remove();
+    }
+  });
   const compXml = `
-    <Compressor2 Id="8802">
+    <Compressor2 Id="8802" Data-Parametric-AutoDuck="true">
       <LomId Value="0" />
       <IsOn><Manual Value="true" /></IsOn>
       <Sidechain>
@@ -843,10 +960,10 @@ export function applySpectralAutoDuckToTrackXml(
         <SourceTrack Value="01_Kick_909_Foundation" />
         <EqFrequency Value="${config.notchFreqHz.toFixed(1)}" />
       </Sidechain>
-      <Threshold><Manual Value="${(config.sidechainThresholdDb ?? config.dynamicThresholdDb).toFixed(1)}" /></Threshold>
+      <Threshold><Manual Value="${effThreshold.toFixed(1)}" /></Threshold>
       <Ratio><Manual Value="${config.sidechainRatio.toFixed(1)}" /></Ratio>
-      <Attack><Manual Value="0.25" /></Attack>
-      <Release><Manual Value="${config.releaseMs.toFixed(1)}" /></Release>
+      <Attack><Manual Value="${effAttack.toFixed(2)}" /></Attack>
+      <Release><Manual Value="${effRelease.toFixed(1)}" /></Release>
     </Compressor2>
   `.trim();
 
@@ -1488,6 +1605,42 @@ export function buildStarterAbletonXml(
   </LiveSet>
 </Ableton>`;
 
+  const defaultHumanization: HumanizationConfig = {
+    microTimingMaxShiftBeats: 0.015,
+    velocityVariancePct: 0.08,
+    ghostVelocityMin: 20,
+    ghostVelocityMax: 45,
+    lfoRateHz: 0.1,
+    lfoDepth: 0.42,
+    cutoffHz: 145.0,
+    macroTransition: 42,
+  };
+
+  let fullSuiteXml = rawXml;
+  const suiteArchetypes: TechnoArchetype[] = [
+    'rumble',
+    'percussion',
+    'synth',
+    'hats',
+    'acid',
+    'ride',
+    'pad',
+  ];
+  suiteArchetypes.forEach((arch, idx) => {
+    fullSuiteXml = TechnoHeuristicEngine.injectTechnoLayerIntoXml(
+      fullSuiteXml,
+      arch,
+      chosenRoot,
+      defaultHumanization,
+      undefined,
+      undefined,
+      effectiveSeed + (idx + 1) * 97,
+      totalBars
+    );
+  });
+  // Starter suite tracks represent the baseline project (preserve their native devices as user-created)
+  fullSuiteXml = fullSuiteXml.replace(/\s*Data-Parametric-Injected="true"/g, '');
+
   const metaObj: StarterTemplateMeta = {
     id: `${archetypeVariant}-${effectiveSeed}`,
     name: `${templateTitle}.als`,
@@ -1498,7 +1651,7 @@ export function buildStarterAbletonXml(
     description: `Procedurally unique underground techno project #${effectiveSeed}.`,
   };
 
-  return { xml: formatXmlString(rawXml), meta: metaObj };
+  return { xml: formatXmlString(fullSuiteXml), meta: metaObj };
 }
 
 /**
@@ -1670,6 +1823,13 @@ export function parseAbletonXmlDom(
         MidiArpeggiator: 'Arpeggiator',
       };
 
+      const isOnManual = devEl.querySelector('IsOn > Manual')?.getAttribute('Value');
+      const bypassed = isOnManual === 'false';
+      const isAutoDuckInjected =
+        devEl.getAttribute('Data-Parametric-AutoDuck') === 'true' ||
+        devId === '8801' ||
+        devId === '8802';
+
       return {
         id: devId,
         xmlTag: tag,
@@ -1689,6 +1849,9 @@ export function parseAbletonXmlDom(
             ? 'max_modulator'
             : 'audio_effect',
         parameters: params,
+        bypassed,
+        isUserCreated: !isGenerated && !isAutoDuckInjected,
+        browserDspSupported: BROWSER_SUPPORTED_DEVICE_TAGS.has(tag),
       };
     });
 
@@ -1914,6 +2077,44 @@ export function parseAbletonXmlDom(
 
     let detectedRootForTrack = rootNoteAttr || 'F';
     const serializer = new XMLSerializer();
+    const initialNotes = clips[0]?.notes ? [...clips[0].notes] : [];
+    const defaultTakes = [
+      {
+        id: `take_${trackId}_main`,
+        name: `Take 1 · Main Arrangement`,
+        mediaType: (isMidi ? 'midi' : 'audio') as 'midi' | 'audio',
+        createdAt: new Date().toISOString(),
+        sourceClipId: clips[0]?.id || `clip_${trackId}_0`,
+        startBeat: 0,
+        endBeat: Math.max(64, maxEndBeatDetected),
+        sourceOffsetBeats: 0,
+        activeCompRanges: [
+          {
+            id: `comp_${trackId}_0`,
+            takeId: `take_${trackId}_main`,
+            startBeat: 0,
+            endBeat: Math.max(64, maxEndBeatDetected),
+            sourceOffsetBeats: 0,
+          },
+        ],
+        notes: initialNotes,
+        editHistory: ['Initial import / generation'],
+      },
+      {
+        id: `take_${trackId}_sparse`,
+        name: `Take 2 · Stripped Anchor Groove`,
+        mediaType: (isMidi ? 'midi' : 'audio') as 'midi' | 'audio',
+        createdAt: new Date().toISOString(),
+        sourceClipId: clips[0]?.id || `clip_${trackId}_0`,
+        startBeat: 0,
+        endBeat: Math.max(64, maxEndBeatDetected),
+        sourceOffsetBeats: 0,
+        activeCompRanges: [],
+        notes: initialNotes.filter((n) => !n.isGhost && n.velocity >= 75),
+        editHistory: ['Generated sparse anchor variation'],
+      },
+    ];
+
     tracks.push({
       id: trackId,
       name: effectiveName,
@@ -1924,8 +2125,12 @@ export function parseAbletonXmlDom(
       hexColor: colorMap[archetype],
       muted: false,
       soloed: false,
+      vcaGroupId: defaultVcaGroupForArchetype(archetype),
+      automationGainOffsetDb: 0,
       devices,
       clips,
+      takes: defaultTakes,
+      activeTakeId: defaultTakes[0].id,
       lfoDrift,
       mixer: { ...defaultMixerByArchetype[archetype] },
       automationPoints: defaultAutomation,
@@ -1933,6 +2138,7 @@ export function parseAbletonXmlDom(
       spectralDucking: getDefaultSpectralDuckingConfig(archetype, detectedRootForTrack, tempo),
       polyrhythm: getDefaultPolyrhythmConfig(archetype),
       injectedXmlSnippet: isGenerated ? formatXmlString(serializer.serializeToString(trackEl)) : undefined,
+      dspConfigRevision: 1,
     });
   });
 
@@ -1945,6 +2151,28 @@ export function parseAbletonXmlDom(
   const detectedBars = Math.round(maxEndBeatDetected / 4);
   const arrangementLengthBars: 16 | 32 | 64 | 128 =
     detectedBars >= 96 ? 128 : detectedBars >= 48 ? 64 : detectedBars >= 24 ? 32 : 16;
+
+  // Parse existing Ableton <Locators> if present, otherwise seed default Memory Locations
+  const locatorEls = Array.from(xmlDoc.querySelectorAll('Locators > Locators > Locator'));
+  const memoryLocations: MemoryLocationMarker[] =
+    locatorEls.length > 0
+      ? locatorEls.map((locEl, lIdx) => {
+          const timeBeats = parseFloat(locEl.querySelector('Time')?.getAttribute('Value') || '0');
+          const barNum = Math.max(1, Math.floor(timeBeats / 4) + 1);
+          const nameVal =
+            locEl.querySelector('Name')?.getAttribute('Value') || `Marker ${lIdx + 1}`;
+          const colors = ['#F59E0B', '#38BDF8', '#EC4899', '#10B981', '#A855F7', '#06B6D4'];
+          return {
+            id: locEl.getAttribute('Id') || `loc_${lIdx + 1}`,
+            number: lIdx + 1,
+            name: nameVal,
+            bar: barNum,
+            beat: timeBeats,
+            color: colors[lIdx % colors.length],
+            comment: locEl.querySelector('Annotation')?.getAttribute('Value') || '',
+          };
+        })
+      : getDefaultMemoryLocations(arrangementLengthBars);
 
   const formattedModified = formatXmlString(xmlString);
   const formattedOriginal = rawXmlBaseline ? formatXmlString(rawXmlBaseline) : formattedModified;
@@ -1964,9 +2192,14 @@ export function parseAbletonXmlDom(
       : '16th Quantized + Micro-Shift',
     energyDensity: Math.round((totalNotesCount / arrangementLengthBars) * 10) / 10,
     arrangementLengthBars,
+    revision: 1,
+    projectRevision: 1,
     tracks,
+    memoryLocations,
+    vcaGroups: getDefaultVcaGroups(),
     rawXmlOriginal: formattedOriginal,
     rawXmlModified: formattedModified,
+    rawXml: formattedModified,
     rawByteSize,
     estimatedGzipByteSize: Math.round(rawByteSize * 0.14),
     lastActionLog: `Parsed ${tracks.length} tracks (${totalNotesCount} <MidiNoteEvent> nodes) across ${arrangementLengthBars} bars at ${tempo} BPM in ${detectedRoot} ${scaleNameAttr || 'Phrygian'}.`,
@@ -2350,7 +2583,15 @@ export function computeAiSmartMixCalibration(
       project.tempo
     );
 
-    if (track.archetype === 'rumble' || track.archetype === 'acid' || track.archetype === 'pad') {
+    // GATE 1 SAFETY: Never overwrite user-created EQEight or Compressor2 devices during Smart Leveling!
+    // Only inject Auto-Duck XML nodes if the track is a generated track or has no user-created EQEight/Compressor2
+    const hasUserEqOrComp = track.devices.some(
+      (d) => (d.xmlTag === 'EQEight' || d.xmlTag === 'Compressor2') && d.isUserCreated
+    );
+    if (
+      !hasUserEqOrComp &&
+      (track.archetype === 'rumble' || track.archetype === 'acid' || track.archetype === 'pad')
+    ) {
       workingXml = applySpectralAutoDuckToTrackXml(
         workingXml,
         track.id,
@@ -2391,8 +2632,71 @@ export function computeAiSmartMixCalibration(
       delayReturnLevel: 0.32,
       subBassMonoCutoffHz: 120,
     },
-    summary: `AI Smart Level calibrated ${updatedTracks.length} tracks: mono sub-bass isolation (<120Hz), dynamic EQ8 kick-fundamental notches @ ${rootKeyToFundamentalHz(project.rootKey)}Hz, balanced stereo field, and -6.0 dB pre-master headroom.`,
+    summary: `AI Smart Level calibrated ${updatedTracks.length} tracks: user devices preserved, mono sub-bass isolation (<120Hz), dynamic EQ8 kick-fundamental notches @ ${rootKeyToFundamentalHz(project.rootKey)}Hz, balanced stereo field, and -6.0 dB pre-master headroom.`,
   };
+}
+
+/**
+ * Synchronizes Memory Location markers (<Locators>) and non-destructive track mixer parameters into the Ableton XML DOM.
+ */
+export function syncLocatorsAndMixerToXml(
+  projectOrXml: AbletonProjectState | string,
+  tracksArg?: AbletonTrack[],
+  memoryLocationsArg?: MemoryLocationMarker[]
+): string {
+  const isProject = typeof projectOrXml !== 'string';
+  const currentXml = isProject
+    ? projectOrXml.rawXmlModified || projectOrXml.rawXml || ''
+    : projectOrXml;
+  const tracks = isProject ? projectOrXml.tracks : tracksArg || [];
+  const memoryLocations = isProject ? projectOrXml.memoryLocations : memoryLocationsArg;
+
+  if (!currentXml) return '';
+
+  const parser = new DOMParser();
+  const sanitized = currentXml.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
+  const xmlDoc = parser.parseFromString(sanitized, 'application/xml');
+  const liveSet = xmlDoc.querySelector('LiveSet') || xmlDoc.documentElement;
+
+  if (memoryLocations && memoryLocations.length > 0 && liveSet) {
+    let locatorsOuter = liveSet.querySelector('Locators');
+    if (!locatorsOuter) {
+      locatorsOuter = xmlDoc.createElement('Locators');
+      liveSet.appendChild(locatorsOuter);
+    }
+    locatorsOuter.innerHTML = '';
+    const locatorsInner = xmlDoc.createElement('Locators');
+    memoryLocations.forEach((loc, idx) => {
+      const locatorEl = xmlDoc.createElement('Locator');
+      locatorEl.setAttribute('Id', `${idx + 1}`);
+      const timeEl = xmlDoc.createElement('Time');
+      const beatVal =
+        typeof loc.beat === 'number'
+          ? loc.beat
+          : Math.max(0, ((loc.bar || 1) - 1) * 4);
+      timeEl.setAttribute('Value', beatVal.toFixed(3));
+      const nameEl = xmlDoc.createElement('Name');
+      nameEl.setAttribute('Value', loc.name);
+      const annEl = xmlDoc.createElement('Annotation');
+      annEl.setAttribute('Value', loc.comment || '');
+      locatorEl.appendChild(timeEl);
+      locatorEl.appendChild(nameEl);
+      locatorEl.appendChild(annEl);
+      locatorsInner.appendChild(locatorEl);
+    });
+    locatorsOuter.appendChild(locatorsInner);
+  }
+
+  tracks.forEach((t) => {
+    const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(
+      (el) => el.getAttribute('Id') === t.id
+    );
+    if (!trackEl) return;
+    trackEl.setAttribute('Data-Base-Volume-Db', t.mixer.volumeDb.toFixed(2));
+    trackEl.setAttribute('Data-Pan', t.mixer.pan.toFixed(2));
+  });
+
+  return formatXmlString(new XMLSerializer().serializeToString(xmlDoc));
 }
 
 /**
@@ -3324,3 +3628,81 @@ export class TechnoHeuristicEngine {
     return formatXmlString(serializer.serializeToString(xmlDoc));
   }
 }
+
+/**
+ * Convenience wrapper around parseAbletonXmlDom with default filename support.
+ */
+export function parseAlsXmlString(
+  xmlString: string,
+  fileName = 'Untitled_Project.als',
+  rawXmlBaseline?: string
+): AbletonProjectState {
+  return parseAbletonXmlDom(xmlString, fileName, rawXmlBaseline);
+}
+
+/**
+ * Compiles a project's current tracks, velocity curves, memory locations, and mixer state into valid Ableton XML.
+ */
+export function compileRehumanizedAlsXml(
+  project: AbletonProjectState,
+  humanization: HumanizationConfig,
+  seed = 101
+): string {
+  const velocityCurves: Record<string, VelocityCurveConfig> = {};
+  project.tracks.forEach((t) => {
+    if (t.velocityCurve) {
+      velocityCurves[t.id] = t.velocityCurve;
+    }
+  });
+  const rehumanized = TechnoHeuristicEngine.rehumanizeAllProjectTracks(
+    project.rawXmlModified,
+    project.rootKey,
+    humanization,
+    seed,
+    velocityCurves,
+    project.arrangementLengthBars
+  );
+  return syncLocatorsAndMixerToXml(rehumanized, project.tracks, project.memoryLocations);
+}
+
+/**
+ * Validates the structural integrity of a compiled Ableton Live .als XML document.
+ */
+export function validateAlsStructuralIntegrity(
+  xmlString: string,
+  expectedTrackCount?: number,
+  expectedBars?: number
+): {
+  valid: boolean;
+  trackCount: number;
+  noteCount: number;
+  bars: number;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  const parser = new DOMParser();
+  const sanitized = xmlString.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
+  const doc = parser.parseFromString(sanitized, 'application/xml');
+
+  const parseErr = doc.querySelector('parsererror');
+  if (parseErr) {
+    errors.push(`XML Parse Error: ${parseErr.textContent?.slice(0, 100)}`);
+  }
+  const liveSet = doc.querySelector('Ableton > LiveSet');
+  if (!liveSet) {
+    errors.push('Missing <Ableton><LiveSet> root hierarchy');
+  }
+  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
+  if (typeof expectedTrackCount === 'number' && trackEls.length < expectedTrackCount) {
+    errors.push(`Expected at least ${expectedTrackCount} tracks, found ${trackEls.length}`);
+  }
+  const noteCount = doc.querySelectorAll('MidiNoteEvent').length;
+  return {
+    valid: errors.length === 0 && trackEls.length > 0,
+    trackCount: trackEls.length,
+    noteCount,
+    bars: expectedBars || 16,
+    errors,
+  };
+}
+

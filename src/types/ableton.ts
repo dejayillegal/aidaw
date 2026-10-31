@@ -13,6 +13,43 @@ export type NoteGridDivision = '1/4' | '1/8' | '1/16' | '1/32';
 
 export type VoicingSpreadStyle = 'narrow' | 'close' | 'wide' | 'octave';
 
+export type TimelineEditMode = 'grid' | 'slip' | 'shuffle' | 'spot';
+
+export type VcaGroupId =
+  | 'drums_vca'
+  | 'low_end_vca'
+  | 'synths_vca'
+  | 'atmos_vca'
+  | 'drums'
+  | 'bass'
+  | 'low_end'
+  | 'synths'
+  | 'atmos'
+  | 'returns'
+  | 'unassigned';
+
+export type AbletonDeviceType = string;
+
+export interface VcaGroupState {
+  id: VcaGroupId;
+  name: string;
+  color: string;
+  gainDb: number; // -24 to +6 dB non-destructive VCA offset
+  muted: boolean;
+  soloed: boolean;
+}
+
+export interface MemoryLocationMarker {
+  id: string;
+  number: number; // 1-9 primary slots + extensible
+  name: string;
+  bar?: number; // 1-indexed bar coordinate
+  beat: number; // exact beat coordinate (0-indexed)
+  zoomBars?: number;
+  color: string;
+  comment?: string;
+}
+
 export type CompositionStrategyId =
   | 'hypnotic_evolving'
   | 'asymmetric_industrial'
@@ -58,11 +95,14 @@ export interface AbletonMidiClip {
   id: string;
   name: string;
   startTime: number; // In beats (0 = Bar 1)
+  endTime?: number; // Optional end beat
   length: number; // In beats (64 = 16 bars, up to 512 = 128 bars)
+  contentOffsetBeats?: number; // Slip-mode internal clip offset in beats
   loopEndBeats?: number; // Poly-metered <Loop><LoopEnd> cycle in beats (e.g., 1.75 for 7/16)
   isPolymeter?: boolean; // True when clip uses non-4/4 Euclidean loop markers
   notes: MidiNoteEvent[];
   sceneVariationName?: string;
+  revision?: number;
 }
 
 export interface AbletonDeviceParam {
@@ -75,9 +115,14 @@ export interface AbletonDeviceParam {
 export interface AbletonDevice {
   id: string;
   xmlTag: string; // e.g., 'Operator', 'Reverb', 'AutoFilter', 'DrumBuss', 'Lfo', 'EQEight', 'Limiter'
+  type?: string; // Alias for xmlTag
+  name?: string; // Alias for displayName
   displayName: string;
   category: 'instrument' | 'audio_effect' | 'midi_effect' | 'max_modulator' | 'rack';
   parameters: AbletonDeviceParam[];
+  bypassed?: boolean;
+  isUserCreated?: boolean; // True if imported from user's original .als and protected from destructive overwrite
+  browserDspSupported?: boolean; // True when Web Audio channel strip renders this device's DSP
   selectionReasoning?: string;
 }
 
@@ -108,7 +153,7 @@ export interface AutomationPoint {
 }
 
 export interface TrackMixerParams {
-  volumeDb: number; // -24 to +6 dB (default 0)
+  volumeDb: number; // -24 to +6 dB (Base Fader level, never overwritten by VCA movements)
   pan: number; // -1.0 (50L) to +1.0 (50R)
   transposeSemitones: number; // -12 to +12 st
   fineTuneCents: number; // -50 to +50 ct
@@ -141,14 +186,17 @@ export interface VelocityCurveConfig {
 
 export interface SpectralDuckingConfig {
   enabled: boolean;
+  sourceTrackId?: string;
   notchFreqHz: number; // Kick fundamental frequency (e.g., 45 Hz - 65 Hz)
   notchGainDb: number; // -14.0 dB to 0.0 dB dynamic attenuation
   notchQ: number; // 0.7 to 6.0 surgical Q factor
-  dynamicThresholdDb: number; // -36 dB to -6 dB
+  dynamicThresholdDb?: number; // -36 dB to -6 dB
   sidechainThresholdDb?: number; // Alias for sidechain threshold dB
   sidechainRatio: number; // 2.0 to 10.0
-  releaseMs: number; // 30 ms to 250 ms
-  subCrossoverHz: number; // 80 Hz to 180 Hz
+  sidechainAttackMs?: number;
+  sidechainReleaseMs?: number;
+  releaseMs?: number; // 30 ms to 250 ms
+  subCrossoverHz?: number; // 80 Hz to 180 Hz
   collisionIndexPct?: number; // Computed overlap percentage before/after ducking
   collisionIndex?: number; // Normalized 0.0 to 1.0 collision ratio
 }
@@ -177,6 +225,67 @@ export interface ClearArrangementOptions {
   resetMixerLevels?: boolean;
 }
 
+export interface CompRangeSegment {
+  id: string;
+  takeId: string;
+  startBeat: number;
+  endBeat: number;
+  sourceOffsetBeats?: number;
+}
+
+export interface AudioActiveRegion {
+  id: string;
+  startBeat: number;
+  endBeat: number;
+  peakDb: number;
+  rmsDb?: number;
+  mutedByStripSilence?: boolean;
+}
+
+export interface TrackTakeRecord {
+  id: string;
+  name: string;
+  mediaType?: 'midi' | 'audio';
+  createdAt: string;
+  sourceClipId?: string;
+  mediaRef?: string; // Audio sample reference or synth descriptor
+  startBeat?: number;
+  endBeat?: number;
+  sourceOffsetBeats?: number;
+  activeCompRanges?: CompRangeSegment[];
+  compSegments?: CompRangeSegment[];
+  notes?: MidiNoteEvent[]; // Populated for MIDI takes
+  notesSnapshot?: MidiNoteEvent[]; // Alias for MIDI take snapshot
+  audioRegions?: AudioActiveRegion[]; // Populated for Audio takes / Strip Silence regions
+  activeAudioRegions?: AudioActiveRegion[];
+  editHistory?: string[];
+}
+
+export interface AudioStripSilenceConfig {
+  thresholdDb?: number; // e.g., -38 dB
+  thresholdOpenDb?: number;
+  thresholdCloseDb?: number;
+  hysteresisDb?: number; // e.g., 3.0 dB
+  minRegionDurationMs?: number; // e.g., 60 ms
+  minActiveDurationMs?: number;
+  preRollAttackMs?: number; // e.g., 8 ms
+  preAttackPadMs?: number;
+  postRollReleaseMs?: number; // e.g., 25 ms
+  postReleasePadMs?: number;
+}
+
+export interface MidiGhostPruningConfig {
+  velocityThreshold: number; // 1 to 127 (prune notes below this velocity)
+  minProbability?: number; // 0.0 to 1.0
+  probabilityThreshold?: number;
+  minDurationBeats: number; // e.g., 0.05 beats
+  preserveAnchorMotifs?: boolean; // Protect motifRole === 'anchor'
+  onlyPruneFlaggedGhosts?: boolean;
+  protectDownbeats?: boolean;
+  protectChordTones?: boolean;
+  protectAccents?: boolean;
+}
+
 export interface AbletonTrack {
   id: string;
   name: string;
@@ -186,12 +295,18 @@ export interface AbletonTrack {
   locked?: boolean; // Protects track from bulk regeneration or clearing
   colorIndex: number;
   hexColor: string;
+  color?: string;
   muted: boolean;
   soloed: boolean;
+  vcaGroupId?: VcaGroupId; // Non-destructive VCA group assignment
+  automationGainOffsetDb?: number; // Separate automation gain offset in dB
   devices: AbletonDevice[];
   clips: AbletonMidiClip[];
   sessionClips?: AbletonMidiClip[]; // 4 evolving Session View clip variations (Scene A-D)
   activeSessionSlot?: number; // 0-3
+  takes?: TrackTakeRecord[]; // Extensible MIDI & Audio comping takes
+  activeTakeId?: string;
+  audioRegions?: AudioActiveRegion[]; // Non-destructive Audio Strip Silence regions
   lfoDrift?: LfoConfig;
   mixer: TrackMixerParams;
   automationPoints: AutomationPoint[]; // Filter/energy automation envelope
@@ -201,6 +316,7 @@ export interface AbletonTrack {
   injectedXmlSnippet?: string;
   generationId?: string;
   compositionStrategy?: CompositionStrategyId;
+  dspConfigRevision?: number;
 }
 
 export interface MasterBusConfig {
@@ -221,6 +337,7 @@ export interface TransportConfig {
   timelineZoom?: number; // 1.0 to 8.0 horizontal zoom multiplier
   timelineScrollBar?: number; // 0-indexed leftmost visible bar when zoomed in
   gridResolution?: NoteGridDivision; // '1/4' | '1/8' | '1/16' | '1/32'
+  editMode?: TimelineEditMode; // 'grid' | 'slip' | 'shuffle' | 'spot'
   showReturnTracks?: boolean; // Show Return A, Return B, and Master lanes in Arrangement View
   metronomeEnabled: boolean;
   followPlayhead: boolean;
@@ -314,6 +431,225 @@ export interface AlsValidationReport {
   diagnostics: string[];
 }
 
+export interface MasterExportPreset {
+  id: string;
+  version?: number;
+  name: string;
+  bitDepth: 16 | 24 | 32;
+  sampleFormat: 'pcm_int' | 'ieee_float';
+  sampleRate: 44100 | 48000 | 96000;
+  targetIntegratedLufs: number | null;
+  truePeakCeilingDbtp: number;
+  normalize: boolean;
+  dither: 'none' | 'tpdf';
+  isBuiltIn?: boolean;
+  aggressiveWarning?: string;
+  createdAt?: string;
+}
+
+export interface MasterExportVerificationReport {
+  presetId: string;
+  presetName: string;
+  sampleRate?: number;
+  bitDepth?: number;
+  sampleFormat?: 'pcm_int' | 'ieee_float';
+  pass1IntegratedLufs: number;
+  preMasterLufs?: number;
+  pass1TruePeakDbtp: number;
+  preMasterTruePeakDbtp?: number;
+  pass1SamplePeakDbfs: number;
+  pass1CrestFactorDb: number;
+  appliedGainDb: number;
+  appliedMakeupGainDb?: number;
+  limiterGainReductionDb: number;
+  achievedIntegratedLufs: number;
+  postMasterLufs?: number;
+  achievedTruePeakDbtp: number;
+  postMasterTruePeakDbtp?: number;
+  achievedSamplePeakDbfs: number;
+  achievedCrestFactorDb: number;
+  targetCompliant: boolean;
+  conflictWarning: string | null;
+  targetConflictWarning?: string | null;
+  segmentedRenderUsed: boolean;
+  segmentCount: number;
+  memorySegmentedRenderCount?: number;
+  wavHeaderValid: boolean;
+  formatTag: number; // 1 = PCM, 3 = IEEE Float
+  durationSeconds: number;
+  byteSize: number;
+}
+
+export type QueueItemState =
+  | 'queued'
+  | 'importing'
+  | 'analyzing'
+  | 'ready'
+  | 'calibrating'
+  | 'preview_ready'
+  | 'approved'
+  | 'compiling'
+  | 'validating'
+  | 'exported'
+  | 'cancelled'
+  | 'failed'
+  | 'unsupported';
+
+export interface SmartCalibrationStageAStatic {
+  isEstimatedMetadataOnly: true;
+  trackCount: number;
+  activeMidiTrackCount: number;
+  totalMidiNotes: number;
+  totalNoteEvents?: number;
+  averageNotesPerBar: number;
+  averageNoteDensityPerBar?: number;
+  existingCompressionCount: number;
+  existingSidechainCount: number;
+  userProtectedDeviceCount: number;
+  inferredFrequencyConflicts: string[];
+  lowEndOverlapTrackIds?: string[];
+  trackSummaries: {
+    trackId: string;
+    trackName: string;
+    archetype: TechnoArchetype;
+    currentVolumeDb: number;
+    noteDensityPerBar: number;
+    hasExistingEqEight: boolean;
+    hasExistingCompressor: boolean;
+    hasAutomation: boolean;
+  }[];
+}
+
+export interface SmartCalibrationStageBMeasured {
+  available: boolean;
+  status?: 'measured' | 'unavailable';
+  unavailableReason?: string;
+  integratedLufs: number | null;
+  samplePeakDbfs: number | null;
+  truePeakDbtp: number | null;
+  crestFactorDb: number | null;
+  headroomDb: number | null;
+  clippingSampleCount: number;
+  renderDurationSeconds: number;
+}
+
+export interface TrackCalibrationProposalItem {
+  trackId: string;
+  trackName: string;
+  archetype: TechnoArchetype;
+  currentVolumeDb: number;
+  previousVolumeDb?: number;
+  proposedVolumeDb: number;
+  deltaDb: number;
+  currentPan: number;
+  proposedPan: number;
+  currentSidechainDepth: number;
+  proposedSidechainDepth: number;
+  eqSuggestion: string;
+  sidechainSuggestion: string;
+  rationale?: string;
+  reason?: string;
+  preservesUserDevices: boolean;
+  preservedUserDeviceIds?: string[];
+  accepted: boolean;
+  approved?: boolean;
+}
+
+export interface SmartCalibrationProposal {
+  proposalId: string;
+  createdAt: string;
+  projectRevision: number;
+  stageAStatic: SmartCalibrationStageAStatic;
+  stageBMeasured: SmartCalibrationStageBMeasured;
+  trackProposals: TrackCalibrationProposalItem[];
+  trackDeltas: TrackCalibrationProposalItem[];
+  masterGainDeltaDb: number;
+  proposedMasterVolumeDb: number;
+  limitingCeilingDbtp: number;
+  targetIntegratedLufs: number;
+  predictedIntegratedLufs: number | null;
+  projectedLufs?: number | null;
+  predictedTruePeakDbtp: number | null;
+  projectedTruePeakDbtp?: number | null;
+  risks: string[];
+  nativeAlsCompatibility: 'Verified Non-Destructive' | 'Metadata-Only Trim' | 'Manual Review Required';
+}
+
+export interface SmartCalibrationVerificationReport {
+  verifiedAt: string;
+  preCalibrationLufs: number | null;
+  postCalibrationLufs: number | null;
+  preCalibration: SmartCalibrationStageBMeasured;
+  postCalibration: SmartCalibrationStageBMeasured;
+  requestedTargetLufs: number;
+  achievedTruePeakDbtp: number | null;
+  achievedHeadroomDb: number | null;
+  targetCompliant: boolean;
+  userDevicesPreserved: boolean;
+  userDevicesIntact?: boolean;
+  alsRoundTripValid: boolean;
+  alsStructuralValid?: boolean;
+  summary: string;
+}
+
+export interface QueuedProjectRecord {
+  queueId: string;
+  originalFileName?: string;
+  originalFilename: string;
+  binaryChecksumSha256: string;
+  sourceSnapshotRef?: string;
+  sourceXmlSnapshot?: string;
+  workingRevision?: number;
+  workingProjectRevision: number;
+  importedLiveVersion: string;
+  state: QueueItemState;
+  analysisCapabilities?: {
+    canRenderAudio: boolean;
+    hasUnsupportedNativeDevices: boolean;
+    missingSampleCount: number;
+    unsupportedDeviceNames: string[];
+  };
+  renderCapabilities?: {
+    canRenderAudio?: boolean;
+    canSynthesizeOffline?: boolean;
+    hasUnsupportedNativeDevices?: boolean;
+    missingSampleCount?: number;
+    missingAudioSampleCount?: number;
+    unsupportedDeviceNames?: string[];
+    unsupportedDeviceTypes?: string[];
+    renderAvailability?: 'full_synth' | 'partial_hybrid' | 'metadata_only';
+    unavailableReason?: string;
+  };
+  renderAvailability?: 'full_synth' | 'partial_hybrid' | 'metadata_only';
+  project?: AbletonProjectState;
+  workingProjectState: AbletonProjectState;
+  stageAStatic?: SmartCalibrationStageAStatic;
+  stageBMeasured?: SmartCalibrationStageBMeasured;
+  calibrationProposal?: SmartCalibrationProposal | null;
+  verificationReport?: SmartCalibrationVerificationReport | null;
+  validationReport?: AlsValidationReport;
+  exportVerification?: MasterExportVerificationReport;
+  exportedAlsFilename?: string;
+  exportedWavFilename?: string;
+  exportArtifactRef?: {
+    fileName: string;
+    byteSize: number;
+    checksumSha256: string;
+    exportedAt: string;
+  } | null;
+  errorDetails?: string | null;
+  cancelRequested?: boolean;
+  cancellationStatus?: 'none' | 'cancelling' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  timestamps?: {
+    queuedAt: string;
+    startedAt?: string;
+    completedAt?: string;
+    updatedAt: string;
+  };
+}
+
 export interface AbletonProjectState {
   fileName: string;
   schemaVersion: string;
@@ -323,10 +659,15 @@ export interface AbletonProjectState {
   scale: string;
   polyrhythmicGrid: string;
   energyDensity: number; // Notes per bar
-  arrangementLengthBars?: 16 | 32 | 64 | 128;
+  arrangementLengthBars?: 4 | 8 | 16 | 32 | 64 | 128;
+  revision?: number;
+  projectRevision?: number;
   tracks: AbletonTrack[];
+  memoryLocations?: MemoryLocationMarker[];
+  vcaGroups?: VcaGroupState[];
   rawXmlOriginal: string;
   rawXmlModified: string;
+  rawXml?: string;
   rawByteSize: number;
   estimatedGzipByteSize: number;
   lastActionLog: string;

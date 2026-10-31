@@ -1,0 +1,1258 @@
+GOOGLE AI STUDIO — PARAMETRIC ALS v5.0
+
+COMPLETE SOUNDCRAFT-CLASS VISUAL RECONSTRUCTION, DAW WORKFLOW REFINEMENT & FUNCTIONAL UI IMPLEMENTATION
+
+ABSOLUTE PRIMARY OBJECTIVE
+
+YOU MUST TRANSFORM THE ACTUAL EXISTING PARAMETRIC ALS APPLICATION INTO A PROFESSIONAL SOUNDCRAFT-INSPIRED DAW WORKSTATION WITH ABLETON LIVE 12-CLASS EDITING AND MUSIC PRODUCTION WORKFLOWS.
+
+This is a source-code implementation task, not a planning, documentation, UI mockup, or architecture discussion task.
+
+The application already exists at:
+
+https://github.com/dejayillegal/aidaw
+
+You must inspect and modify its existing source code.
+
+The current UI is unacceptable as the final professional workstation interface.
+
+It resembles a complex audio-related web application rather than a cohesive studio workstation.
+
+Change the actual interface layout, component hierarchy, track editing surfaces, mixer geometry, panel interactions, visual density, and navigation.
+
+Preserve the existing functional engines and user data.
+
+Do not rebuild the application from scratch.
+
+Do not create a disconnected demo or screenshot imitation.
+
+Product identity
+
+Parametric ALS — AI Techno DAW Engine
+
+Visual identity:
+
+* Industrial dark studio
+* Precision engineering aesthetic
+* Original Parametric ALS branding
+* SoundCraft-inspired professional Edit/Mix arrangement
+* Ableton Live 12-inspired creative interaction patterns
+* Advanced integrated AI production workflows
+
+Reference priority
+
+1. Attached SoundCraft Edit, Mix, MIDI, and Automation screenshots — visual workspace and interaction-layout references.
+2. SoundCraft repository — editing workflows, docking, console organization, and command architecture.
+3. Ableton Live 12 documentation — Session, Arrangement, clip editing, devices, MIDI, automation, and music-production workflows.
+4. Existing Parametric ALS repository — authoritative source for current functional behavior, project data, and audio engines.
+
+Do not infer visual details that cannot be verified from the references.
+
+Do not copy proprietary artwork, branding, or SoundCraft logos. Build a professional original UI using the reference workspace organization.
+
+⸻
+
+1. IMPLEMENTATION MUST BEGIN WITH THE ACTUAL RUNNING UI
+
+Before changing code:
+
+* Inspect src/App.tsx.
+* Inspect src/index.css.
+* Inspect src/components/TimelineCanvas.tsx.
+* Inspect src/components/DeviceRackPanel.tsx.
+* Inspect src/components/MasterSpectrumAnalyzer.tsx.
+* Inspect src/components/AiComposerIntelligencePanel.tsx.
+* Inspect src/components/TouchJamPads.tsx.
+* Inspect the current src/types/ableton.ts.
+* Identify existing handlers for transport, timeline, MIDI, track selection, automation, devices, export, and project loading.
+* Run the current application.
+* Capture current UI screenshots.
+* Identify all existing working interactions.
+
+Do not claim the repository was modified if source files are not available in the AI Studio workspace.
+
+Preserve the original project using a safe branch or snapshot.
+
+What must disappear visually
+
+Eliminate the current website/dashboard appearance.
+
+In particular:
+
+* No prominent website navigation pretending to be a DAW menu.
+* No enormous stacked sidebar cards dominating the arrangement.
+* No giant AI generator taking priority over the timeline.
+* No fragmented toolbar wrapping across several rows on desktop.
+* No oversized action buttons for routine studio operations.
+* No unrelated system-information panels occupying central production space.
+* No unnecessarily tall headers.
+* No large blank editor areas.
+* No fake console strips.
+* No static waveform placeholders.
+* No decorative effects that do not control audio.
+
+Move secondary operations into proper studio docks, menus, utilities, and inspectors.
+
+⸻
+
+2. FINAL DESKTOP WORKSTATION GEOMETRY
+
+Implement a real desktop application shell that fills the available viewport.
+
+Use 100dvh and nested scroll containers.
+
+The page itself must not vertically scroll like a website during ordinary studio use.
+
+Main chrome
+
+At 1920×1080:
+
+UI region	Initial size
+Application menu	28px height
+Transport toolbar	50px height
+Workspace tabs	36px height
+Editor toolbar	36px height
+Status bar	26px height
+Left dock	220px width
+Right inspector	260px width
+Bottom editor	270px height
+Central editing surface	Remaining available space
+
+Values are responsive initial defaults, not fixed dimensions.
+
+The central Arrangement must always receive the maximum useful working area.
+
+Use compact professional separators, panel handles, and splitters.
+
+No gaps between docked studio surfaces except intentional borders.
+
+Workspace structure
+
+┌───────────────────────────────────────────────────────────────┐
+│ FILE EDIT VIEW TRACK CLIP MIDI AUDIO EFFECTS TOOLS WINDOW HELP│
+├───────────────────────────────────────────────────────────────┤
+│ ◀ ■ ▶ ● │ 001.1.1 │ 138.00 BPM │ 4/4 │ LOOP │ SNAP │ CPU │
+├───────────────────────────────────────────────────────────────┤
+│ EDIT      MIX      SESSION      DEVICE      AI      PROJECTS  │
+├───────────────────────────────────────────────────────────────┤
+│ SHUFFLE SLIP SPOT GRID │ SELECT TRIM DRAW ZOOM │ MARKERS    │
+├────────────┬─────────────────────────────────────┬────────────┤
+│ TRACKS &   │    BAR / BEAT / TEMPO / LOCATORS     │ BROWSER /  │
+│ GROUPS     ├─────────────────────────────────────┤ INSPECTOR  │
+│            │ KICK  ▉▉▉▉   ▉▉▉▉   ▉▉▉▉   ▉▉▉▉   │            │
+│ DRUMS      │ RUMBLE    ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒        │ DEVICES    │
+│  Kick      │ PERC    ▉ ▉  ▉  ▉ ▉ ▉  ▉           │            │
+│  Hats      │ STABS     ███    ███   ███        │ CLIPS      │
+│  Perc      │ TEXTURE   ∿∿∿∿∿∿∿∿∿∿∿∿∿           │            │
+│            │ AUTOMATION  ⌁⌁⌁╲____╱⌁⌁          │ AI PLAN    │
+│ BASS       │                                     │            │
+│ SYNTHS     │                                     │            │
+│ RETURNS    │                                     │            │
+├────────────┴─────────────────────────────────────┴────────────┤
+│ SELECTED TRACK OVERVIEW — WAVEFORM + 16TH DENSITY             │
+├───────────────────────────────────────────────────────────────┤
+│ CLIP | MIDI EDITOR | DEVICE RACK | AUTOMATION | ENVELOPES     │
+│                                                               │
+│ C5 ──── █████ ────────── ████ ──────────────────────────────  │
+│ G4 ────────── ███ ────────────── █████ ────────────────────  │
+│ VEL  │  ││  │  │ │   │  │  ││  │  │                            │
+├───────────────────────────────────────────────────────────────┤
+│ ENGINE READY │ 48kHz │ AUDIO │ PROJECT SAVED │ 12 TRACKS     │
+└───────────────────────────────────────────────────────────────┘
+
+The actual UI must be more detailed than this schematic.
+
+⸻
+
+3. REPLACE THE APPLICATION HEADER
+
+Remove the current main website-style navigation.
+
+Implement a professional application menu:
+
+File | Edit | View | Track | Clip | MIDI | Audio | Effects | Tools | Window | Help
+
+Menus must be context-aware.
+
+Examples:
+
+File:
+
+* New
+* Open Project
+* Import ALS
+* Import MIDI
+* Import Audio
+* Save
+* Save As
+* Export
+* Batch Export
+* Recent Projects
+
+Edit:
+
+* Undo
+* Redo
+* Cut
+* Copy
+* Paste
+* Duplicate
+* Delete
+* Split
+* Quantize
+
+Track:
+
+* New MIDI Track
+* New Audio Track
+* Group
+* Ungroup
+* Duplicate
+* Route
+* Rename
+* Color
+
+View:
+
+* Edit
+* Mix
+* Session
+* Devices
+* Browser
+* Automation
+* AI Composer
+
+Window:
+
+* Inspector
+* Metering
+* Project Queue
+* Memory Locations
+* Reset Layout
+
+Menus must invoke real application commands.
+
+Do not render nonfunctional items as available operations.
+
+Move XML Inspector, Python Exporter, and System Architecture into a Tools/Window utility area instead of taking up top-level DAW navigation.
+
+⸻
+
+4. BUILD A PRECISION TRANSPORT BAR
+
+The current wrapping transport toolbar must be replaced.
+
+Build a compact horizontal transport resembling a professional desktop DAW.
+
+Left controls
+
+* Return to Start
+* Rewind
+* Stop
+* Play
+* Record
+* Loop
+
+Center
+
+* Bar.Beat.Tick counter
+* BPM
+* Time signature
+* Tap tempo
+* Metronome
+* Quantization
+
+Right
+
+* Snap
+* Automation Arm
+* Arrangement/Session status
+* CPU
+* Output peak
+* Audio status
+* Save indicator
+
+All controls must be tightly spaced and visually consistent.
+
+Use JetBrains Mono or equivalent numeric typography.
+
+The transport must remain visible when switching Edit, Mix, Session, and Device workspaces.
+
+No full-page rerender or playback interruption during view switching.
+
+Use actual synthEngine methods and existing React callbacks.
+
+⸻
+
+5. COMPLETE SOUNDCRAFT-STYLE EDIT WINDOW
+
+THIS IS THE PRIMARY IMPLEMENTATION PRIORITY.
+
+The Edit Window must dominate the workstation and visually resemble a real multitrack audio editor.
+
+Tracks and Groups
+
+Build a compact left-hand Tracks & Groups tree.
+
+Support:
+
+* Track number
+* Track color
+* Track name
+* Type icon
+* Group indentation
+* Fold/Unfold
+* Select
+* Mute
+* Solo
+* Arm
+* Monitor
+* Track height
+* Drag reorder
+
+Display existing kick, rumble, percussion, synth, hats, acid, pads, groups, returns, and master data correctly.
+
+Do not fabricate group structures absent from the actual project.
+
+Track headers
+
+Each timeline lane gets a precise header, approximately 180–220px wide in standard desktop mode.
+
+Include:
+
+* Color strip
+* Track label
+* Level
+* Pan
+* Mute/Solo
+* Automation selector
+* Expand control
+
+The header and timeline lane must share exactly the same vertical position and height.
+
+Timeline
+
+Implement:
+
+* Bar/beat ruler
+* Adaptive grid
+* Tempo/meter changes
+* Loop region
+* Playhead
+* Selection ranges
+* Memory locations
+* Markers
+* Zoom
+* Horizontal scroll
+* Multi-track selection
+
+Use one shared beat-to-pixel conversion.
+
+No ruler/clip/playhead misalignment.
+
+Clip appearance
+
+MIDI clips must show real note blocks.
+
+Audio clips must show actual waveform peaks when audio is available.
+
+Use professional track colors.
+
+Clips must have:
+
+* Name
+* Selection border
+* Resize handles
+* Drag affordance
+* Loop markers
+* Fade handles where applicable
+* Mute/deactivated style
+* Clear timing boundaries
+
+No giant rounded cards.
+
+No fake static waveforms.
+
+Editing tools
+
+Provide a compact toolbar containing:
+
+* Smart
+* Selector
+* Grabber
+* Trim
+* Pencil
+* Zoom
+* Scrubber
+
+Modes:
+
+* Shuffle
+* Slip
+* Spot
+* Grid
+
+These must have real, distinct behavior.
+
+Clip dragging, note drawing, scrubbing, automation editing and timeline selection must not conflict.
+
+Build an explicit interaction state machine rather than allowing every pointer gesture to call the same seek handler.
+
+Automation
+
+Implement real lanes with:
+
+* Parameter selector
+* Breakpoints
+* Drag handles
+* Curve editing
+* Value tooltips
+* Copy/Paste
+* Selection
+* Read/Write states where implemented
+* Original and proposed AI automation overlays
+
+Never show decorative automation that does not affect real audio parameters.
+
+⸻
+
+6. BUILD THE COMPLETE SOUNDCRAFT MIX WINDOW
+
+THIS IS THE SECOND PRIMARY IMPLEMENTATION PRIORITY.
+
+Create SoundCraftMixConsole.tsx or an equivalent maintainable module.
+
+The Mix Window must occupy the full center workspace.
+
+Use professional vertical console strips.
+
+Channel strip geometry
+
+Initial desktop width: 96–112px.
+
+Sections, from top to bottom:
+
+1. Track identity
+2. Input routing
+3. Insert effects
+4. Sends
+5. Output routing
+6. Pan
+7. Mute/Solo/Arm
+8. Meter
+9. Volume fader
+10. Numeric level
+11. VCA assignment
+
+Implement aligned columns and thin visual separators.
+
+The mixer must be horizontally scrollable.
+
+Inserts
+
+Ten ordered insert slots per track.
+
+Each slot displays:
+
+* Device name
+* Enabled state
+* Bypass
+* Drag reorder
+* Open editor
+* Remove
+
+Adding a supported device must connect it to a real DSP chain.
+
+Do not fill slots with pretend Ableton plugins.
+
+Sends
+
+Provide Send A and B:
+
+* Rotary control
+* Value display
+* Target
+* Pre/Post
+* Active state
+
+Tie them to the existing reverb and delay buses.
+
+Faders
+
+Use professional vertical faders with:
+
+* Decibel scale
+* Precision thumb
+* Peak meter
+* Peak hold
+* Numeric entry
+* Double-click reset
+* Fine adjustment
+* Touch drag
+
+Fader controls must adjust actual output.
+
+Pan
+
+Use compact professional pan controls with real stereo movement.
+
+Metering
+
+Use actual audio level measurements.
+
+Show:
+
+* Stereo peak
+* RMS
+* Peak hold
+* Clip indicator
+
+Use green, amber and red meters carefully.
+
+Do not animate meters with arbitrary random numbers.
+
+VCA
+
+Add:
+
+* Drums VCA
+* Low-End VCA
+* Synths VCA
+* Atmosphere VCA
+
+VCA gain must influence the real mixer graph without destructively changing original track faders.
+
+Returns and master
+
+Visually distinguish:
+
+* Return A
+* Return B
+* Master
+
+Prefer pinned Master strip on larger screens.
+
+Add real output metering and calibration indicators.
+
+Mixer modes
+
+* Compact
+* Expanded
+* Inserts Visible
+* Sends Visible
+* Routing Visible
+* VCA Visible
+
+Switching mixer visibility settings must not reset audio state.
+
+⸻
+
+7. REBUILD MIDI EDITOR AND DEVICE RACK
+
+MIDI editor
+
+The bottom Piano Roll must look like a real MIDI editing workstation, not a permanent 16-step grid.
+
+Include:
+
+* Vertical note keyboard
+* Bar ruler
+* Beat grid
+* Pitch labels
+* Note rectangles
+* Accurate note lengths
+* Velocity editor
+* Probability editor when supported
+* Quantize
+* Transpose
+* Scale highlighting
+* Note selection
+* Multi-select
+* Resize
+* Drag
+* Duplicate
+* Zoom
+
+The UI must use the actual MidiNoteEvent state.
+
+Device rack
+
+Transform DeviceRackPanel.tsx into a horizontal Ableton-class device-chain dock with an original visual design.
+
+Each device:
+
+* Title
+* Enable
+* Preset
+* Parameters
+* Bypass
+* Expand
+* Automation status
+* Reorder
+
+Provide a focused expanded editor for detailed devices.
+
+Keep current Anti-Slop controls and eight performance macros.
+
+Do not place all devices and all macros in oversized cards at the same time.
+
+Use proper rotary knobs, compact sliders and precise readouts.
+
+Device interaction
+
+Moving a device parameter must change the actual DSP engine when supported.
+
+The parameter must persist across project saves/reloads.
+
+Show native Ableton compatibility separately from browser audio processing compatibility.
+
+⸻
+
+8. INTEGRATE THE SELECTED-TRACK ANALYSIS STRIP
+
+Create a real 62px analysis strip under Arrangement.
+
+It must show:
+
+* Selected track label
+* 16th-note MIDI density
+* Velocity intensity
+* Measured waveform where available
+* Predicted envelope distinctly labeled when rendered audio is unavailable
+* Playhead
+* Selection
+* Transient threshold line
+
+Track selection must update the strip immediately.
+
+Zoom and scrolling must remain synchronized with the main timeline.
+
+Do not recompute full audio renders on every pointer movement.
+
+Use cached analysis buffers and appropriate worker processing.
+
+⸻
+
+9. REBUILD AI COMPOSER AS A PROFESSIONAL STUDIO DOCK
+
+Keep the existing 02. TECHNO LAYER GENERATOR.
+
+Do not remove or weaken it.
+
+However, it must no longer dominate the main DAW workspace.
+
+Create a compact AI Composer panel containing:
+
+* Current project analysis
+* BPM / Key / Scale
+* Musical strategy
+* Arrangement form
+* Generation seed
+* Novelty metrics
+* Locked tracks
+* Four generated techno layers
+* Preview
+* Regenerate
+* Apply
+* Undo
+
+Each layer row should be compact.
+
+Selecting a layer opens details:
+
+* Pattern
+* Chords
+* Instrument
+* Effects
+* Automation
+* Sidechain
+* Humanization
+* Musical reasoning
+
+Whenever a template or ALS project changes, the composer must respond to the actual project profile.
+
+Regeneration must produce meaningful musical changes, not simply update labels.
+
+Preserve existing source material.
+
+The AI panel must integrate with Arrangement, Piano Roll and Device Rack.
+
+⸻
+
+10. SESSION VIEW — PROFESSIONAL CLIP LAUNCH MATRIX
+
+Build a compact, functional Session View.
+
+Use:
+
+* Track columns
+* Scene rows
+* Clip slots
+* Launch indicators
+* Stop buttons
+* Clip colors
+* Scene launch
+* Quantization indicators
+* Track mixer controls
+
+Selecting a clip opens its properties in the lower editor.
+
+Launching clips must use actual audio scheduling.
+
+Session and Arrangement must share the same project and transport.
+
+Do not introduce independent fake Session data to make the UI look populated.
+
+⸻
+
+11. SOUNDCRAFT-STYLE DOCKING AND PANELS
+
+Build a reliable dock layout system.
+
+Required docks:
+
+* Tracks and Groups
+* Browser
+* Clip List
+* Piano Roll
+* Device Rack
+* Automation
+* AI Composer
+* Project Queue
+* Memory Locations
+* Undo History
+* Master Analyzer
+
+Support:
+
+* Collapse
+* Expand
+* Resize
+* Tab grouping
+* Reorder
+* Dock to left/right/bottom
+* Saved layout
+* Reset layout
+
+Implement actual panel ownership rather than several absolute-positioned overlays.
+
+Avoid expensive drag rerenders that interrupt audio.
+
+Workspace presets:
+
+* Edit
+* Mix
+* Production
+* Sound Design
+* AI Composition
+* Live Performance
+* Mastering
+
+⸻
+
+12. PROJECT QUEUE AND EXPORT UI
+
+Move project upload and bulk processing into a compact studio dock.
+
+Do not keep large File Upload and Smart Level cards permanently occupying the main editing screen.
+
+Queue
+
+Each row displays:
+
+* File name
+* BPM
+* Track count
+* Status
+* Calibration state
+* Validation state
+
+Support:
+
+* Add files
+* Select project
+* Switch
+* Analyze
+* Batch process
+* Export
+
+Export dialog
+
+Create a professional modal with tabs/sections:
+
+* File
+* Format
+* Sample Rate
+* Bit Depth
+* Loudness
+* True Peak
+* Processing
+* Batch
+
+Support the requested export presets.
+
+Use accurate metering and actual export capabilities.
+
+Do not display estimated loudness as measured LUFS.
+
+Do not claim native Ableton compatibility from gzip/XML serialization alone.
+
+⸻
+
+13. STUDIO COMMAND PALETTE
+
+Implement Cmd/Ctrl + K.
+
+Create searchable commands for:
+
+* Open Edit
+* Open Mix
+* Open Session
+* Add Track
+* Duplicate Track
+* Add Marker
+* Select Editing Mode
+* Smart Level
+* Open Export
+* Render WAV
+* Open Queue
+* Regenerate Layer
+* Toggle Browser
+* Toggle Device Rack
+
+All commands must call the same handlers/services as ordinary UI controls.
+
+No duplicated command logic.
+
+⸻
+
+14. INDUSTRIAL DARK DESIGN SYSTEM
+
+Retain:
+
+* #0B0D10 background
+* #12161B surfaces
+* #F59E0B amber
+* #06B6D4 cyan
+
+Add subtle neutral layers for workspace depth.
+
+Visual rules
+
+* Minimal gradients
+* Thin borders
+* Compact typography
+* High-density controls
+* Small icons
+* Clear selection states
+* Consistent faders
+* Consistent knobs
+* Precise meter styling
+* Low-distraction motion
+* No giant feature cards
+* No marketing visual language
+
+Use professional numerical typography for BPM, bars, dB, Hz, MIDI, LUFS and sample rates.
+
+Ensure all controls use consistent radius, border, focus, disabled and hover states.
+
+Use colors mainly for track distinction, active controls, automation and error states.
+
+⸻
+
+15. FULL RESPONSIVE IMPLEMENTATION
+
+1920px+ desktop
+
+Use complete Edit/Mix workspace with persistent side docks.
+
+1366–1919px desktop
+
+Allow secondary docks to collapse.
+
+Preserve the central timeline.
+
+768–1199px tablet
+
+Use adaptive split-panel workspaces.
+
+Support:
+
+* Timeline + selected inspector
+* Mixer fullscreen
+* Piano Roll fullscreen
+* Docked transport
+* Touch controls
+* Stylus interaction
+* Keyboard/mouse
+
+Under 768px phone
+
+Implement dedicated compact views:
+
+* Edit
+* Mix
+* Session
+* Pads
+* AI
+* Devices
+
+Use bottom thumb-zone navigation.
+
+Do not shrink the full desktop mixer to phone width.
+
+Support horizontal scrolling where appropriate.
+
+Android
+
+Retain existing Capacitor/PWA integration.
+
+Ensure:
+
+* Safe-area support
+* Correct gesture handling
+* No UI clipping
+* Orientation changes
+* Foldable resizing
+* Audio interruption recovery
+* Track selection persistence
+* No accidental scrolling while dragging faders
+
+⸻
+
+16. EXACT IMPLEMENTATION FILE TARGETS
+
+Modify the actual repository.
+
+Primary changes
+
+src/App.tsx
+
+Extract and implement:
+
+* StudioShell
+* StudioMenuBar
+* StudioTransportBar
+* WorkspaceTabs
+* DockLayout
+* StudioStatusBar
+
+src/components/TimelineCanvas.tsx
+
+Refactor:
+
+* Arrangement surface
+* Track headers
+* Tool modes
+* Markers
+* Grid
+* Clip interactions
+* Automation rendering
+
+src/components/DeviceRackPanel.tsx
+
+Refactor as professional docked Device Chain.
+
+src/components/AiComposerIntelligencePanel.tsx
+
+Refine as compact AI production inspector.
+
+src/components/MasterSpectrumAnalyzer.tsx
+
+Refine as dockable meter/analyzer.
+
+src/index.css
+
+Centralize workstation design tokens and responsive density.
+
+New components
+
+* StudioMenuBar.tsx
+* StudioTransportBar.tsx
+* StudioWorkspaceTabs.tsx
+* StudioDockLayout.tsx
+* StudioEditorToolbar.tsx
+* SoundCraftMixConsole.tsx
+* SelectedTrackAnalysisStrip.tsx
+* StudioProjectQueue.tsx
+* StudioCommandPalette.tsx
+* StudioExportDialog.tsx
+* StudioMemoryLocations.tsx
+* StudioStatusBar.tsx
+
+Use TypeScript strict typing.
+
+Preserve existing exports and component contracts when possible.
+
+Introduce adapters where necessary.
+
+Do not introduce new libraries without validating integration, maintenance, bundle impact and compatibility.
+
+⸻
+
+17. STRICT FUNCTIONAL BINDING RULE
+
+Every visible control must have a working execution path.
+
+Example:
+
+Mixer Fader -> Mixer State -> Audio GainNode / DSP -> Meter Update -> Persistence
+
+MIDI Note Drag -> Validated Note Operation -> Project Update -> Audio Scheduler -> UI Redraw
+
+Automation Point -> Automation Envelope -> Target Parameter -> Audio Playback -> Offline Render
+
+Device Insert -> Device Graph -> DSP Processor -> Save/Reload
+
+Project Selection -> Project Queue -> ProjectGraph -> Timeline/Mixer/Audio Engine
+
+AI Generate -> Composition Engine -> Editable MIDI -> Arrangement -> Playback
+
+Never implement a control that merely animates or updates local presentation state while pretending to process real audio.
+
+If a backend feature is incomplete, implement it properly before claiming the related UI is complete.
+
+Preserve existing functional behavior.
+
+⸻
+
+18. MANDATORY VISUAL QA AND SCREENSHOT COMPARISON
+
+This is a release gate.
+
+Capture before
+
+Capture existing app screens at:
+
+* 1440×900
+* 1920×1080
+* 390×844
+* 1024×768
+
+Implement
+
+Complete actual source changes.
+
+Capture after
+
+Capture:
+
+1. Edit Window
+2. Mix Console
+3. Session View
+4. MIDI Editor
+5. Device Rack
+6. Automation Lanes
+7. AI Composer
+8. Project Queue
+9. Export Dialog
+10. Mobile and Tablet workspaces
+
+Verify geometry
+
+Compare visual hierarchy against SoundCraft reference images.
+
+Check:
+
+* Menu height
+* Transport density
+* Panel alignment
+* Track row heights
+* Grid alignment
+* Clip placement
+* Timeline ruler
+* Lower editor
+* Mixer strip widths
+* Fader position
+* Meter alignment
+* Device panel styling
+* Dock resizing
+* Typography consistency
+* Responsive overflow
+
+Use automated screenshot regression where possible.
+
+Do not claim pixel-perfect source fidelity without image comparison evidence.
+
+Visual quality should be judged against the original workspace design goals while maintaining independent Parametric ALS branding.
+
+⸻
+
+19. MANDATORY FUNCTIONAL QA
+
+Execute:
+
+* TypeScript checks
+* Production Vite build
+* Component tests
+* End-to-end UI tests
+* Audio integration tests
+* Regression tests
+
+Critical E2E cases
+
+E2E-EDIT-01
+
+Select a track, move a clip, edit MIDI, play, save, reload, verify.
+
+E2E-MIX-01
+
+Change fader, mute, solo, pan, inserts, and sends. Verify actual audio processing.
+
+E2E-AUTO-01
+
+Draw cutoff automation and confirm audible filter changes.
+
+E2E-SESSION-01
+
+Launch clips and scenes while preserving transport correctness.
+
+E2E-DEVICE-01
+
+Insert supported effect, adjust parameter, bypass, reorder, save/reload.
+
+E2E-AI-01
+
+Generate a techno layer and verify that the resulting editable MIDI appears in the correct track.
+
+E2E-ALS-01
+
+Import a supported ALS file, inspect source data, perform safe edits, and preserve existing structures.
+
+E2E-RESP-01
+
+Resize workstation from desktop to tablet and phone without losing selection or project changes.
+
+E2E-DOCK-01
+
+Collapse, resize, move, close and reopen docks without project-state loss.
+
+E2E-PERF-01
+
+Operate timeline, mixer and analyzer concurrently without unacceptable audio dropouts or resource growth.
+
+⸻
+
+20. VISUAL ACCEPTANCE CRITERIA
+
+The task is incomplete unless all of these conditions are met:
+
+1. Current website-style layout has been replaced by a genuine workstation shell.
+2. Edit Window resembles the density and organization of the SoundCraft reference.
+3. Mix Console is fully visible, properly aligned, and functionally connected.
+4. Piano Roll looks and behaves like a professional MIDI editor.
+5. Device Chain is docked, compact and interactive.
+6. Automation is clearly editable and actually works.
+7. AI Composer is integrated without dominating the arrangement.
+8. Batch Queue and Export occupy appropriate studio panels.
+9. Transport remains persistent across views.
+10. Existing project workflows remain intact.
+11. Tablet/mobile layouts are independently usable.
+12. Screenshots demonstrate substantial visible change.
+13. The application builds successfully.
+14. Critical user flows pass executable tests.
+
+A theme/color adjustment alone fails this task.
+
+Creating new components without mounting them in the actual application fails this task.
+
+Generating a screenshot/mockup without functional React implementation fails this task.
+
+A visually appealing mixer with nonfunctional DSP controls fails this task.
+
+⸻
+
+21. IMPLEMENTATION DELIVERY ORDER
+
+Execute this sequence.
+
+PASS 1 — App Shell
+
+Replace navigation, toolbar and layout hierarchy.
+
+Result: Actual running app visibly transformed.
+
+PASS 2 — Edit Window
+
+Rebuild arrangement, track headers, grid, editor tools, rulers and clip presentation.
+
+Result: Professional multitrack editing workspace.
+
+PASS 3 — Mix Window
+
+Create complete high-density mixer.
+
+Result: Full console workspace with working available controls.
+
+PASS 4 — Lower Editors
+
+Refine MIDI, Devices and Automation.
+
+Result: Precise docked editing environment.
+
+PASS 5 — AI and Project Tools
+
+Integrate Composer, Queue and Export.
+
+Result: Advanced Parametric ALS functionality in professional studio docks.
+
+PASS 6 — Responsive UI
+
+Complete desktop, tablet, mobile and Android adaptations.
+
+PASS 7 — Visual Verification
+
+Run application and compare screenshots with the provided reference targets.
+
+PASS 8 — Functional Regression
+
+Run tests, fix regressions and report actual results.
+
+Do not mark a pass completed without its executable UI being integrated and verified.
+
+⸻
+
+22. FINAL EXECUTION COMMAND
+
+You are required to make changes in the actual source code.
+
+Do not respond with:
+
+* “Here is the plan”
+* “These changes should be implemented”
+* “I recommend creating components”
+* “The UI has been conceptually redesigned”
+* “Here is a mockup”
+* “I have updated the styling” when only colors changed
+
+Instead:
+
+READ THE CODE.
+
+MODIFY THE COMPONENTS.
+
+BUILD THE ACTUAL WORKSTATION.
+
+CONNECT EVERY CONTROL.
+
+RUN THE APPLICATION.
+
+CAPTURE BEFORE/AFTER SCREENSHOTS.
+
+COMPARE AGAINST SOUNDCRAFT.
+
+FIX THE VISUAL DIFFERENCES.
+
+VERIFY REAL AUDIO AND PROJECT BEHAVIOR.
+
+PRESERVE ALL EXISTING FUNCTIONALITY.
+
+REPORT EXACTLY WHAT WAS IMPLEMENTED AND TESTED.
+
+The final application must unmistakably resemble a professional DAW workstation in layout and operational density, with SoundCraft’s Edit/Mix experience and Ableton Live 12-class creative workflows, while retaining Parametric ALS’s original industrial design identity and AI music-production capabilities.
+
+THE MAIN DELIVERABLE IS THE ACTUAL VISUALLY TRANSFORMED, FUNCTIONAL REACT APPLICATION. NOT ANOTHER DOCUMENT.
+
+Begin by replacing the existing App Shell and Arrangement layout. Continue through the full Edit/Mix reconstruction and verification gates.
+
+END OF PROMPT.

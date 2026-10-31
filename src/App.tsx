@@ -9,10 +9,12 @@ import {
   MacroArrangementFormId,
   MasterBusConfig,
   MidiToolTransformationId,
-  NoteGridDivision,
+   NoteGridDivision,
   PolyrhythmConfig,
+  QueuedProjectRecord,
   SpectralDuckingConfig,
   TechnoArchetype,
+  TimelineEditMode,
   TrackMixerParams,
   TransportConfig,
   VelocityCurveConfig,
@@ -54,8 +56,22 @@ import { AiComposerIntelligencePanel } from './components/AiComposerIntelligence
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { XmlInspectorView } from './components/XmlInspectorView';
 import { PythonFastApiView } from './components/PythonFastApiView';
+import { SoundCraftMixConsole } from './components/SoundCraftMixConsole';
+import { BulkQueueAndExportModal } from './components/BulkQueueAndExportModal';
+import {
+  CompingAndTransientModal,
+  StudioCommandPalette,
+} from './components/StudioCommandPalette';
+import { projectQueueService } from './services/projectQueueService';
+import {
+  applyNoteEditWithMode,
+  createTrackTakeSnapshot,
+  studioCommandBus,
+  upsertMemoryLocationMarker,
+} from './services/commandBus';
 import {
   Activity,
+  Command,
   Cpu,
   Dices,
   Disc,
@@ -68,12 +84,14 @@ import {
   Music,
   Play,
   Plus,
+  Redo2,
   RefreshCw,
   Repeat,
   SkipBack,
   Sliders,
   Sparkles,
   Square,
+  Undo2,
   Unlock,
   Wand2,
 } from 'lucide-react';
@@ -83,11 +101,12 @@ type MobileDawSection =
   | 'arrange'
   | 'pianoroll'
   | 'composer'
+  | 'mix_console'
   | 'pads'
   | 'devices'
   | 'spectrum'
   | 'project';
-type DesktopBottomTab = 'composer' | 'devices' | 'pads' | 'spectrum';
+type DesktopBottomTab = 'composer' | 'devices' | 'mix_console' | 'pads' | 'spectrum';
 
 const DEFAULT_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.015,
@@ -242,7 +261,112 @@ export default function App() {
     `Ready · ${project.fileName} (${project.tempo} BPM · ${project.rootKey} ${project.scale}).`
   );
 
+  // SoundCraft Workstation & Queue States
+  const [editMode, setEditMode] = useState<TimelineEditMode>('grid');
+  const [queueItems, setQueueItems] = useState<QueuedProjectRecord[]>(() =>
+    projectQueueService.getAllItems()
+  );
+  const [activeQueueId, setActiveQueueId] = useState<string | null>(() =>
+    projectQueueService.getActiveQueueId()
+  );
+  const [isBulkQueueModalOpen, setIsBulkQueueModalOpen] = useState<boolean>(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+  const [isCompingModalOpen, setIsCompingModalOpen] = useState<boolean>(false);
+  const [, setCommandBusTick] = useState<number>(0);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Subscribe to ProjectQueueService & StudioCommandBus
+  useEffect(() => {
+    const unsubQueue = projectQueueService.subscribe(() => {
+      setQueueItems(projectQueueService.getAllItems());
+      setActiveQueueId(projectQueueService.getActiveQueueId());
+    });
+    const unsubCmd = studioCommandBus.subscribe(() => {
+      setCommandBusTick((t) => t + 1);
+    });
+    if (projectQueueService.getAllItems().length === 0) {
+      void projectQueueService.enqueueProjectFromXml(
+        project.fileName,
+        project.rawXmlModified || project.rawXml
+      );
+    }
+    return () => {
+      unsubQueue();
+      unsubCmd();
+    };
+  }, []);
+
+  const currentProjectQueueKey = activeQueueId || 'default_workstation_project';
+
+  const handleExecuteProjectCommand = useCallback(
+    (
+      label: string,
+      category:
+        | 'transport'
+        | 'edit_mode'
+        | 'locator'
+        | 'mixer'
+        | 'vca'
+        | 'comping'
+        | 'strip_silence'
+        | 'ghost_prune'
+        | 'calibration',
+      mutator: (draft: AbletonProjectState) => AbletonProjectState
+    ) => {
+      setProject((prev) => {
+        const next = studioCommandBus.executeMutation(
+          currentProjectQueueKey,
+          label,
+          category,
+          prev,
+          mutator
+        );
+        const enriched = enrichProjectWithAnalysis(next, activeFormId);
+        if (activeQueueId) {
+          projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
+        }
+        setStatusMessage(`Executed: ${label}`);
+        return enriched;
+      });
+    },
+    [currentProjectQueueKey, activeFormId, activeQueueId]
+  );
+
+  const handleUndo = useCallback(() => {
+    const restored = studioCommandBus.undo(currentProjectQueueKey);
+    if (restored) {
+      const enriched = enrichProjectWithAnalysis(restored, activeFormId);
+      setProject(enriched);
+      if (activeQueueId) {
+        projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
+      }
+      setStatusMessage('Undo applied.');
+    }
+  }, [currentProjectQueueKey, activeFormId, activeQueueId]);
+
+  const handleRedo = useCallback(() => {
+    const restored = studioCommandBus.redo(currentProjectQueueKey);
+    if (restored) {
+      const enriched = enrichProjectWithAnalysis(restored, activeFormId);
+      setProject(enriched);
+      if (activeQueueId) {
+        projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
+      }
+      setStatusMessage('Redo applied.');
+    }
+  }, [currentProjectQueueKey, activeFormId, activeQueueId]);
+
+  const handleDropMemoryLocationAtPlayhead = useCallback(() => {
+    const existing = project.memoryLocations || [];
+    const nextSlot = existing.length < 9 ? existing.length + 1 : ((existing.length % 9) + 1);
+    const barNum = Math.floor(playheadBeat / 4) + 1;
+    handleExecuteProjectCommand(
+      `Drop Memory Location [${nextSlot}] at Bar ${barNum}`,
+      'locator',
+      (draft) => upsertMemoryLocationMarker(draft, nextSlot, `Bar ${barNum}`, playheadBeat)
+    );
+  }, [project.memoryLocations, playheadBeat, handleExecuteProjectCommand]);
 
   useEffect(() => {
     synthEngine.setState(
@@ -351,17 +475,35 @@ export default function App() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     try {
-      setStatusMessage(`Decompressing & analyzing ${file.name} via Gzip stream...`);
-      const { xml, wasGzipped } = await decompressAlsFile(file);
-      const parsed = parseAbletonXmlDom(xml, file.name, xml);
+      const firstFile = files[0];
+      setStatusMessage(
+        `Decompressing & ingesting ${files.length} .als project file(s) into Studio Queue...`
+      );
+      const { xml, wasGzipped } = await decompressAlsFile(firstFile);
+      const parsed = parseAbletonXmlDom(xml, firstFile.name, xml);
       const enriched = enrichProjectWithAnalysis(parsed, activeFormId);
       setProject(enriched);
       setSelectedTrackId(enriched.tracks[0]?.id || '1');
+
+      // Enqueue all selected files into ProjectQueueService
+      for (let i = 0; i < files.length; i++) {
+        const rec = await projectQueueService.enqueueBrowserFile(files[i]);
+        if (i === 0) {
+          projectQueueService.switchActiveProject(rec.queueId, enriched);
+        }
+      }
+
+      if (files.length > 1) {
+        setIsBulkQueueModalOpen(true);
+      }
+
       setStatusMessage(
-        `Ingested & Profiled ${file.name} (${wasGzipped ? 'Gzipped .als' : 'Raw XML'}) · ${enriched.tracks.length} tracks @ ${enriched.tempo} BPM · Original tracks preserved.`
+        `Ingested ${files.length} project(s) · Active: ${firstFile.name} (${
+          wasGzipped ? 'Gzipped .als' : 'Raw XML'
+        }) · ${enriched.tracks.length} tracks @ ${enriched.tempo} BPM.`
       );
     } catch (err: any) {
       setStatusMessage(`Failed to parse .als file: ${err.message}`);
@@ -1531,6 +1673,146 @@ export default function App() {
   const hasSubOrRumble = project.tracks.some((t) => t.archetype === 'rumble');
   const activeTotalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
 
+  const handleApplyNoteEditModeOperation = useCallback(
+    (
+      trackId: string,
+      noteId: string,
+      targetBeat: number,
+      mode: TimelineEditMode,
+      gridStepBeats: number
+    ) => {
+      handleExecuteProjectCommand(
+        `Move Note (${mode.toUpperCase()} Mode) to Beat ${targetBeat.toFixed(2)}`,
+        'edit_mode',
+        (draft) => applyNoteEditWithMode(draft, trackId, 0, noteId, targetBeat, mode, gridStepBeats)
+      );
+    },
+    [handleExecuteProjectCommand]
+  );
+
+  const handleExecuteStudioCommand = useCallback(
+    (commandId: string) => {
+      switch (commandId) {
+        case 'transport.togglePlay':
+          handleTogglePlay();
+          break;
+        case 'transport.stopAndRewind':
+          synthEngine.stop();
+          setIsPlaying(false);
+          handleReturnToZero();
+          break;
+        case 'edit.undo':
+          handleUndo();
+          break;
+        case 'edit.redo':
+          handleRedo();
+          break;
+        case 'editMode.grid':
+          setEditMode('grid');
+          setStatusMessage('Edit Mode switched to GRID (Quantized Snap).');
+          break;
+        case 'editMode.slip':
+          setEditMode('slip');
+          setStatusMessage('Edit Mode switched to SLIP (Sub-Grid Free).');
+          break;
+        case 'editMode.shuffle':
+          setEditMode('shuffle');
+          setStatusMessage('Edit Mode switched to SHUFFLE (Contiguous Ripple).');
+          break;
+        case 'editMode.spot':
+          setEditMode('spot');
+          setStatusMessage('Edit Mode switched to SPOT (Exact Bar.Beat.16th Coordinate).');
+          break;
+        case 'locator.dropAtPlayhead':
+          handleDropMemoryLocationAtPlayhead();
+          break;
+        case 'workspace.mixConsole':
+          setActiveTab('workbench');
+          setDesktopBottomTab('mix_console');
+          setMobileSection('mix_console');
+          break;
+        case 'comping.createSnapshotTake':
+          if (selectedTrack) {
+            handleExecuteProjectCommand(
+              `Snapshot Comp Take on ${selectedTrack.name}`,
+              'comping',
+              (draft) => createTrackTakeSnapshot(draft, selectedTrack.id)
+            );
+          }
+          break;
+        case 'comping.openTransientTools':
+          setIsCompingModalOpen(true);
+          break;
+        case 'batch.openQueueModal':
+          setIsBulkQueueModalOpen(true);
+          break;
+        case 'batch.calibrateActiveProject':
+          handleApplySmartLeveling();
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      handleTogglePlay,
+      handleUndo,
+      handleRedo,
+      handleDropMemoryLocationAtPlayhead,
+      selectedTrack,
+      handleExecuteProjectCommand,
+    ]
+  );
+
+  // Global Studio Keyboard Shortcuts (Cmd/Ctrl+K, Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, F1-F4)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((v) => !v);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setIsBulkQueueModalOpen((v) => !v);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !isInput && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+      if (!isInput) {
+        if (e.key === 'F1') {
+          e.preventDefault();
+          setEditMode('grid');
+        } else if (e.key === 'F2') {
+          e.preventDefault();
+          setEditMode('slip');
+        } else if (e.key === 'F3') {
+          e.preventDefault();
+          setEditMode('shuffle');
+        } else if (e.key === 'F4') {
+          e.preventDefault();
+          setEditMode('spot');
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleUndo, handleRedo]);
+
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0D10] text-[#F1F5F9] pb-[env(safe-area-inset-bottom,0px)]">
       {/* Top Bar Header */}
@@ -1598,8 +1880,28 @@ export default function App() {
           </button>
         </nav>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <PWAInstallButton />
+
+          <button
+            type="button"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="h-10 sm:h-8 px-2.5 text-xs font-mono font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            title="Open Studio Command Palette (Cmd/Ctrl+K)"
+          >
+            <Command className="w-3.5 h-3.5 text-orange-400" />
+            <span className="hidden xl:inline">Cmd+K</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsBulkQueueModalOpen(true)}
+            className="h-10 sm:h-8 px-2.5 text-xs font-mono font-semibold bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            title="Bulk Process Smart Leveling 2.0 Queue & Master Export 2.0 Presets"
+          >
+            <Layers className="w-3.5 h-3.5 text-orange-400" />
+            <span>Bulk Process ({queueItems.length})</span>
+          </button>
 
           <button
             type="button"
@@ -1641,6 +1943,35 @@ export default function App() {
       {/* Master Transport & Synchronization Sub-Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 py-2 bg-[#12161E] border-b border-[#232934] text-xs">
         <div className="flex items-center gap-1.5 sm:gap-2.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+          {/* Transactional Undo / Redo Buttons */}
+          <div className="flex items-center gap-1 pr-1 border-r border-[#232934]">
+            <button
+              type="button"
+              disabled={!studioCommandBus.canUndo(currentProjectQueueKey)}
+              onClick={handleUndo}
+              className="p-1.5 rounded bg-[#1B2230] hover:bg-[#263044] disabled:opacity-35 text-slate-200 border border-[#2E384D]"
+              title={
+                studioCommandBus.getLastUndoLabel(currentProjectQueueKey)
+                  ? `Undo: ${studioCommandBus.getLastUndoLabel(currentProjectQueueKey)}`
+                  : 'Undo (Cmd/Ctrl+Z)'
+              }
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              disabled={!studioCommandBus.canRedo(currentProjectQueueKey)}
+              onClick={handleRedo}
+              className="p-1.5 rounded bg-[#1B2230] hover:bg-[#263044] disabled:opacity-35 text-slate-200 border border-[#2E384D]"
+              title={
+                studioCommandBus.getLastRedoLabel(currentProjectQueueKey)
+                  ? `Redo: ${studioCommandBus.getLastRedoLabel(currentProjectQueueKey)}`
+                  : 'Redo (Cmd/Ctrl+Shift+Z)'
+              }
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
           <button
             type="button"
             onClick={handleReturnToZero}
@@ -1816,6 +2147,19 @@ export default function App() {
 
         <button
           type="button"
+          onClick={() => setMobileSection('mix_console')}
+          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+            mobileSection === 'mix_console'
+              ? 'bg-orange-500 text-slate-950 font-semibold shadow-sm'
+              : 'text-orange-300 hover:text-slate-200 hover:bg-[#161B26]'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          <span>Mix Console &amp; VCA</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setMobileSection('spectrum')}
           className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
             mobileSection === 'spectrum'
@@ -1862,18 +2206,30 @@ export default function App() {
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept=".als,.xml,.gz"
                 onChange={handleFileUpload}
                 className="hidden"
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="min-h-[40px] sm:min-h-0 px-3 py-1.5 text-xs font-mono bg-[#1B2230] hover:bg-[#252E40] text-amber-400 border border-[#2F3A50] rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <FolderUp className="w-3.5 h-3.5" />
-                Upload .als
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="min-h-[40px] sm:min-h-0 px-2.5 py-1.5 text-xs font-mono bg-[#1B2230] hover:bg-[#252E40] text-amber-400 border border-[#2F3A50] rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <FolderUp className="w-3.5 h-3.5" />
+                  Upload .als
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkQueueModalOpen(true)}
+                  className="min-h-[40px] sm:min-h-0 px-2.5 py-1.5 text-xs font-mono bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                  title="Open Multi-Project Bulk Smart Leveling 2.0 Queue & Master Export Presets"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Bulk Queue
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -2244,6 +2600,11 @@ export default function App() {
                     onToggleSolo={handleToggleSolo}
                     onUpdateTrackMixer={handleUpdateTrackMixer}
                     onUpdateTrackAutomation={handleUpdateTrackAutomation}
+                    editMode={editMode}
+                    onChangeEditMode={setEditMode}
+                    onDropMemoryLocationAtPlayhead={handleDropMemoryLocationAtPlayhead}
+                    onOpenCompingAndTransientModal={() => setIsCompingModalOpen(true)}
+                    onApplyNoteEditModeOperation={handleApplyNoteEditModeOperation}
                   />
                 </div>
 
@@ -2262,6 +2623,19 @@ export default function App() {
                     >
                       <Sliders className="w-3.5 h-3.5" />
                       Spectral Ducking, Velocity Curve &amp; Ableton Plugins
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDesktopBottomTab('mix_console')}
+                      className={`px-3 py-1 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                        desktopBottomTab === 'mix_console'
+                          ? 'bg-orange-500 text-slate-950 font-semibold'
+                          : 'bg-[#181E29] text-orange-300 hover:text-white border border-orange-500/40'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      SoundCraft Mix Console (10-Slot Inserts &amp; VCA)
                     </button>
 
                     <button
@@ -2367,6 +2741,22 @@ export default function App() {
                         project={project}
                         selectedTrackId={selectedTrack?.id || '1'}
                         onSelectTrack={setSelectedTrackId}
+                      />
+                    </div>
+                  )}
+
+                  {desktopBottomTab === 'mix_console' && (
+                    <div className="p-3">
+                      <SoundCraftMixConsole
+                        project={project}
+                        selectedTrackId={selectedTrack?.id || '1'}
+                        masterBus={masterBus}
+                        masterPeakDb={masterPeakDb}
+                        onSelectTrack={setSelectedTrackId}
+                        onUpdateProjectWithUndo={(label, category, mutator) =>
+                          handleExecuteProjectCommand(label, category, mutator)
+                        }
+                        onUpdateMasterBus={(next) => setMasterBus(next)}
                       />
                     </div>
                   )}
@@ -2538,6 +2928,22 @@ export default function App() {
                   </div>
                 )}
 
+                {mobileSection === 'mix_console' && (
+                  <div className="flex-1 flex flex-col p-3">
+                    <SoundCraftMixConsole
+                      project={project}
+                      selectedTrackId={selectedTrack?.id || '1'}
+                      masterBus={masterBus}
+                      masterPeakDb={masterPeakDb}
+                      onSelectTrack={setSelectedTrackId}
+                      onUpdateProjectWithUndo={(label, category, mutator) =>
+                        handleExecuteProjectCommand(label, category, mutator)
+                      }
+                      onUpdateMasterBus={(next) => setMasterBus(next)}
+                    />
+                  </div>
+                )}
+
                 {mobileSection === 'spectrum' && (
                   <div className="flex-1 flex flex-col p-3 space-y-3">
                     <div className="p-2.5 bg-[#121620] border border-[#232934] rounded flex items-center justify-between text-xs font-mono">
@@ -2663,6 +3069,58 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Multi-Project Bulk Smart Leveling 2.0 Queue & Master Export 2.0 Modal */}
+      <BulkQueueAndExportModal
+        isOpen={isBulkQueueModalOpen}
+        onClose={() => setIsBulkQueueModalOpen(false)}
+        activeProject={project}
+        humanization={humanization}
+        masterBus={masterBus}
+        queueItems={queueItems}
+        activeQueueId={activeQueueId}
+        onSwitchToQueueProject={(targetQueueId) => {
+          const switched = projectQueueService.switchActiveProject(targetQueueId, project);
+          if (switched) {
+            const enriched = enrichProjectWithAnalysis(switched, activeFormId);
+            setProject(enriched);
+            setSelectedTrackId(enriched.tracks[0]?.id || '1');
+            setStatusMessage(`Switched active workstation project to ${enriched.fileName}.`);
+          }
+        }}
+        onSyncActiveProjectFromQueue={(updatedProject) => {
+          setProject(enrichProjectWithAnalysis(updatedProject, activeFormId));
+        }}
+      />
+
+      {/* Studio Command Palette (Cmd/Ctrl+K) */}
+      <StudioCommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onExecuteCommandId={handleExecuteStudioCommand}
+        project={project}
+        onJumpToBeat={(beat) => {
+          synthEngine.seek(beat);
+          setPlayheadBeat(beat);
+          setStatusMessage(`Jumped to Beat ${beat.toFixed(2)} (Bar ${Math.floor(beat / 4) + 1}).`);
+        }}
+        onSelectTrack={(trackId) => setSelectedTrackId(trackId)}
+      />
+
+      {/* Track Comping Playlists & Separate Audio Strip Silence / MIDI Ghost-Note Pruning Modal */}
+      {selectedTrack && (
+        <CompingAndTransientModal
+          isOpen={isCompingModalOpen}
+          onClose={() => setIsCompingModalOpen(false)}
+          project={project}
+          selectedTrack={selectedTrack}
+          humanization={humanization}
+          masterBus={masterBus}
+          onExecuteProjectCommand={(label, category, mutator) =>
+            handleExecuteProjectCommand(label, category, mutator)
+          }
+        />
+      )}
     </div>
   );
 }

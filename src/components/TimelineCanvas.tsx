@@ -5,22 +5,22 @@ import {
   AutomationPoint,
   HumanizationConfig,
   MasterBusConfig,
-  MidiNoteEvent,
   NoteGridDivision,
+  TimelineEditMode,
   TrackMixerParams,
   TransportConfig,
 } from '../types/ableton';
 import { gridDivisionToStepBeats, midiNoteToName } from '../engine/alsXmlEngine';
 import { evaluateAutomationAtBeat, synthEngine } from '../engine/webAudioSynth';
+import { spotPositionToBeat } from '../services/commandBus';
+import { SelectedTrackAnalysisStrip } from './SelectedTrackAnalysisStrip';
 import {
   Activity,
+  Bookmark,
   Layers,
-  Minus,
-  Plus,
   Repeat,
   Sliders,
   ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 
 interface TimelineCanvasProps {
@@ -41,6 +41,17 @@ interface TimelineCanvasProps {
   onToggleSolo: (trackId: string) => void;
   onUpdateTrackMixer: (trackId: string, partial: Partial<TrackMixerParams>) => void;
   onUpdateTrackAutomation: (trackId: string, points: AutomationPoint[]) => void;
+  editMode?: TimelineEditMode;
+  onChangeEditMode?: (mode: TimelineEditMode) => void;
+  onDropMemoryLocationAtPlayhead?: () => void;
+  onOpenCompingAndTransientModal?: () => void;
+  onApplyNoteEditModeOperation?: (
+    trackId: string,
+    noteId: string,
+    targetBeat: number,
+    editMode: TimelineEditMode,
+    gridStepBeats: number
+  ) => void;
 }
 
 export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
@@ -61,6 +72,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   onToggleSolo,
   onUpdateTrackMixer,
   onUpdateTrackAutomation,
+  editMode = 'grid',
+  onChangeEditMode,
+  onDropMemoryLocationAtPlayhead,
+  onOpenCompingAndTransientModal,
+  onApplyNoteEditModeOperation,
 }) => {
   const arrangementCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pianoRollCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -72,6 +88,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const [showReturnLanes, setShowReturnLanes] = useState<boolean>(false);
   const [showTrackHeadersMobile, setShowTrackHeadersMobile] = useState<boolean>(true);
   const [isDraggingArrangement, setIsDraggingArrangement] = useState<boolean>(false);
+  const [spotBar, setSpotBar] = useState<number>(1);
+  const [spotBeat, setSpotBeat] = useState<number>(1);
+  const [spotSixteenth, setSpotSixteenth] = useState<number>(1);
 
   const selectedTrack: AbletonTrack | undefined =
     project.tracks.find((t) => t.id === selectedTrackId) || project.tracks[0];
@@ -186,6 +205,24 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         ctx.fillText(`${barIndex + 1}`, x + 4, 19);
       }
     }
+
+    // Draw Memory Location Markers (1-9) on Arrangement Ruler
+    (project.memoryLocations || []).forEach((loc) => {
+      if (loc.beat < arrStartBeat || loc.beat > arrEndBeat) return;
+      const lx = ((loc.beat - arrStartBeat) / arrVisibleBeats) * width;
+      ctx.strokeStyle = loc.color || '#38bdf8';
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.moveTo(lx, 0);
+      ctx.lineTo(lx, height);
+      ctx.stroke();
+
+      ctx.fillStyle = loc.color || '#38bdf8';
+      ctx.fillRect(lx, 1, 52, 11);
+      ctx.fillStyle = '#09090b';
+      ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+      ctx.fillText(`[${loc.number}] ${loc.name.slice(0, 6)}`, lx + 2, 9.5);
+    });
 
     // Draw Track Lanes
     project.tracks.forEach((track, idx) => {
@@ -795,10 +832,34 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
     const stepBeats = gridDivisionToStepBeats(pianoGridDivision);
     const relBeat = ((x - keyColWidth) / Math.max(1, rect.width - keyColWidth)) * visibleBeats;
-    const stepBeat = Number((windowStartBeat + Math.floor(relBeat / stepBeats) * stepBeats).toFixed(3));
+    const rawTargetBeat =
+      editMode === 'spot'
+        ? spotPositionToBeat(spotBar, spotBeat, spotSixteenth)
+        : editMode === 'slip'
+        ? Number((windowStartBeat + relBeat).toFixed(3))
+        : Number((windowStartBeat + Math.floor(relBeat / stepBeats) * stepBeats).toFixed(3));
+
+    // In Shuffle or Spot mode, if clicking near an existing note on another beat, move/ripple it
+    if (
+      (editMode === 'shuffle' || editMode === 'spot') &&
+      onApplyNoteEditModeOperation &&
+      clip &&
+      clip.notes.length > 0 &&
+      e.shiftKey
+    ) {
+      const targetNote = clip.notes[0];
+      onApplyNoteEditModeOperation(
+        selectedTrack.id,
+        targetNote.id,
+        rawTargetBeat,
+        editMode,
+        stepBeats
+      );
+      return;
+    }
 
     synthEngine.triggerLivePad(selectedTrack.archetype, 100, pitch);
-    onToggleNoteInTrack(selectedTrack.id, stepBeat, pitch, stepBeats);
+    onToggleNoteInTrack(selectedTrack.id, rawTargetBeat, pitch, stepBeats);
   };
 
   const currentBarNumber = Math.floor(playheadBeat / 4) + 1;
@@ -995,6 +1056,128 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           >
             {showTrackHeadersMobile ? 'Hide Mixer' : 'Show Mixer'}
           </button>
+        </div>
+      </div>
+
+      {/* SoundCraft Edit Modes (Grid | Slip | Shuffle | Spot) & Memory Locations (1-9) Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-1 bg-[#0E1218] border-b border-[#232934] text-[10px] font-mono">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-400 font-semibold">EDIT MODE:</span>
+          <div className="flex items-center bg-[#090B0E] border border-[#252D3D] rounded p-0.5">
+            {(['grid', 'slip', 'shuffle', 'spot'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onChangeEditMode && onChangeEditMode(mode)}
+                className={`px-2 py-0.5 rounded uppercase font-bold transition-colors ${
+                  editMode === mode
+                    ? mode === 'shuffle'
+                      ? 'bg-purple-500 text-white'
+                      : mode === 'slip'
+                      ? 'bg-emerald-500 text-slate-950'
+                      : mode === 'spot'
+                      ? 'bg-sky-500 text-slate-950'
+                      : 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={
+                  mode === 'grid'
+                    ? 'Grid Mode: Quantize edits to musical division'
+                    : mode === 'slip'
+                    ? 'Slip Mode: Continuous sub-grid placement without quantization'
+                    : mode === 'shuffle'
+                    ? 'Shuffle Mode: Contiguous ripple of subsequent events on delete/move'
+                    : 'Spot Mode: Exact numeric Bar.Beat.16th coordinate placement'
+                }
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          {editMode === 'spot' && (
+            <div className="flex items-center gap-1 bg-sky-500/10 border border-sky-500/40 rounded px-2 py-0.5 text-sky-300">
+              <span>SPOT POS:</span>
+              <input
+                type="number"
+                min={1}
+                max={totalBars}
+                value={spotBar}
+                onChange={(e) => setSpotBar(Math.max(1, Number(e.target.value)))}
+                className="w-10 bg-zinc-950 border border-zinc-700 rounded px-1 text-center text-white"
+                title="Target Bar (1-128)"
+              />
+              <span>.</span>
+              <input
+                type="number"
+                min={1}
+                max={4}
+                value={spotBeat}
+                onChange={(e) => setSpotBeat(Math.max(1, Math.min(4, Number(e.target.value))))}
+                className="w-8 bg-zinc-950 border border-zinc-700 rounded px-1 text-center text-white"
+                title="Target Beat (1-4)"
+              />
+              <span>.</span>
+              <input
+                type="number"
+                min={1}
+                max={4}
+                value={spotSixteenth}
+                onChange={(e) =>
+                  setSpotSixteenth(Math.max(1, Math.min(4, Number(e.target.value))))
+                }
+                className="w-8 bg-zinc-950 border border-zinc-700 rounded px-1 text-center text-white"
+                title="Target 16th (1-4)"
+              />
+              <button
+                type="button"
+                onClick={() => onSeekBeat(spotPositionToBeat(spotBar, spotBeat, spotSixteenth))}
+                className="ml-1 px-1.5 py-0.5 rounded bg-sky-500 text-slate-950 font-bold"
+              >
+                Jump
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Memory Locations (1-9) Quick Recall & Drop Marker */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-slate-400 flex items-center gap-1">
+            <Bookmark className="w-3 h-3 text-sky-400" />
+            LOCATORS:
+          </span>
+          {(project.memoryLocations || []).map((loc) => (
+            <button
+              key={loc.id}
+              type="button"
+              onClick={() => {
+                onSeekBeat(loc.beat);
+                setPianoScrollBar(Math.floor(loc.beat / 4));
+              }}
+              className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-200 flex items-center gap-1"
+              title={`Jump to Memory Location [${loc.number}] ${loc.name} (Bar ${
+                Math.floor(loc.beat / 4) + 1
+              })`}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: loc.color || '#38bdf8' }}
+              />
+              <span>
+                [{loc.number}] {loc.name}
+              </span>
+            </button>
+          ))}
+          {onDropMemoryLocationAtPlayhead && (
+            <button
+              type="button"
+              onClick={onDropMemoryLocationAtPlayhead}
+              className="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-semibold"
+              title="Drop or update a numbered Memory Location at current playhead position"
+            >
+              + Drop Marker
+            </button>
+          )}
         </div>
       </div>
 
@@ -1195,6 +1378,36 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Synchronized Selected-Track Waveform & 16th-Note MIDI Density Strip */}
+      {selectedTrack && (
+        <SelectedTrackAnalysisStrip
+          project={project}
+          selectedTrack={selectedTrack}
+          humanization={humanization}
+          masterBus={
+            masterBus || {
+              masterVolumeDb: 0,
+              glueCompressionDrive: 0.35,
+              reverbDecaySec: 3.2,
+              reverbReturnLevel: 0.45,
+              delayFeedback: 0.42,
+              delayReturnLevel: 0.4,
+              subBassMonoCutoffHz: 120,
+            }
+          }
+          arrStartBeat={arrStartBeat}
+          arrVisibleBeats={arrVisibleBeats}
+          totalBars={totalBars}
+          playheadBeat={playheadBeat}
+          headerWidthPx={showTrackHeadersMobile ? 250 : 154}
+          onSeekPlayhead={(beat) => {
+            onSeekBeat(beat);
+            setPianoScrollBar(Math.floor(beat / 4));
+          }}
+          onOpenCompingAndTransientModal={onOpenCompingAndTransientModal}
+        />
+      )}
 
       {/* Piano Roll & Anti-Slop Micro-Timing Subheader with 1/4, 1/8, 1/16, 1/32 Grid Selector */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-1.5 bg-[#12161E] border-b border-[#232934] text-xs">
