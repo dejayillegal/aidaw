@@ -40,6 +40,7 @@ import {
   analyzeProjectMusicalProfile,
   applyChordAndGridTransformToNotes,
   applyLive12MidiTool,
+  applyMidiQuantizeStrength,
   composeProjectConditionedLayerNotes,
   COMPOSITION_STRATEGIES,
   generateContextualAutomationPoints,
@@ -57,11 +58,24 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import { XmlInspectorView } from './components/XmlInspectorView';
 import { PythonFastApiView } from './components/PythonFastApiView';
 import { SoundCraftMixConsole } from './components/SoundCraftMixConsole';
+import { SoundCraftWorkstation } from './components/SoundCraftWorkstation';
 import { BulkQueueAndExportModal } from './components/BulkQueueAndExportModal';
+import { StudioSettingsModal } from './components/StudioSettingsModal';
 import {
   CompingAndTransientModal,
   StudioCommandPalette,
 } from './components/StudioCommandPalette';
+import { StudioMenuBar } from './components/StudioMenuBar';
+import { StudioTransportBar } from './components/StudioTransportBar';
+import { StudioWorkspaceTabs, WorkspaceTabId } from './components/StudioWorkspaceTabs';
+import {
+  StudioEditorToolbar,
+  StudioEditingTool,
+  SpectrumOverlayMode,
+} from './components/StudioEditorToolbar';
+import { StudioStatusBar } from './components/StudioStatusBar';
+import { SelectedTrackAnalysisStrip } from './components/SelectedTrackAnalysisStrip';
+import { TrackVelocityRandomizerConfig } from './components/AiComposerIntelligencePanel';
 import { projectQueueService } from './services/projectQueueService';
 import {
   applyNoteEditWithMode,
@@ -261,8 +275,45 @@ export default function App() {
     `Ready · ${project.fileName} (${project.tempo} BPM · ${project.rootKey} ${project.scale}).`
   );
 
-  // SoundCraft Workstation & Queue States
+  // SoundCraft Workstation & Dock Layout States
+  const [studioWorkspace, setStudioWorkspace] = useState<WorkspaceTabId>('edit');
+  const [activeEditingTool, setActiveEditingTool] = useState<StudioEditingTool>('smart');
+  const [spectrumOverlayMode, setSpectrumOverlayMode] = useState<SpectrumOverlayMode>('compact_lane');
+  const [leftDockOpen, setLeftDockOpen] = useState<boolean>(true);
+  const [bottomDockOpen, setBottomDockOpen] = useState<boolean>(true);
+  const [rightDockOpen, setRightDockOpen] = useState<boolean>(false);
+  const [bottomEditorTab, setBottomEditorTab] = useState<'composer' | 'devices' | 'pads' | 'spectrum'>('composer');
+
   const [editMode, setEditMode] = useState<TimelineEditMode>('grid');
+  // Theme & Settings States
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    try {
+      return (localStorage.getItem('aidaw_theme_mode') as 'dark' | 'light') || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('aidaw_theme_mode', themeMode);
+    } catch {}
+    const root = document.documentElement;
+    if (themeMode === 'light') {
+      root.classList.add('theme-light');
+      root.setAttribute('data-theme', 'light');
+    } else {
+      root.classList.remove('theme-light');
+      root.removeAttribute('data-theme');
+    }
+  }, [themeMode]);
+
+  const handleSelectTrack = useCallback((trackId: string) => {
+    setSelectedTrackId(trackId);
+    setBottomDockOpen(true);
+  }, []);
+
   const [queueItems, setQueueItems] = useState<QueuedProjectRecord[]>(() =>
     projectQueueService.getAllItems()
   );
@@ -273,6 +324,40 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [isCompingModalOpen, setIsCompingModalOpen] = useState<boolean>(false);
   const [, setCommandBusTick] = useState<number>(0);
+
+  const handleApplyLayoutPreset = (
+    preset: 'edit' | 'mix' | 'session' | 'sound_design' | 'mastering'
+  ) => {
+    if (preset === 'edit') {
+      setStudioWorkspace('edit');
+      setLeftDockOpen(true);
+      setBottomDockOpen(true);
+      setRightDockOpen(false);
+      setBottomEditorTab('composer');
+    } else if (preset === 'mix') {
+      setStudioWorkspace('mix');
+      setLeftDockOpen(false);
+      setBottomDockOpen(false);
+      setRightDockOpen(false);
+    } else if (preset === 'session') {
+      setStudioWorkspace('session');
+      setLeftDockOpen(true);
+      setBottomDockOpen(false);
+      setRightDockOpen(false);
+    } else if (preset === 'sound_design') {
+      setStudioWorkspace('devices');
+      setLeftDockOpen(true);
+      setBottomDockOpen(true);
+      setRightDockOpen(true);
+      setBottomEditorTab('devices');
+    } else if (preset === 'mastering') {
+      setStudioWorkspace('edit');
+      setLeftDockOpen(false);
+      setBottomDockOpen(true);
+      setRightDockOpen(true);
+      setSpectrumOverlayMode('expanded_strip');
+    }
+  };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -288,7 +373,7 @@ export default function App() {
     if (projectQueueService.getAllItems().length === 0) {
       void projectQueueService.enqueueProjectFromXml(
         project.fileName,
-        project.rawXmlModified || project.rawXml
+        project.rawXmlModified || project.rawXml || ''
       );
     }
     return () => {
@@ -311,7 +396,8 @@ export default function App() {
         | 'comping'
         | 'strip_silence'
         | 'ghost_prune'
-        | 'calibration',
+        | 'calibration'
+        | 'clip_edit',
       mutator: (draft: AbletonProjectState) => AbletonProjectState
     ) => {
       setProject((prev) => {
@@ -1525,6 +1611,134 @@ export default function App() {
     });
   };
 
+  const handleRandomizeTrackVelocities = (
+    trackId: string,
+    config: TrackVelocityRandomizerConfig
+  ) => {
+    handleExecuteProjectCommand(
+      `Randomize Velocities (${selectedTrack?.name || 'Track'})`,
+      'clip_edit',
+      (proj) => {
+        let workingXml = proj.rawXmlModified;
+        let randomizedCount = 0;
+        const totalBeats = (proj.arrangementLengthBars || 16) * 4;
+
+        const updatedTracks = proj.tracks.map((track, idx) => {
+          if (track.id !== trackId || track.clips.length === 0) return track;
+          const clip = track.clips[0];
+
+          const blend = Math.max(0, Math.min(1, config.blendPct / 100));
+          const span = Math.max(1, config.maxVelocity - config.minVelocity);
+
+          const nextNotes = clip.notes.map((note, nIdx) => {
+            const isAccent = Boolean(note.isAccent || note.velocity >= 110);
+            const isDownbeat = Math.abs(note.time % 4) < 0.05;
+
+            if (config.accentLock && isAccent) return note;
+            if (config.downbeatLock && isDownbeat) return note;
+
+            const hash =
+              Math.sin(config.seed + idx * 79 + nIdx * 19 + note.pitch * 31 + note.time * 97) *
+              43758.5453;
+            const randNorm = hash - Math.floor(hash);
+            const targetRandVel = Math.round(config.minVelocity + randNorm * span);
+
+            const blendedVel = Math.max(
+              1,
+              Math.min(127, Math.round(note.velocity * (1 - blend) + targetRandVel * blend))
+            );
+            randomizedCount++;
+
+            return {
+              ...note,
+              velocity: blendedVel,
+            };
+          });
+
+          workingXml = syncTrackNotesToXml(
+            workingXml,
+            track.name,
+            track.archetype,
+            clip.name,
+            nextNotes,
+            totalBeats,
+            clip.loopEndBeats
+          );
+
+          return {
+            ...track,
+            clips: [{ ...clip, notes: nextNotes }],
+          };
+        });
+
+        setStatusMessage(
+          `Randomized ${randomizedCount} note velocities on ${selectedTrack?.name || 'track'} (${config.minVelocity}–${config.maxVelocity} · Blend ${config.blendPct}%)`
+        );
+
+        return enrichProjectWithAnalysis(
+          {
+            ...proj,
+            tracks: updatedTracks,
+            rawXmlModified: workingXml,
+          },
+          activeFormId
+        );
+      }
+    );
+  };
+
+  const handleApplyMidiQuantizeStrength = (
+    trackId: string,
+    gridDivision: NoteGridDivision,
+    strengthPct: 50 | 75 | 100
+  ) => {
+    handleExecuteProjectCommand(
+      `Quantize ${strengthPct}% (${gridDivision}) on ${selectedTrack?.name || 'Track'}`,
+      'clip_edit',
+      (proj) => {
+        let workingXml = proj.rawXmlModified;
+        const totalBeats = (proj.arrangementLengthBars || 16) * 4;
+
+        const updatedTracks = proj.tracks.map((track) => {
+          if (track.id !== trackId || track.clips.length === 0) return track;
+          const clip = track.clips[0];
+
+          const { notes: quantizedNotes, description } = applyMidiQuantizeStrength(
+            clip.notes,
+            gridDivision,
+            strengthPct
+          );
+
+          workingXml = syncTrackNotesToXml(
+            workingXml,
+            track.name,
+            track.archetype,
+            clip.name,
+            quantizedNotes,
+            totalBeats,
+            clip.loopEndBeats
+          );
+
+          setStatusMessage(`${track.name} · ${description}`);
+
+          return {
+            ...track,
+            clips: [{ ...clip, notes: quantizedNotes }],
+          };
+        });
+
+        return enrichProjectWithAnalysis(
+          {
+            ...proj,
+            tracks: updatedTracks,
+            rawXmlModified: workingXml,
+          },
+          activeFormId
+        );
+      }
+    );
+  };
+
   const handleUpdateTrackAutomation = (trackId: string, points: AutomationPoint[]) => {
     setProject((prev) => ({
       ...prev,
@@ -1814,1154 +2028,189 @@ export default function App() {
   }, [handleUndo, handleRedo]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0B0D10] text-[#F1F5F9] pb-[env(safe-area-inset-bottom,0px)]">
-      {/* Top Bar Header */}
-      <header className="flex flex-wrap items-center justify-between gap-3 px-3 sm:px-6 py-2.5 bg-[#0F1218] border-b border-[#232934] pt-[calc(0.625rem+env(safe-area-inset-top,0px))]">
-        <div className="flex items-center gap-3">
-          <a
-            href="#workbench"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab('workbench');
-            }}
-            className="text-sm sm:text-base font-display font-bold tracking-wider text-slate-100 whitespace-nowrap flex items-center gap-2"
-          >
-            PARAMETRIC ALS DAW
-          </a>
-          <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded">
-            LIVE 12 · 8-TRACK SUITE · ANDROID &amp; WEB v4.0
-          </span>
-        </div>
+    <div className="h-dvh w-screen overflow-hidden flex flex-col bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
+      {/* 1. TOP 28px SOUNDCRAFT STUDIO MENU BAR */}
+      <StudioMenuBar
+        projectName={project.fileName}
+        canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}
+        canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
+        themeMode={themeMode}
+        onToggleTheme={(mode) => setThemeMode(mode)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onNewProject={() => {
+          const seed = Math.floor(Math.random() * 1000000) + 1;
+          const { xml, meta } = buildStarterAbletonXml('berghain-134', seed);
+          const parsed = parseAbletonXmlDom(xml, meta.name, xml);
+          setProject(enrichProjectWithAnalysis(parsed, 'hypnotic_longform'));
+        }}
+        onImportAlsClick={() => fileInputRef.current?.click()}
+        onExportAls={handleExportNativeAls}
+        onExportWav={() => handleExportLosslessWav(24)}
+        onOpenQueueModal={() => setIsBulkQueueModalOpen(true)}
+        onOpenClearModal={() => setStudioWorkspace('queue')}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onOpenCompingModal={() => setIsCompingModalOpen(true)}
+        onSwitchWorkspace={(ws) => {
+          setActiveTab('workbench');
+          setStudioWorkspace(ws);
+        }}
+        onResetLayout={() => handleApplyLayoutPreset('edit')}
+        onOpenXmlInspector={() => setActiveTab('xml')}
+        onOpenPythonExporter={() => setActiveTab('python')}
+        onOpenArchitectureModal={() => setActiveTab('architecture')}
+      />
 
-        <nav className="hidden md:flex items-center gap-5 text-xs font-medium text-slate-400 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab('workbench')}
-            className={`py-1 transition-colors whitespace-nowrap ${
-              activeTab === 'workbench'
-                ? 'text-amber-400 underline underline-offset-8 decoration-amber-400 font-semibold'
-                : 'hover:text-slate-100'
-            }`}
-          >
-            DAW Arrangement &amp; Mixer
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('xml')}
-            className={`py-1 transition-colors whitespace-nowrap ${
-              activeTab === 'xml'
-                ? 'text-amber-400 underline underline-offset-8 decoration-amber-400 font-semibold'
-                : 'hover:text-slate-100'
-            }`}
-          >
-            XML Inspector
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('python')}
-            className={`py-1 transition-colors whitespace-nowrap ${
-              activeTab === 'python'
-                ? 'text-amber-400 underline underline-offset-8 decoration-amber-400 font-semibold'
-                : 'hover:text-slate-100'
-            }`}
-          >
-            Python FastAPI Code
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('architecture')}
-            className={`py-1 transition-colors whitespace-nowrap ${
-              activeTab === 'architecture'
-                ? 'text-amber-400 underline underline-offset-8 decoration-amber-400 font-semibold'
-                : 'hover:text-slate-100'
-            }`}
-          >
-            System Architecture
-          </button>
-        </nav>
+      {/* Hidden File Input for .als Import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".als"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <PWAInstallButton />
+      {/* 2. TOP 48px PRECISION STUDIO TRANSPORT BAR */}
+      <StudioTransportBar
+        isPlaying={isPlaying}
+        playheadBeat={playheadBeat}
+        tempo={project.tempo}
+        transport={transport}
+        masterPeakDb={masterPeakDb}
+        canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}
+        canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
+        editMode={editMode}
+        onTogglePlay={handleTogglePlay}
+        onStop={handleTogglePlay}
+        onRewindToStart={handleReturnToZero}
+        onUpdateTempo={handleUpdateTempo}
+        onUpdateTransport={handleUpdateTransport}
+        onChangeEditMode={setEditMode}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+      />
 
-          <button
-            type="button"
-            onClick={() => setIsCommandPaletteOpen(true)}
-            className="h-10 sm:h-8 px-2.5 text-xs font-mono font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            title="Open Studio Command Palette (Cmd/Ctrl+K)"
-          >
-            <Command className="w-3.5 h-3.5 text-orange-400" />
-            <span className="hidden xl:inline">Cmd+K</span>
-          </button>
+      {/* 3. 34px WORKSPACE SWITCHER TABS & DOCK TOGGLES */}
+      <StudioWorkspaceTabs
+        activeTab={studioWorkspace}
+        leftDockOpen={leftDockOpen}
+        bottomDockOpen={bottomDockOpen}
+        rightDockOpen={rightDockOpen}
+        onSelectTab={(tab) => {
+          setActiveTab('workbench');
+          setStudioWorkspace(tab);
+        }}
+        onToggleLeftDock={() => setLeftDockOpen((v) => !v)}
+        onToggleBottomDock={() => setBottomDockOpen((v) => !v)}
+        onToggleRightDock={() => setRightDockOpen((v) => !v)}
+        onApplyLayoutPreset={handleApplyLayoutPreset}
+      />
 
-          <button
-            type="button"
-            onClick={() => setIsBulkQueueModalOpen(true)}
-            className="h-10 sm:h-8 px-2.5 text-xs font-mono font-semibold bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            title="Bulk Process Smart Leveling 2.0 Queue & Master Export 2.0 Presets"
-          >
-            <Layers className="w-3.5 h-3.5 text-orange-400" />
-            <span>Bulk Process ({queueItems.length})</span>
-          </button>
 
-          <button
-            type="button"
-            onClick={handleApplySmartLeveling}
-            className="h-10 sm:h-8 px-2.5 text-xs font-mono font-semibold bg-[#1B2436] hover:bg-[#25324A] text-sky-300 border border-sky-500/40 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            title="AI Smart Level: Auto-calibrate gain staging (-6dB headroom), EQ filters, sidechain & stereo field"
-          >
-            <Wand2 className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden xl:inline">AI Smart Level</span>
-          </button>
 
-          <button
-            type="button"
-            disabled={isExportingWav}
-            onClick={() => handleExportLosslessWav(24)}
-            className="h-10 sm:h-8 px-3 text-xs font-mono font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60 shadow-sm"
-            title="Render complete arrangement to a studio lossless 44.1kHz 24-bit Stereo .WAV audio file"
-          >
-            <Disc className={`w-3.5 h-3.5 ${isExportingWav ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">
-              {isExportingWav ? 'Rendering...' : 'Export 24-Bit .WAV'}
-            </span>
-            <span className="sm:hidden">.WAV</span>
-          </button>
+      {/* SOUNDCRAFT PROFESSIONAL DAW WORKSTATION BODY */}
+      <SoundCraftWorkstation
+        activeTab={activeTab}
+        studioWorkspace={studioWorkspace}
+        activeEditingTool={activeEditingTool}
+        editMode={editMode}
+        spectrumOverlayMode={spectrumOverlayMode}
+        leftDockOpen={leftDockOpen}
+        bottomDockOpen={bottomDockOpen}
+        rightDockOpen={rightDockOpen}
+        bottomEditorTab={bottomEditorTab}
+        project={project}
+        selectedTrack={selectedTrack}
+        selectedTrackId={selectedTrackId}
+        playheadBeat={playheadBeat}
+        modulatedCutoffHz={modulatedCutoffHz}
+        humanization={humanization}
+        transport={transport}
+        masterBus={masterBus}
+        masterPeakDb={masterPeakDb}
+        isPlaying={isPlaying}
+        isExportingWav={isExportingWav}
+        activeTotalBars={activeTotalBars}
+        activeStrategyId={activeStrategyId}
+        activeFormId={activeFormId}
+        compositionSeed={compositionSeed}
+        jitterSeed={jitterSeed}
+        onSelectTrack={handleSelectTrack}
+        onChangeEditMode={setEditMode}
+        onChangeActiveTool={setActiveEditingTool}
+        onChangeSpectrumMode={setSpectrumOverlayMode}
+        onChangeArrangementLength={handleChangeArrangementLength}
+        onDropMemoryLocationAtPlayhead={handleDropMemoryLocationAtPlayhead}
+        onSeekBeat={(beat) => {
+          synthEngine.seek(beat);
+          setPlayheadBeat(beat);
+        }}
+        onToggleNoteInTrack={handleToggleNoteInTrack}
+        onToggleMute={handleToggleMute}
+        onToggleSolo={handleToggleSolo}
+        onUpdateTrackMixer={handleUpdateTrackMixer}
+        onUpdateTrackAutomation={handleUpdateTrackAutomation}
+        onUpdateTransport={handleUpdateTransport}
+        onUpdateMasterBus={handleUpdateMasterBus}
+        onOpenCompingModal={() => setIsCompingModalOpen(true)}
+        onApplyNoteEditModeOperation={handleApplyNoteEditModeOperation}
+        onOpenBulkQueueModal={() => setIsBulkQueueModalOpen(true)}
+        onExecuteProjectCommand={handleExecuteProjectCommand}
+        onExportLosslessWav={handleExportLosslessWav}
+        onClearArrangement={handleClearArrangement}
+        onExportNativeAls={handleExportNativeAls}
+        onRandomizeTrackVelocities={handleRandomizeTrackVelocities}
+        onApplyMidiQuantizeStrength={handleApplyMidiQuantizeStrength}
+        onSelectStrategy={setActiveStrategyId}
+        onSelectForm={setActiveFormId}
+        onComposeSingleLayer={(arch) => handleInjectLayer(arch)}
+        onComposeAllUnlockedLayers={handleInjectAllMissingLayers}
+        onApplyMidiTool={handleApplyMidiTool}
+        onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
+        onApplyChordGridTransform={handleApplyChordGridTransform}
+        onLaunchSessionScene={handleLaunchSessionScene}
+        onToggleTrackLock={handleToggleTrackLock}
+        onUpdateHumanization={handleUpdateHumanization}
+        onUpdateTrackVelocityCurve={handleUpdateTrackVelocityCurve}
+        onApplySpectralAutoDuck={handleApplySpectralAutoDuck}
+        onInjectLibraryDevice={handleInjectLibraryDevice}
+        onApplySmartLeveling={handleApplySmartLeveling}
+        onRehumanizeAll={handleRehumanizeAll}
+        onCloseLeftDock={() => setLeftDockOpen(false)}
+        onCloseBottomDock={() => setBottomDockOpen(false)}
+        onCloseRightDock={() => setRightDockOpen(false)}
+        onChangeBottomTab={setBottomEditorTab}
+      />
 
-          <button
-            type="button"
-            onClick={handleExportNativeAls}
-            className="h-10 sm:h-8 px-3 text-xs font-mono font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 shadow-sm"
-            title="Export native gzipped Ableton Live project file (.als)"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export Native .als</span>
-            <span className="sm:hidden">.ALS</span>
-          </button>
-        </div>
-      </header>
+      {/* FOOTER TELEMETRY STATUS BAR */}
+      <StudioStatusBar
+        projectName={project.fileName}
+        projectRevision={project.projectRevision || project.revision || 1}
+        trackCount={project.tracks.length}
+        activeSoloCount={project.tracks.filter((t) => t.soloed).length}
+        editMode={editMode}
+        activeTool={activeEditingTool}
+        isPlaying={isPlaying}
+        statusMessage={statusMessage}
+        alsValid={!!project.alsValidation?.isValid}
+        canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}
+        canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
+      />
 
-      {/* Master Transport & Synchronization Sub-Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 py-2 bg-[#12161E] border-b border-[#232934] text-xs">
-        <div className="flex items-center gap-1.5 sm:gap-2.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          {/* Transactional Undo / Redo Buttons */}
-          <div className="flex items-center gap-1 pr-1 border-r border-[#232934]">
-            <button
-              type="button"
-              disabled={!studioCommandBus.canUndo(currentProjectQueueKey)}
-              onClick={handleUndo}
-              className="p-1.5 rounded bg-[#1B2230] hover:bg-[#263044] disabled:opacity-35 text-slate-200 border border-[#2E384D]"
-              title={
-                studioCommandBus.getLastUndoLabel(currentProjectQueueKey)
-                  ? `Undo: ${studioCommandBus.getLastUndoLabel(currentProjectQueueKey)}`
-                  : 'Undo (Cmd/Ctrl+Z)'
-              }
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={!studioCommandBus.canRedo(currentProjectQueueKey)}
-              onClick={handleRedo}
-              className="p-1.5 rounded bg-[#1B2230] hover:bg-[#263044] disabled:opacity-35 text-slate-200 border border-[#2E384D]"
-              title={
-                studioCommandBus.getLastRedoLabel(currentProjectQueueKey)
-                  ? `Redo: ${studioCommandBus.getLastRedoLabel(currentProjectQueueKey)}`
-                  : 'Redo (Cmd/Ctrl+Shift+Z)'
-              }
-            >
-              <Redo2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={handleReturnToZero}
-            className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1.5 rounded bg-[#1B2230] hover:bg-[#263044] text-slate-200 border border-[#2E384D] transition-colors flex items-center justify-center"
-            title="Return Playhead to Start (Bar 1.1.1)"
-          >
-            <SkipBack className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-          </button>
 
-          <button
-            type="button"
-            onClick={handleTogglePlay}
-            className={`min-h-[44px] sm:min-h-0 px-3.5 py-1.5 rounded font-mono font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-              isPlaying
-                ? 'bg-amber-500 text-slate-950'
-                : 'bg-[#1D2432] hover:bg-[#273042] text-slate-100 border border-[#313B4E]'
-            }`}
-          >
-            {isPlaying ? (
-              <Square className="w-4 h-4 sm:w-3.5 sm:h-3.5 fill-current" />
-            ) : (
-              <Play className="w-4 h-4 sm:w-3.5 sm:h-3.5 fill-current" />
-            )}
-            <span>{isPlaying ? 'Stop' : 'Play'}</span>
-          </button>
 
-          <button
-            type="button"
-            onClick={handlePlayCompleteSequence}
-            className={`min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded font-mono font-semibold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
-              !transport.loopEnabled
-                ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                : 'bg-[#171E2B] hover:bg-[#212B3D] text-emerald-300 border-emerald-500/40'
-            }`}
-          >
-            <Play className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current" />
-            <span className="hidden sm:inline">Play Full {activeTotalBars}-Bar (No Loop)</span>
-            <span className="sm:hidden">Full {activeTotalBars}B</span>
-          </button>
 
-          <button
-            type="button"
-            onClick={() => handleUpdateTransport({ loopEnabled: !transport.loopEnabled })}
-            className={`min-h-[44px] sm:min-h-0 px-2.5 py-1.5 rounded font-mono font-semibold flex items-center gap-1 border transition-colors whitespace-nowrap shrink-0 ${
-              transport.loopEnabled
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                : 'bg-[#161B26] text-slate-400 border-[#283040] hover:text-slate-200'
-            }`}
-          >
-            <Repeat className="w-3.5 h-3.5" />
-            <span>{transport.loopEnabled ? `${transport.loopLengthBars}B` : 'OFF'}</span>
-          </button>
 
-          <button
-            type="button"
-            onClick={() =>
-              handleUpdateTransport({ metronomeEnabled: !transport.metronomeEnabled })
-            }
-            className={`min-h-[44px] sm:min-h-0 px-2.5 py-1.5 rounded font-mono text-[11px] border transition-colors whitespace-nowrap shrink-0 ${
-              transport.metronomeEnabled
-                ? 'bg-sky-500/25 text-sky-300 border-sky-500/50 font-semibold'
-                : 'bg-[#161B26] text-slate-400 border-[#283040] hover:text-slate-200'
-            }`}
-          >
-            METRO: {transport.metronomeEnabled ? 'ON' : 'OFF'}
-          </button>
 
-          <div className="flex items-center gap-1 font-mono tabular-nums pl-1 shrink-0">
-            <span className="text-slate-400 text-[11px]">BPM:</span>
-            <button
-              type="button"
-              onClick={() => handleUpdateTempo(project.tempo - 1)}
-              className="w-7 h-7 sm:w-6 sm:h-6 rounded bg-[#1A212E] hover:bg-[#253043] border border-[#2B3547] text-slate-300 flex items-center justify-center font-bold"
-            >
-              -
-            </button>
-            <input
-              type="number"
-              min={90}
-              max={180}
-              value={project.tempo}
-              onChange={(e) => handleUpdateTempo(parseFloat(e.target.value) || 134)}
-              className="w-13 sm:w-14 px-1.5 py-1 bg-[#0B0D10] border border-[#28303E] rounded text-amber-400 font-semibold text-center text-xs"
-            />
-            <button
-              type="button"
-              onClick={() => handleUpdateTempo(project.tempo + 1)}
-              className="w-7 h-7 sm:w-6 sm:h-6 rounded bg-[#1A212E] hover:bg-[#253043] border border-[#2B3547] text-slate-300 flex items-center justify-center font-bold"
-            >
-              +
-            </button>
-          </div>
 
-          <div className="hidden xl:flex items-center gap-2 font-mono tabular-nums text-slate-300 shrink-0">
-            <span className="text-slate-600">·</span>
-            <span>
-              KEY: {project.rootKey} {project.scale}
-            </span>
-          </div>
-        </div>
 
-        <div className="font-mono text-[11px] sm:text-xs text-slate-300 truncate max-w-full sm:max-w-md">
-          {statusMessage}
-        </div>
-      </div>
 
-      {/* MOBILE & TABLET ABLETON SECTION DOCK SWITCHER */}
-      <div className="flex lg:hidden bg-[#0D1016] border-b border-[#232934] overflow-x-auto text-xs font-mono select-none px-2 py-1 gap-1">
-        <button
-          type="button"
-          onClick={() => setMobileSection('arrange')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'arrange'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Arrangement</span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setMobileSection('composer')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'composer'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Cpu className="w-3.5 h-3.5" />
-          <span>AI Composer</span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setMobileSection('pianoroll')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'pianoroll'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Music className="w-3.5 h-3.5" />
-          <span>Piano Roll</span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setMobileSection('pads')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'pads'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Grid className="w-3.5 h-3.5" />
-          <span>Jam Pads</span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setMobileSection('devices')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'devices'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>Devices &amp; Duck</span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setMobileSection('mix_console')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'mix_console'
-              ? 'bg-orange-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-orange-300 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>Mix Console &amp; VCA</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setMobileSection('spectrum')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'spectrum'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <Activity className="w-3.5 h-3.5" />
-          <span>Spectrum</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setMobileSection('project')}
-          className={`min-h-[44px] px-3 rounded flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-            mobileSection === 'project'
-              ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#161B26]'
-          }`}
-        >
-          <FolderUp className="w-3.5 h-3.5" />
-          <span>Project &amp; Clear</span>
-        </button>
-      </div>
-
-      {/* Main Workspace Area */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Left Sidebar */}
-        <aside
-          className={`w-full lg:w-[345px] shrink-0 bg-[#10131A] border-b lg:border-b-0 lg:border-r border-[#232934] flex flex-col overflow-y-auto ${
-            activeTab !== 'workbench'
-              ? 'hidden'
-              : mobileSection === 'project'
-              ? 'block'
-              : 'hidden lg:flex'
-          }`}
-        >
-          {/* 1. .als File Upload & Starter Template Selector */}
-          <div className="p-3.5 border-b border-[#232934] space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-semibold text-slate-200">
-                01. INGEST ABLETON .ALS PROJECT
-              </span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".als,.xml,.gz"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="min-h-[40px] sm:min-h-0 px-2.5 py-1.5 text-xs font-mono bg-[#1B2230] hover:bg-[#252E40] text-amber-400 border border-[#2F3A50] rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
-                >
-                  <FolderUp className="w-3.5 h-3.5" />
-                  Upload .als
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsBulkQueueModalOpen(true)}
-                  className="min-h-[40px] sm:min-h-0 px-2.5 py-1.5 text-xs font-mono bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
-                  title="Open Multi-Project Bulk Smart Leveling 2.0 Queue & Master Export Presets"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  Bulk Queue
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-mono text-slate-400">
-                  8-Track Procedural Starter Suites:
-                </label>
-                <button
-                  type="button"
-                  onClick={() => handleLoadStarterTemplate()}
-                  className="min-h-[34px] sm:min-h-0 px-2.5 py-1 text-[11px] font-mono text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded flex items-center gap-1 transition-colors whitespace-nowrap"
-                >
-                  <Dices className="w-3.5 h-3.5 text-amber-400" />
-                  Roll Fresh
-                </button>
-              </div>
-
-              <div className="space-y-1">
-                {STARTER_TEMPLATES.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => handleLoadStarterTemplate(tpl.id)}
-                    className={`w-full text-left px-2.5 py-2 sm:py-1.5 rounded border text-xs transition-colors ${
-                      selectedTemplateId === tpl.id
-                        ? 'bg-[#19202D] border-amber-500/60 text-slate-100 shadow-sm'
-                        : 'bg-[#131720] border-[#212836] text-slate-400 hover:text-slate-200 hover:border-[#313B4D]'
-                    }`}
-                  >
-                    <div className="font-mono font-semibold truncate flex items-center justify-between">
-                      <span>{tpl.name}</span>
-                      <span className="text-[10px] text-amber-400 font-normal">8-Track Suite</span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate">{tpl.subtitle}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* 2. TechnoHeuristicEngine 4.0 Full 8-Track Suite Layer Generator */}
-          <div className="p-3.5 border-b border-[#232934] space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-semibold text-slate-200">
-                02. 8-TRACK TECHNO SUITE GENERATOR
-              </span>
-              <button
-                type="button"
-                onClick={handleInjectAllMissingLayers}
-                className="min-h-[36px] sm:min-h-0 px-2.5 py-1 text-[11px] font-mono font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 shadow-sm"
-              >
-                <Wand2 className="w-3.5 h-3.5" />
-                Compose Full Suite
-              </button>
-            </div>
-
-            <div className="p-2 bg-[#131822] border border-[#232B3A] rounded space-y-1.5">
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>AI STRATEGY &amp; FORM ({activeTotalBars} BARS)</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDesktopBottomTab('composer');
-                    setMobileSection('composer');
-                  }}
-                  className="text-amber-400 hover:underline flex items-center gap-0.5"
-                >
-                  <Cpu className="w-3 h-3" />
-                  Polyrhythm &amp; Chords
-                </button>
-              </div>
-              <select
-                value={activeStrategyId}
-                onChange={(e) => setActiveStrategyId(e.target.value as CompositionStrategyId)}
-                className="w-full px-2 py-1 text-[11px] font-mono bg-[#0B0D10] border border-[#2A3346] rounded text-amber-300"
-              >
-                {COMPOSITION_STRATEGIES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.subtitle})
-                  </option>
-                ))}
-              </select>
-              <select
-                value={activeFormId}
-                onChange={(e) => setActiveFormId(e.target.value as MacroArrangementFormId)}
-                className="w-full px-2 py-1 text-[11px] font-mono bg-[#0B0D10] border border-[#2A3346] rounded text-sky-300"
-              >
-                {MACRO_ARRANGEMENT_FORMS.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    Form: {f.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {!hasSubOrRumble && (
-              <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded text-[11px] font-mono text-amber-300">
-                Diagnostic: No &quot;Sub&quot; or &quot;Rumble&quot; &lt;MidiTrack&gt; in DOM. Click{' '}
-                <strong>Inject XML</strong> below to synthesize phase-locked Operator Sub + Kick Sidechain.
-              </div>
-            )}
-
-            <div className="space-y-2">
-              {ARCHETYPE_CATALOG.map((item) => {
-                const existingTrack = project.tracks.find((t) => t.archetype === item.archetype);
-                const isPresent = Boolean(existingTrack);
-                const isLocked = Boolean(existingTrack?.locked);
-                const isAiBusy = aiLoadingArchetype === item.archetype;
-
-                return (
-                  <div
-                    key={item.archetype}
-                    className={`p-2 bg-[#141923] border rounded space-y-1.5 ${
-                      isLocked ? 'border-amber-500/40' : 'border-[#232A38]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-100 truncate">
-                        {item.title}
-                      </span>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {existingTrack && (
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTrackLock(existingTrack.id)}
-                            className={`p-1 rounded border transition-colors ${
-                              isLocked
-                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                                : 'bg-[#1A202C] border-[#2A3346] text-slate-400 hover:text-slate-200'
-                            }`}
-                            title={
-                              isLocked
-                                ? 'Unlock track to allow regeneration'
-                                : 'Lock track to protect from overwrite'
-                            }
-                          >
-                            {isLocked ? (
-                              <Lock className="w-3 h-3" />
-                            ) : (
-                              <Unlock className="w-3 h-3" />
-                            )}
-                          </button>
-                        )}
-                        <span
-                          className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                            isPresent
-                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {isPresent ? 'Synced' : 'Missing'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-[10.5px] font-mono text-slate-400 leading-snug">
-                      <div>{item.patternSpec}</div>
-                      <div className="text-slate-300 mt-0.5">{item.deviceChainSpec}</div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 pt-0.5">
-                      <button
-                        type="button"
-                        disabled={isLocked}
-                        onClick={() => handleInjectLayer(item.archetype)}
-                        className="min-h-[36px] sm:min-h-0 flex-1 px-2 py-1 text-[11px] font-mono font-medium bg-[#1E2636] hover:bg-[#283246] text-slate-100 border border-[#313D54] rounded flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 disabled:opacity-40"
-                      >
-                        {isPresent ? (
-                          <RefreshCw className="w-3 h-3 text-amber-400" />
-                        ) : (
-                          <Plus className="w-3 h-3 text-amber-400" />
-                        )}
-                        {isPresent ? 'Compose XML' : 'Inject XML'}
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={isAiBusy || isLocked}
-                        onClick={() => handleGenerateAiVariation(item.archetype)}
-                        className="min-h-[36px] sm:min-h-0 px-2.5 py-1 text-[11px] font-mono font-medium bg-[#192231] hover:bg-[#222F44] text-sky-300 border border-sky-500/30 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 disabled:opacity-40"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        {isAiBusy ? 'Thinking...' : 'Gemini AI'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 3. Granular Clear Arrangement Feature (Preserves Device Chains) */}
-          <div className="p-3.5 border-b border-[#232934] space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Eraser className="w-3.5 h-3.5 text-rose-400" />
-                <span className="text-xs font-mono font-semibold text-slate-200">
-                  03. GRANULAR CLEAR ARRANGEMENT
-                </span>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-400">
-                Preserves &lt;DeviceChain&gt;
-              </span>
-            </div>
-
-            <div className="p-2.5 bg-[#141923] border border-[#232A38] rounded space-y-2 text-[11px] font-mono">
-              <div className="grid grid-cols-3 gap-1">
-                {(
-                  [
-                    { id: 'selected_track', label: 'Selected' },
-                    { id: 'unlocked_tracks', label: 'Unlocked' },
-                    { id: 'all_tracks', label: 'All Tracks' },
-                  ] as const
-                ).map((sc) => (
-                  <button
-                    key={sc.id}
-                    type="button"
-                    onClick={() => setClearOptions((prev) => ({ ...prev, scope: sc.id }))}
-                    className={`py-1 px-1.5 rounded border text-[10px] transition-colors ${
-                      clearOptions.scope === sc.id
-                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-semibold'
-                        : 'bg-[#0C1017] text-slate-400 border-[#222B3C] hover:text-slate-200'
-                    }`}
-                  >
-                    {sc.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-2 gap-1.5 text-[10px] text-slate-300 pt-0.5">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={clearOptions.wipeNotes}
-                    onChange={(e) =>
-                      setClearOptions((p) => ({ ...p, wipeNotes: e.target.checked }))
-                    }
-                    className="accent-rose-500"
-                  />
-                  <span>Wipe MIDI Notes</span>
-                </label>
-
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={clearOptions.wipeAutomation}
-                    onChange={(e) =>
-                      setClearOptions((p) => ({ ...p, wipeAutomation: e.target.checked }))
-                    }
-                    className="accent-rose-500"
-                  />
-                  <span>Wipe Automation</span>
-                </label>
-
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={clearOptions.wipeSessionClips}
-                    onChange={(e) =>
-                      setClearOptions((p) => ({ ...p, wipeSessionClips: e.target.checked }))
-                    }
-                    className="accent-rose-500"
-                  />
-                  <span>Wipe Session Clips</span>
-                </label>
-
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={clearOptions.resetMixerToNeutral}
-                    onChange={(e) =>
-                      setClearOptions((p) => ({ ...p, resetMixerToNeutral: e.target.checked }))
-                    }
-                    className="accent-rose-500"
-                  />
-                  <span>Reset Mixer Vol/Pan</span>
-                </label>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleClearArrangement}
-                className="w-full py-1.5 px-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 font-semibold rounded flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Eraser className="w-3.5 h-3.5" />
-                <span>
-                  Clear{' '}
-                  {clearOptions.scope === 'selected_track'
-                    ? selectedTrack?.name || 'Selected'
-                    : clearOptions.scope === 'unlocked_tracks'
-                    ? 'Unlocked Tracks'
-                    : 'All Tracks'}{' '}
-                  (Keep Plugins)
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* 4. Lossless Audio Export & Session Info Card */}
-          <div className="p-3.5 space-y-2.5">
-            <div className="text-xs font-mono font-semibold text-slate-200">
-              04. LOSSLESS MASTER AUDIO RENDERER
-            </div>
-            <div className="p-2.5 bg-[#141923] border border-[#232A38] rounded space-y-2 text-[11px] font-mono text-slate-300">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Sample Rate / Depth:</span>
-                <span className="text-emerald-400 font-semibold">44.1 kHz / 24-Bit Studio PCM</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Arrangement Length:</span>
-                <span>
-                  {activeTotalBars} Bars ({activeTotalBars * 4} Beats + Tail)
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">DSP Bus Chain:</span>
-                <span>EQ8 Duck + SC + Reverb + 3/16 + Glue</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 pt-1">
-                <button
-                  type="button"
-                  disabled={isExportingWav}
-                  onClick={() => handleExportLosslessWav(24)}
-                  className="min-h-[38px] sm:min-h-0 py-1.5 px-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded flex items-center justify-center gap-1 transition-colors disabled:opacity-50"
-                >
-                  <Disc className={`w-3.5 h-3.5 ${isExportingWav ? 'animate-spin' : ''}`} />
-                  24-Bit WAV
-                </button>
-                <button
-                  type="button"
-                  disabled={isExportingWav}
-                  onClick={() => handleExportLosslessWav(16)}
-                  className="min-h-[38px] sm:min-h-0 py-1.5 px-2 bg-[#1D2534] hover:bg-[#273246] text-emerald-300 border border-emerald-500/30 font-semibold rounded flex items-center justify-center gap-1 transition-colors disabled:opacity-50"
-                >
-                  <Disc className="w-3.5 h-3.5" />
-                  16-Bit CD
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Central & Bottom Viewport */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {activeTab === 'workbench' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* DESKTOP & TABLET VIEW (lg and up) */}
-              <div className="hidden lg:flex flex-1 flex-col overflow-hidden">
-                <div className="flex-1 min-h-[360px] overflow-hidden">
-                  <TimelineCanvas
-                    project={project}
-                    selectedTrackId={selectedTrack?.id || '1'}
-                    onSelectTrack={setSelectedTrackId}
-                    playheadBeat={playheadBeat}
-                    modulatedCutoffHz={modulatedCutoffHz}
-                    humanization={humanization}
-                    transport={transport}
-                    masterBus={masterBus}
-                    onUpdateTransport={handleUpdateTransport}
-                    onChangeArrangementLength={handleChangeArrangementLength}
-                    onUpdateMasterBus={handleUpdateMasterBus}
-                    onSeekBeat={(beat) => {
-                      synthEngine.seek(beat);
-                      setPlayheadBeat(beat);
-                    }}
-                    onToggleNoteInTrack={handleToggleNoteInTrack}
-                    onToggleMute={handleToggleMute}
-                    onToggleSolo={handleToggleSolo}
-                    onUpdateTrackMixer={handleUpdateTrackMixer}
-                    onUpdateTrackAutomation={handleUpdateTrackAutomation}
-                    editMode={editMode}
-                    onChangeEditMode={setEditMode}
-                    onDropMemoryLocationAtPlayhead={handleDropMemoryLocationAtPlayhead}
-                    onOpenCompingAndTransientModal={() => setIsCompingModalOpen(true)}
-                    onApplyNoteEditModeOperation={handleApplyNoteEditModeOperation}
-                  />
-                </div>
-
-                {/* Lower Pane Tab Bar */}
-                <div className="flex items-center justify-between px-4 py-1.5 bg-[#0F1218] border-t border-[#232934] text-xs font-mono">
-                  <div className="flex items-center gap-2 overflow-x-auto">
-                    <span className="text-slate-400 font-semibold text-[11px] mr-1">RACK VIEW:</span>
-                    <button
-                      type="button"
-                      onClick={() => setDesktopBottomTab('devices')}
-                      className={`px-3 py-1 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                        desktopBottomTab === 'devices'
-                          ? 'bg-amber-500 text-slate-950 font-semibold'
-                          : 'bg-[#181E29] text-slate-300 hover:text-white border border-[#2B3547]'
-                      }`}
-                    >
-                      <Sliders className="w-3.5 h-3.5" />
-                      Spectral Ducking, Velocity Curve &amp; Ableton Plugins
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setDesktopBottomTab('mix_console')}
-                      className={`px-3 py-1 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                        desktopBottomTab === 'mix_console'
-                          ? 'bg-orange-500 text-slate-950 font-semibold'
-                          : 'bg-[#181E29] text-orange-300 hover:text-white border border-orange-500/40'
-                      }`}
-                    >
-                      <Sliders className="w-3.5 h-3.5" />
-                      SoundCraft Mix Console (10-Slot Inserts &amp; VCA)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setDesktopBottomTab('composer')}
-                      className={`px-3 py-1 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                        desktopBottomTab === 'composer'
-                          ? 'bg-amber-500 text-slate-950 font-semibold'
-                          : 'bg-[#181E29] text-amber-300 hover:text-white border border-amber-500/40'
-                      }`}
-                    >
-                      <Cpu className="w-3.5 h-3.5" />
-                      AI Composer, Polyrhythm &amp; Chord Grid Studio
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setDesktopBottomTab('pads')}
-                      className={`px-3 py-1 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                        desktopBottomTab === 'pads'
-                          ? 'bg-amber-500 text-slate-950 font-semibold'
-                          : 'bg-[#181E29] text-slate-300 hover:text-white border border-[#2B3547]'
-                      }`}
-                    >
-                      <Grid className="w-3.5 h-3.5" />
-                      Live Jam Pads (Push / Note)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setDesktopBottomTab('spectrum')}
-                      className={`px-3 py-1 rounded flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                        desktopBottomTab === 'spectrum'
-                          ? 'bg-amber-500 text-slate-950 font-semibold'
-                          : 'bg-[#181E29] text-slate-300 hover:text-white border border-[#2B3547]'
-                      }`}
-                    >
-                      <Activity className="w-3.5 h-3.5" />
-                      Master Bus Spectrum &amp; LUFS
-                    </button>
-                  </div>
-
-                  <div className="hidden xl:flex items-center gap-2 text-[11px] text-slate-400 shrink-0">
-                    <span className="text-emerald-400 font-semibold">
-                      Selected: {selectedTrack?.name}
-                    </span>
-                    <span>·</span>
-                    <span>{selectedTrack?.archetype?.toUpperCase()}</span>
-                  </div>
-                </div>
-
-                {/* Lower Pane Content */}
-                <div className="h-[330px] overflow-y-auto bg-[#0B0D10]">
-                  {desktopBottomTab === 'devices' && (
-                    <DeviceRackPanel
-                      project={project}
-                      selectedTrack={selectedTrack}
-                      humanization={humanization}
-                      masterBus={masterBus}
-                      modulatedCutoffHz={modulatedCutoffHz}
-                      masterPeakDb={masterPeakDb}
-                      currentSeed={jitterSeed}
-                      isPlaying={isPlaying}
-                      tempo={project.tempo}
-                      onUpdateHumanization={handleUpdateHumanization}
-                      onUpdateTrackMixer={handleUpdateTrackMixer}
-                      onUpdateTrackVelocityCurve={handleUpdateTrackVelocityCurve}
-                      onApplySpectralAutoDuck={handleApplySpectralAutoDuck}
-                      onInjectLibraryDevice={handleInjectLibraryDevice}
-                      onApplySmartLeveling={handleApplySmartLeveling}
-                      onUpdateMasterBus={handleUpdateMasterBus}
-                      onRehumanizeAll={handleRehumanizeAll}
-                    />
-                  )}
-
-                  {desktopBottomTab === 'composer' && (
-                    <AiComposerIntelligencePanel
-                      project={project}
-                      selectedTrack={selectedTrack}
-                      activeStrategyId={activeStrategyId}
-                      activeFormId={activeFormId}
-                      compositionSeed={compositionSeed}
-                      onSelectStrategy={setActiveStrategyId}
-                      onSelectForm={setActiveFormId}
-                      onComposeSingleLayer={(arch) => handleInjectLayer(arch)}
-                      onComposeAllUnlockedLayers={handleInjectAllMissingLayers}
-                      onApplyMidiTool={handleApplyMidiTool}
-                      onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
-                      onApplyChordGridTransform={handleApplyChordGridTransform}
-                      onLaunchSessionScene={handleLaunchSessionScene}
-                      onToggleTrackLock={handleToggleTrackLock}
-                      onSelectTrack={setSelectedTrackId}
-                      onSeekBeat={(beat) => {
-                        synthEngine.seek(beat);
-                        setPlayheadBeat(beat);
-                      }}
-                    />
-                  )}
-
-                  {desktopBottomTab === 'pads' && (
-                    <div className="p-3">
-                      <TouchJamPads
-                        project={project}
-                        selectedTrackId={selectedTrack?.id || '1'}
-                        onSelectTrack={setSelectedTrackId}
-                      />
-                    </div>
-                  )}
-
-                  {desktopBottomTab === 'mix_console' && (
-                    <div className="p-3">
-                      <SoundCraftMixConsole
-                        project={project}
-                        selectedTrackId={selectedTrack?.id || '1'}
-                        masterBus={masterBus}
-                        masterPeakDb={masterPeakDb}
-                        onSelectTrack={setSelectedTrackId}
-                        onUpdateProjectWithUndo={(label, category, mutator) =>
-                          handleExecuteProjectCommand(label, category, mutator)
-                        }
-                        onUpdateMasterBus={(next) => setMasterBus(next)}
-                      />
-                    </div>
-                  )}
-
-                  {desktopBottomTab === 'spectrum' && (
-                    <div className="p-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-emerald-400" />
-                          <span className="font-mono font-semibold text-sm text-slate-200">
-                            MASTER BUS REAL-TIME FFT SPECTRUM &amp; BS.1770 LUFS ANALYZER
-                          </span>
-                        </div>
-                        <span className="text-xs font-mono text-slate-400">
-                          Stereo Sum · 20Hz - 20kHz Logarithmic
-                        </span>
-                      </div>
-                      <MasterSpectrumAnalyzer isPlaying={isPlaying} tempo={project.tempo} />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* MOBILE PHONE & COMPACT TABLET VIEW (< lg) */}
-              <div className="lg:hidden flex-1 flex flex-col overflow-y-auto">
-                {mobileSection === 'arrange' && (
-                  <div className="flex-1 flex flex-col min-h-[480px]">
-                    <div className="p-2.5 bg-[#121620] border-b border-[#232934] flex items-center justify-between text-xs font-mono">
-                      <span className="text-slate-300 font-semibold">ARRANGEMENT TIMELINE</span>
-                      <span className="text-amber-400">Tap track / timeline to audition</span>
-                    </div>
-                    <div className="flex-1 min-h-[380px]">
-                      <TimelineCanvas
-                        project={project}
-                        selectedTrackId={selectedTrack?.id || '1'}
-                        onSelectTrack={setSelectedTrackId}
-                        playheadBeat={playheadBeat}
-                        modulatedCutoffHz={modulatedCutoffHz}
-                        humanization={humanization}
-                        transport={transport}
-                        masterBus={masterBus}
-                        onUpdateTransport={handleUpdateTransport}
-                        onChangeArrangementLength={handleChangeArrangementLength}
-                        onUpdateMasterBus={handleUpdateMasterBus}
-                        onSeekBeat={(beat) => {
-                          synthEngine.seek(beat);
-                          setPlayheadBeat(beat);
-                        }}
-                        onToggleNoteInTrack={handleToggleNoteInTrack}
-                        onToggleMute={handleToggleMute}
-                        onToggleSolo={handleToggleSolo}
-                        onUpdateTrackMixer={handleUpdateTrackMixer}
-                        onUpdateTrackAutomation={handleUpdateTrackAutomation}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {mobileSection === 'composer' && (
-                  <div className="flex-1 flex flex-col">
-                    <AiComposerIntelligencePanel
-                      project={project}
-                      selectedTrack={selectedTrack}
-                      activeStrategyId={activeStrategyId}
-                      activeFormId={activeFormId}
-                      compositionSeed={compositionSeed}
-                      onSelectStrategy={setActiveStrategyId}
-                      onSelectForm={setActiveFormId}
-                      onComposeSingleLayer={(arch) => handleInjectLayer(arch)}
-                      onComposeAllUnlockedLayers={handleInjectAllMissingLayers}
-                      onApplyMidiTool={handleApplyMidiTool}
-                      onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
-                      onApplyChordGridTransform={handleApplyChordGridTransform}
-                      onLaunchSessionScene={handleLaunchSessionScene}
-                      onToggleTrackLock={handleToggleTrackLock}
-                      onSelectTrack={setSelectedTrackId}
-                      onSeekBeat={(beat) => {
-                        synthEngine.seek(beat);
-                        setPlayheadBeat(beat);
-                      }}
-                    />
-                  </div>
-                )}
-
-                {mobileSection === 'pianoroll' && (
-                  <div className="flex-1 flex flex-col min-h-[480px]">
-                    <div className="p-2.5 bg-[#121620] border-b border-[#232934] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-300 font-semibold">PIANO ROLL:</span>
-                        <select
-                          value={selectedTrack?.id || '1'}
-                          onChange={(e) => setSelectedTrackId(e.target.value)}
-                          className="bg-[#1C2331] text-amber-300 border border-[#2F3B52] rounded px-2 py-1 text-xs"
-                        >
-                          {project.tracks.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name} ({t.archetype})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <span className="text-emerald-400 text-[11px]">Tap key to audition pitch</span>
-                    </div>
-                    <div className="flex-1 min-h-[420px]">
-                      <TimelineCanvas
-                        project={project}
-                        selectedTrackId={selectedTrack?.id || '1'}
-                        onSelectTrack={setSelectedTrackId}
-                        playheadBeat={playheadBeat}
-                        modulatedCutoffHz={modulatedCutoffHz}
-                        humanization={humanization}
-                        transport={transport}
-                        masterBus={masterBus}
-                        onUpdateTransport={handleUpdateTransport}
-                        onChangeArrangementLength={handleChangeArrangementLength}
-                        onUpdateMasterBus={handleUpdateMasterBus}
-                        onSeekBeat={(beat) => {
-                          synthEngine.seek(beat);
-                          setPlayheadBeat(beat);
-                        }}
-                        onToggleNoteInTrack={handleToggleNoteInTrack}
-                        onToggleMute={handleToggleMute}
-                        onToggleSolo={handleToggleSolo}
-                        onUpdateTrackMixer={handleUpdateTrackMixer}
-                        onUpdateTrackAutomation={handleUpdateTrackAutomation}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {mobileSection === 'pads' && (
-                  <div className="flex-1 flex flex-col p-3 space-y-3">
-                    <div className="p-2.5 bg-[#121620] border border-[#232934] rounded flex items-center justify-between text-xs font-mono">
-                      <div className="flex items-center gap-2">
-                        <Grid className="w-4 h-4 text-amber-400" />
-                        <span className="text-slate-200 font-semibold">ABLETON NOTE TOUCH PADS</span>
-                      </div>
-                      <span className="text-slate-400 text-[11px]">Velocity sensitive tap</span>
-                    </div>
-                    <TouchJamPads
-                      project={project}
-                      selectedTrackId={selectedTrack?.id || '1'}
-                      onSelectTrack={setSelectedTrackId}
-                    />
-                  </div>
-                )}
-
-                {mobileSection === 'devices' && (
-                  <div className="flex-1 flex flex-col">
-                    <DeviceRackPanel
-                      project={project}
-                      selectedTrack={selectedTrack}
-                      humanization={humanization}
-                      masterBus={masterBus}
-                      modulatedCutoffHz={modulatedCutoffHz}
-                      masterPeakDb={masterPeakDb}
-                      currentSeed={jitterSeed}
-                      isPlaying={isPlaying}
-                      tempo={project.tempo}
-                      onUpdateHumanization={handleUpdateHumanization}
-                      onUpdateTrackMixer={handleUpdateTrackMixer}
-                      onUpdateTrackVelocityCurve={handleUpdateTrackVelocityCurve}
-                      onApplySpectralAutoDuck={handleApplySpectralAutoDuck}
-                      onInjectLibraryDevice={handleInjectLibraryDevice}
-                      onApplySmartLeveling={handleApplySmartLeveling}
-                      onUpdateMasterBus={handleUpdateMasterBus}
-                      onRehumanizeAll={handleRehumanizeAll}
-                    />
-                  </div>
-                )}
-
-                {mobileSection === 'mix_console' && (
-                  <div className="flex-1 flex flex-col p-3">
-                    <SoundCraftMixConsole
-                      project={project}
-                      selectedTrackId={selectedTrack?.id || '1'}
-                      masterBus={masterBus}
-                      masterPeakDb={masterPeakDb}
-                      onSelectTrack={setSelectedTrackId}
-                      onUpdateProjectWithUndo={(label, category, mutator) =>
-                        handleExecuteProjectCommand(label, category, mutator)
-                      }
-                      onUpdateMasterBus={(next) => setMasterBus(next)}
-                    />
-                  </div>
-                )}
-
-                {mobileSection === 'spectrum' && (
-                  <div className="flex-1 flex flex-col p-3 space-y-3">
-                    <div className="p-2.5 bg-[#121620] border border-[#232934] rounded flex items-center justify-between text-xs font-mono">
-                      <div className="flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-emerald-400" />
-                        <span className="text-slate-200 font-semibold">
-                          MASTER SPECTRUM &amp; LUFS ANALYZER
-                        </span>
-                      </div>
-                      <span className="text-emerald-400 text-[11px]">Real-Time DSP</span>
-                    </div>
-
-                    <MasterSpectrumAnalyzer isPlaying={isPlaying} tempo={project.tempo} />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {activeTab === 'xml' && (
             <XmlInspectorView project={project} onDownloadAls={handleExportNativeAls} />
@@ -3067,8 +2316,6 @@ export default function App() {
               </div>
             </div>
           )}
-        </main>
-      </div>
 
       {/* Multi-Project Bulk Smart Leveling 2.0 Queue & Master Export 2.0 Modal */}
       <BulkQueueAndExportModal
@@ -3121,6 +2368,19 @@ export default function App() {
           }
         />
       )}
+
+      {/* Studio Settings Modal */}
+      <StudioSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        themeMode={themeMode}
+        onToggleTheme={(mode) => setThemeMode(mode)}
+        spectrumOverlayMode={spectrumOverlayMode}
+        onChangeSpectrumOverlayMode={setSpectrumOverlayMode}
+        masterBus={masterBus}
+        onUpdateMasterBus={handleUpdateMasterBus}
+        onResetLayout={() => handleApplyLayoutPreset('edit')}
+      />
     </div>
   );
 }

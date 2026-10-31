@@ -395,7 +395,7 @@ export const CompingAndTransientModal: React.FC<CompingAndTransientModalProps> =
                             #{idx + 1} — {take.name}
                           </div>
                           <div className="text-[10px] text-zinc-400">
-                            {take.notesSnapshot.length} MIDI events •{' '}
+                            {(take.notesSnapshot || take.notes || []).length} MIDI events •{' '}
                             {take.activeAudioRegions
                               ? `${take.activeAudioRegions.length} gated audio regions`
                               : 'Full arrangement span'}
@@ -441,7 +441,7 @@ export const CompingAndTransientModal: React.FC<CompingAndTransientModalProps> =
                       setStripConfig((prev) => ({
                         ...prev,
                         thresholdOpenDb: openDb,
-                        thresholdCloseDb: Math.min(prev.thresholdCloseDb, openDb - 2),
+                        thresholdCloseDb: Math.min(prev.thresholdCloseDb ?? -35, openDb - 2),
                       }));
                     }}
                     className="w-full accent-emerald-400"
@@ -450,12 +450,12 @@ export const CompingAndTransientModal: React.FC<CompingAndTransientModalProps> =
 
                 <div>
                   <label className="block text-[10px] text-zinc-400 mb-1">
-                    Close Hysteresis Threshold ({stripConfig.thresholdCloseDb} dBFS)
+                    Close Hysteresis Threshold ({stripConfig.thresholdCloseDb ?? -35} dBFS)
                   </label>
                   <input
                     type="range"
                     min={-60}
-                    max={stripConfig.thresholdOpenDb - 1}
+                    max={(stripConfig.thresholdOpenDb ?? -32) - 1}
                     step={1}
                     value={stripConfig.thresholdCloseDb}
                     onChange={(e) =>
@@ -572,14 +572,14 @@ export const CompingAndTransientModal: React.FC<CompingAndTransientModalProps> =
 
                 <div>
                   <label className="block text-[10px] text-zinc-400 mb-1">
-                    Probability Threshold (&lt; {Math.round(ghostConfig.probabilityThreshold * 100)}%)
+                    Probability Threshold (&lt; {Math.round((ghostConfig.probabilityThreshold ?? 0.5) * 100)}%)
                   </label>
                   <input
                     type="range"
                     min={0.1}
                     max={0.95}
                     step={0.05}
-                    value={ghostConfig.probabilityThreshold}
+                    value={ghostConfig.probabilityThreshold ?? 0.5}
                     onChange={(e) =>
                       setGhostConfig((prev) => ({
                         ...prev,

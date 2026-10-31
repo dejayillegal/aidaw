@@ -93,6 +93,59 @@ export function composeEffectiveTrackGain(
   };
 }
 
+export interface EffectiveAudibilityResult {
+  isAudible: boolean;
+  mutedByTrackMute: boolean;
+  mutedBySoloIsolation: boolean;
+  mutedByVcaMute: boolean;
+  mutedByVcaSoloIsolation: boolean;
+  activeSoloTrackIds: string[];
+  activeSoloVcaIds: string[];
+  effectiveGainLinear: number;
+  effectiveGainDb: number;
+}
+
+/**
+ * Shared service: Resolves complete effective audibility considering track mute,
+ * track solo, multi-track solo, group mute/solo, and VCA solo isolation.
+ */
+export function resolveEffectiveAudibility(
+  track: AbletonTrack,
+  allTracks: AbletonTrack[],
+  vcaGroups?: VcaGroupState[]
+): EffectiveAudibilityResult {
+  const groups = vcaGroups && vcaGroups.length > 0 ? vcaGroups : getDefaultVcaGroups();
+  const groupId = normalizeVcaGroupId(track.vcaGroupId);
+  const assignedGroup = groups.find((g) => normalizeVcaGroupId(g.id) === groupId);
+
+  const activeSoloTracks = allTracks.filter((t) => t.soloed);
+  const activeSoloVcas = groups.filter((g) => g.soloed);
+  const anyTrackSoloed = activeSoloTracks.length > 0;
+  const anyVcaSoloed = activeSoloVcas.length > 0;
+
+  const mutedByTrackMute = Boolean(track.muted);
+  const mutedBySoloIsolation = anyTrackSoloed && !track.soloed;
+  const mutedByVcaMute = Boolean(assignedGroup?.muted);
+  const mutedByVcaSoloIsolation = anyVcaSoloed && (!assignedGroup || !assignedGroup.soloed);
+
+  const isAudible =
+    !mutedByTrackMute && !mutedBySoloIsolation && !mutedByVcaMute && !mutedByVcaSoloIsolation;
+
+  const breakdown = composeEffectiveTrackGain(track, allTracks, vcaGroups);
+
+  return {
+    isAudible,
+    mutedByTrackMute,
+    mutedBySoloIsolation,
+    mutedByVcaMute,
+    mutedByVcaSoloIsolation,
+    activeSoloTrackIds: activeSoloTracks.map((t) => t.id),
+    activeSoloVcaIds: activeSoloVcas.map((g) => g.id),
+    effectiveGainLinear: isAudible ? breakdown.effectiveLinearGain : 0,
+    effectiveGainDb: isAudible ? breakdown.effectiveGainDb : -60,
+  };
+}
+
 /**
  * Commits non-destructive VCA group gains into native track base faders ONLY when explicitly requested by the user.
  * Resets VCA group gains to 0.0 dB in the same transaction to prevent double application.
@@ -156,25 +209,45 @@ export function commitVcaGainsToTrackFaders(
 }
 
 /**
- * Returns the browser DSP compatibility status of an Ableton device.
+ * Returns the browser DSP compatibility status of an Ableton device or XML tag.
  */
-export function getDeviceCompatibilityInfo(device: AbletonDevice): {
+export function getDeviceCompatibilityInfo(deviceOrTag: AbletonDevice | string | undefined): {
   supportedInBrowserDsp: boolean;
   badgeText: string;
+  badgeLabel: string;
   description: string;
 } {
-  const supported =
-    device.browserDspSupported ?? BROWSER_SUPPORTED_DEVICE_TAGS.has(device.xmlTag);
+  if (!deviceOrTag) {
+    return {
+      supportedInBrowserDsp: false,
+      badgeText: 'Empty Slot',
+      badgeLabel: 'Empty Slot',
+      description: 'No device assigned.',
+    };
+  }
+
+  const isObject = typeof deviceOrTag === 'object';
+  const xmlTag = isObject ? deviceOrTag.xmlTag : String(deviceOrTag);
+  const isUser = isObject ? Boolean(deviceOrTag.isUserCreated) : false;
+  const supported = isObject
+    ? deviceOrTag.browserDspSupported ?? BROWSER_SUPPORTED_DEVICE_TAGS.has(xmlTag)
+    : BROWSER_SUPPORTED_DEVICE_TAGS.has(xmlTag);
+
   if (supported) {
+    const badgeText = isUser ? 'User ALS · Active DSP' : 'Active Browser DSP';
     return {
       supportedInBrowserDsp: true,
-      badgeText: device.isUserCreated ? 'User ALS · Active DSP' : 'Active Browser DSP',
+      badgeText,
+      badgeLabel: badgeText,
       description: 'Processed in real-time by the browser Web Audio ChannelStripEngine.',
     };
   }
+
+  const badgeText = 'Native ALS Only (Passthrough)';
   return {
     supportedInBrowserDsp: false,
-    badgeText: 'Native ALS Only (Passthrough)',
+    badgeText,
+    badgeLabel: badgeText,
     description:
       'Preserved intact in .als XML on export; browser audio engine passes signal through unmodified.',
   };

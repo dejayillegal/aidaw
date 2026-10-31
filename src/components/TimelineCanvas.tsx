@@ -5,7 +5,9 @@ import {
   AutomationPoint,
   HumanizationConfig,
   MasterBusConfig,
+  MidiNoteEvent,
   NoteGridDivision,
+  SpectrumOverlayMode,
   TimelineEditMode,
   TrackMixerParams,
   TransportConfig,
@@ -32,6 +34,8 @@ interface TimelineCanvasProps {
   humanization: HumanizationConfig;
   transport: TransportConfig;
   masterBus?: MasterBusConfig;
+  spectrumOverlayMode?: SpectrumOverlayMode;
+  isPlaying?: boolean;
   onUpdateTransport: (partial: Partial<TransportConfig>) => void;
   onChangeArrangementLength?: (bars: 16 | 32 | 64 | 128) => void;
   onUpdateMasterBus?: (partial: Partial<MasterBusConfig>) => void;
@@ -63,6 +67,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   humanization,
   transport,
   masterBus,
+  spectrumOverlayMode = 'compact_lane',
+  isPlaying = false,
   onUpdateTransport,
   onChangeArrangementLength,
   onUpdateMasterBus,
@@ -80,6 +86,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 }) => {
   const arrangementCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pianoRollCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const reusableFftRef = useRef<Uint8Array>(new Uint8Array(256));
   const [zoomBars, setZoomBars] = useState<1 | 2 | 4>(2);
   const [pianoScrollBar, setPianoScrollBar] = useState<number>(0);
   const [pianoGridDivision, setPianoGridDivision] = useState<NoteGridDivision>('1/16');
@@ -95,8 +102,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const selectedTrack: AbletonTrack | undefined =
     project.tracks.find((t) => t.id === selectedTrackId) || project.tracks[0];
 
+  const rawBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
   const totalBars: 16 | 32 | 64 | 128 =
-    project.arrangementLengthBars || transport.arrangementLengthBars || 16;
+    rawBars === 32 || rawBars === 64 || rawBars === 128 ? rawBars : 16;
   const totalBeats = totalBars * 4;
 
   // Compute visible bar window in the Arrangement View based on real-time zoom & scroll
@@ -112,9 +120,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const arrVisibleBeats = visibleArrBars * 4;
   const arrEndBeat = arrStartBeat + arrVisibleBeats;
 
-  const headerHeight = 28;
-  const laneHeight = 42;
-  const returnLaneHeight = 32;
+  const headerHeight = 32;
+  const laneHeight = 72;
+  const returnLaneHeight = 48;
   const busRowCount = showReturnLanes ? 3 : 0; // Return A (Reverb), Return B (3/16 Delay), Master Bus
   const totalArrangementHeight =
     headerHeight +
@@ -224,25 +232,54 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       ctx.fillText(`[${loc.number}] ${loc.name.slice(0, 6)}`, lx + 2, 9.5);
     });
 
+    // Check if any track in project has solo active
+    const anySoloActive = project.tracks.some((t) => t.soloed);
+
     // Draw Track Lanes
     project.tracks.forEach((track, idx) => {
       const y = headerHeight + idx * laneHeight;
       const isSelected = track.id === selectedTrack?.id;
+      const isSoloMuted = anySoloActive && !track.soloed;
 
-      ctx.fillStyle = isSelected
-        ? 'rgba(245, 158, 11, 0.08)'
-        : idx % 2 === 0
-        ? '#0F1319'
-        : '#0C0F14';
+      // Lane Background: Amber highlight for soloed, dim for solo-muted, standard for normal
+      if (track.soloed) {
+        ctx.fillStyle = isSelected
+          ? 'rgba(245, 158, 11, 0.18)'
+          : 'rgba(245, 158, 11, 0.10)';
+      } else if (isSoloMuted) {
+        ctx.fillStyle = idx % 2 === 0 ? '#080A0E' : '#06070A';
+      } else {
+        ctx.fillStyle = isSelected
+          ? 'rgba(245, 158, 11, 0.08)'
+          : idx % 2 === 0
+          ? '#0F1319'
+          : '#0C0F14';
+      }
       ctx.fillRect(0, y, width, laneHeight);
 
-      ctx.strokeStyle = '#1E2530';
+      // Amber solo glow borders
+      if (track.soloed) {
+        ctx.save();
+        ctx.strokeStyle = '#F59E0B';
+        ctx.lineWidth = 1.75;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.35)';
+        ctx.fillRect(0, y, 4, laneHeight);
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = isSoloMuted ? '#141820' : '#1E2530';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, y + laneHeight);
       ctx.lineTo(width, y + laneHeight);
       ctx.stroke();
 
+      // Render Track Clips (dimmed with 0.35 opacity when solo-muted)
       track.clips.forEach((clip) => {
         const clipStart = Math.max(arrStartBeat, clip.startTime);
         const clipEnd = Math.min(arrEndBeat, clip.startTime + Math.max(clip.length, totalBeats));
@@ -251,8 +288,21 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         const clipX = ((clipStart - arrStartBeat) / arrVisibleBeats) * width;
         const clipW = ((clipEnd - clipStart) / arrVisibleBeats) * width;
 
-        ctx.fillStyle = track.muted ? 'rgba(100, 116, 139, 0.12)' : `${track.hexColor}20`;
-        ctx.strokeStyle = track.muted ? '#475569' : track.hexColor;
+        ctx.save();
+        if (isSoloMuted) {
+          ctx.globalAlpha = 0.38;
+        }
+
+        ctx.fillStyle = track.muted
+          ? 'rgba(100, 116, 139, 0.12)'
+          : track.soloed
+          ? `${track.hexColor}35`
+          : `${track.hexColor}20`;
+        ctx.strokeStyle = track.muted
+          ? '#475569'
+          : track.soloed
+          ? '#F59E0B'
+          : track.hexColor;
         ctx.lineWidth = isSelected ? 1.5 : 1;
         ctx.fillRect(clipX + 1, y + 3, clipW - 2, laneHeight - 6);
         ctx.strokeRect(clipX + 1, y + 3, clipW - 2, laneHeight - 6);
@@ -279,10 +329,14 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         }
 
         // Clip Header Strip
-        ctx.fillStyle = track.muted ? '#334155' : `${track.hexColor}48`;
+        ctx.fillStyle = track.muted
+          ? '#334155'
+          : track.soloed
+          ? '#F59E0B'
+          : `${track.hexColor}48`;
         ctx.fillRect(clipX + 1, y + 3, clipW - 2, 12);
 
-        ctx.fillStyle = '#F8FAFC';
+        ctx.fillStyle = track.soloed ? '#0A0D12' : '#F8FAFC';
         ctx.font = '500 9.5px "JetBrains Mono", monospace';
         const scBadge =
           track.mixer?.sidechainDepth > 0.05
@@ -291,11 +345,12 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         const duckBadge = track.spectralDucking?.enabled ? ' · EQ8-DUCK' : '';
         const polyBadge =
           clip.loopEndBeats && clip.isPolymeter ? ` · POLY ${clip.loopEndBeats}b` : '';
-        const label = `${clip.name} (${clip.notes.length}n${scBadge}${duckBadge}${polyBadge})`;
+        const soloBadge = track.soloed ? ' · [SOLO]' : isSoloMuted ? ' · [MUTED]' : '';
+        const label = `${clip.name} (${clip.notes.length}n${scBadge}${duckBadge}${polyBadge}${soloBadge})`;
         ctx.fillText(label, clipX + 5, y + 12);
 
         // Mini MIDI note ticks inside visible arrangement window
-        ctx.fillStyle = track.muted ? '#64748B' : track.hexColor;
+        ctx.fillStyle = track.muted ? '#64748B' : track.soloed ? '#FCD34D' : track.hexColor;
         clip.notes.forEach((note) => {
           if (note.time < arrStartBeat || note.time > arrEndBeat) return;
           const nx = ((note.time - arrStartBeat) / arrVisibleBeats) * width;
@@ -303,10 +358,16 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           const normVel = note.velocity / 127;
           const nh = Math.max(3, (laneHeight - 19) * normVel);
           const ny = y + laneHeight - 4 - nh;
-          ctx.globalAlpha = note.isGhost ? 0.42 : 0.88;
+          ctx.globalAlpha = isSoloMuted
+            ? note.isGhost
+              ? 0.18
+              : 0.32
+            : note.isGhost
+            ? 0.42
+            : 0.88;
           ctx.fillRect(nx, ny, nw, nh);
         });
-        ctx.globalAlpha = 1.0;
+        ctx.restore();
       });
 
       // Draw Ableton Automation Envelope Curve ONLY when Automation Mode [A] is explicitly enabled
@@ -341,6 +402,115 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           ctx.fill();
           ctx.stroke();
         });
+        ctx.restore();
+      }
+
+      // Render Solo & Solo-Muted Status Badges
+      if (track.soloed) {
+        const badgeX = width - 88;
+        ctx.save();
+        ctx.fillStyle = '#F59E0B';
+        ctx.fillRect(badgeX, y + 4, 82, 13);
+        ctx.fillStyle = '#080A0D';
+        ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+        ctx.fillText('SOLO ACTIVE', badgeX + 7, y + 13.5);
+        ctx.restore();
+      } else if (isSoloMuted) {
+        const badgeX = width - 82;
+        ctx.save();
+        ctx.fillStyle = 'rgba(71, 85, 105, 0.35)';
+        ctx.fillRect(badgeX, y + 4, 76, 13);
+        ctx.fillStyle = '#64748B';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.fillText('SOLO-MUTED', badgeX + 6, y + 13.5);
+        ctx.restore();
+      }
+
+      // Real-Time 8-Band Frequency Distribution Overlay (compact_lane mode on selected track)
+      if (isSelected && spectrumOverlayMode === 'compact_lane') {
+        const hudW = 104;
+        const hudH = laneHeight - 10;
+        const hudX = width - (track.soloed || isSoloMuted ? 198 : 110);
+        const hudY = y + 5;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(11, 14, 19, 0.90)';
+        ctx.strokeStyle = '#252D3D';
+        ctx.lineWidth = 1;
+        ctx.fillRect(hudX, hudY, hudW, hudH);
+        ctx.strokeRect(hudX, hudY, hudW, hudH);
+
+        // Header label
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = '600 7px "JetBrains Mono", monospace';
+        ctx.fillText('8-BAND FFT', hudX + 4, hudY + 7);
+
+        // 8 bands: Sub, Bass, LowMid, Mid, UpMid, Pres, Bril, Air
+        const barW = 8;
+        const barGap = 3;
+        const startBarX = hudX + 5;
+        const maxBarH = hudH - 11;
+
+        // Fetch live FFT data if audio is playing
+        if (isPlaying) {
+          const binCount = synthEngine.getFrequencyBinCount();
+          if (reusableFftRef.current.length !== binCount) {
+            reusableFftRef.current = new Uint8Array(binCount);
+          }
+          synthEngine.getByteFrequencyData(reusableFftRef.current as any);
+        }
+
+        const binRanges = [
+          [0, 2], [2, 5], [5, 10], [10, 22],
+          [22, 50], [50, 100], [100, 180], [180, 255]
+        ];
+
+        const archetypeFreqBands: Record<string, number[]> = {
+          kick: [0.95, 0.75, 0.35, 0.15, 0.08, 0.05, 0.02, 0.01],
+          rumble: [0.88, 0.92, 0.45, 0.12, 0.04, 0.02, 0.01, 0.01],
+          acid: [0.25, 0.55, 0.85, 0.92, 0.78, 0.45, 0.20, 0.10],
+          synth: [0.10, 0.35, 0.70, 0.85, 0.80, 0.65, 0.40, 0.22],
+          percussion: [0.30, 0.65, 0.80, 0.75, 0.60, 0.50, 0.35, 0.15],
+          hats: [0.02, 0.05, 0.15, 0.35, 0.65, 0.88, 0.92, 0.75],
+          ride: [0.04, 0.08, 0.20, 0.45, 0.72, 0.90, 0.85, 0.70],
+          pad: [0.15, 0.30, 0.60, 0.75, 0.70, 0.55, 0.35, 0.20],
+        };
+        const profile = archetypeFreqBands[track.archetype] || [0.4, 0.5, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
+
+        for (let b = 0; b < 8; b++) {
+          const bx = startBarX + b * (barW + barGap);
+          let bandLevel = 0;
+
+          if (isPlaying) {
+            const binCount = reusableFftRef.current.length;
+            const [bStart, bEnd] = binRanges[b];
+            let sum = 0;
+            let cnt = 0;
+            for (let k = bStart; k <= Math.min(bEnd, binCount - 1); k++) {
+              sum += reusableFftRef.current[k];
+              cnt++;
+            }
+            bandLevel = cnt > 0 ? (sum / cnt) / 255 : 0;
+          } else {
+            bandLevel = profile[b] * 0.85;
+          }
+
+          const barH = Math.max(1.5, Math.min(maxBarH, bandLevel * maxBarH));
+          const barY = hudY + hudH - barH - 1;
+
+          // Band color gradient
+          const barColor =
+            b <= 1 ? '#F59E0B' : b <= 3 ? '#10B981' : b <= 5 ? '#06B6D4' : '#A855F7';
+
+          ctx.fillStyle = `${barColor}33`;
+          ctx.fillRect(bx, hudY + 8, barW, maxBarH);
+          ctx.fillStyle = barColor;
+          ctx.fillRect(bx, barY, barW, barH);
+
+          // Peak dot
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(bx, Math.max(hudY + 8, barY - 1.5), barW, 1.5);
+        }
         ctx.restore();
       }
     });
@@ -446,6 +616,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     arrEndBeat,
     visibleArrBars,
     showReturnLanes,
+    spectrumOverlayMode,
+    isPlaying,
   ]);
 
   // Draw Lower Microscopic Ghost-Note Piano Roll & Velocity Lane
@@ -1206,6 +1378,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
             {project.tracks.map((track, idx) => {
               const isSelected = track.id === selectedTrack?.id;
+              const anySoloActive = project.tracks.some((t) => t.soloed);
+              const isSoloMuted = anySoloActive && !track.soloed;
               const mixer = track.mixer || {
                 volumeDb: 0,
                 pan: 0,
@@ -1224,17 +1398,37 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                   onClick={() => onSelectTrack(track.id)}
                   style={{ height: `${laneHeight}px` }}
                   className={`px-2.5 flex items-center justify-between gap-1.5 border-b border-[#1E2530] cursor-pointer transition-colors shrink-0 ${
-                    isSelected ? 'bg-[#1B2230]' : 'bg-[#10141C] hover:bg-[#151A24]'
+                    track.soloed
+                      ? isSelected
+                        ? 'bg-[#2A2210] border-amber-500/40'
+                        : 'bg-[#1C170B] border-amber-500/20'
+                      : isSelected
+                      ? 'bg-[#1B2230]'
+                      : isSoloMuted
+                      ? 'bg-[#0A0C10] opacity-70 hover:opacity-100'
+                      : 'bg-[#10141C] hover:bg-[#151A24]'
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div
                       className="w-1.5 h-7 rounded-sm shrink-0"
-                      style={{ backgroundColor: track.muted ? '#475569' : track.hexColor }}
+                      style={{ backgroundColor: track.soloed ? '#F59E0B' : track.muted ? '#475569' : track.hexColor }}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-mono font-semibold text-slate-100 truncate">
-                        {track.name}
+                      <div className={`text-[11px] font-mono font-semibold truncate flex items-center gap-1 ${
+                        track.soloed
+                          ? 'text-amber-300'
+                          : isSoloMuted
+                          ? 'text-slate-500'
+                          : 'text-slate-100'
+                      }`}>
+                        <span>{track.name}</span>
+                        {track.soloed && (
+                          <span className="px-1 py-0.2 text-[8px] bg-amber-400 text-slate-950 font-bold rounded">SOLO</span>
+                        )}
+                        {isSoloMuted && (
+                          <span className="px-1 py-0.2 text-[8px] bg-slate-800 text-slate-500 rounded">MUTED</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 text-[9.5px] font-mono text-slate-400 tabular-nums truncate">
                         <span className="text-amber-400">
@@ -1279,9 +1473,12 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                       onClick={() => onToggleSolo(track.id)}
                       className={`w-5 h-5 text-[10px] font-mono font-bold rounded-xs border transition-colors ${
                         track.soloed
-                          ? 'bg-sky-500 text-slate-950 border-sky-400'
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.5)]'
+                          : isSoloMuted
+                          ? 'bg-[#0A0D12] text-slate-600 border-[#1E2530] opacity-60'
                           : 'bg-[#0C0F14] text-slate-400 border-[#262E3D] hover:text-slate-200'
                       }`}
+                      title={track.soloed ? 'Solo Active' : 'Solo Track'}
                     >
                       S
                     </button>

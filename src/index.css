@@ -1,17 +1,37 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
     --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+
+    /* Theme CSS Variables - Dark Mode Default */
+    --studio-bg: #080A0D;
+    --studio-surface: #0C0F15;
+    --studio-panel: #11151C;
+    --studio-border: #1C222C;
+    --studio-text: #F1F5F9;
+    --studio-text-muted: #94A3B8;
+  }
+
+  html.theme-light, [data-theme="light"] {
+    /* High Contrast Light Mode Variables */
+    --studio-bg: #F8FAFC;
+    --studio-surface: #E2E8F0;
+    --studio-panel: #FFFFFF;
+    --studio-border: #CBD5E1;
+    --studio-text: #0F172A;
+    --studio-text-muted: #475569;
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #0B0D10;
-    color: #F1F5F9;
+    background-color: var(--studio-bg);
+    color: var(--studio-text);
     overflow-x: hidden;
+    transition: background-color 150ms ease, color 150ms ease;
   }
 
   h1, h2, h3, h4, .font-display {
@@ -24,6 +44,54 @@
   }
 }
 
+/* High Contrast Light Mode Theme Overrides */
+html.theme-light body,
+[data-theme="light"] body {
+  background-color: #F1F5F9 !important;
+  color: #0F172A !important;
+}
+
+html.theme-light .bg-\[\#080A0D\],
+html.theme-light .bg-\[\#090B0E\],
+html.theme-light .bg-\[\#0C0F15\],
+html.theme-light .bg-\[\#0D1017\],
+html.theme-light .bg-\[\#0E1217\],
+html.theme-light .bg-\[\#0F1218\],
+html.theme-light .bg-\[\#10141B\],
+html.theme-light .bg-\[\#11151C\] {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+}
+
+html.theme-light .bg-\[\#141923\],
+html.theme-light .bg-\[\#121722\],
+html.theme-light .bg-\[\#151B24\],
+html.theme-light .bg-\[\#161C24\],
+html.theme-light .bg-[#18202D] {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+}
+
+html.theme-light .border-\[\#1C222C\],
+html.theme-light .border-\[\#1E242E\],
+html.theme-light .border-\[\#1F2734\],
+html.theme-light .border-\[\#232B36\],
+html.theme-light .border-\[\#232934\] {
+  border-color: #CBD5E1 !important;
+}
+
+html.theme-light .text-zinc-300,
+html.theme-light .text-zinc-400,
+html.theme-light .text-slate-200,
+html.theme-light .text-slate-300 {
+  color: #1E293B !important;
+}
+
+html.theme-light .text-zinc-500,
+html.theme-light .text-slate-400 {
+  color: #475569 !important;
+}
+
 /* Custom studio scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -31,11 +99,11 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0B0D10;
+  background: var(--studio-bg);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #232934;
+  background: var(--studio-border);
   border-radius: 3px;
 }
 

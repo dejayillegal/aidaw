@@ -30,7 +30,8 @@ export interface ProjectCommandTransaction {
     | 'comping'
     | 'strip_silence'
     | 'ghost_prune'
-    | 'calibration';
+    | 'calibration'
+    | 'clip_edit';
   timestamp: string;
   beforeState: AbletonProjectState;
   afterState: AbletonProjectState;
@@ -345,9 +346,10 @@ export function applyClipPositionWithEditMode(
     track.clips.forEach((otherClip, idx) => {
       if (idx !== clipIndex && otherClip.startTime > oldStart) {
         otherClip.startTime = Math.max(0, Number((otherClip.startTime + deltaBeats).toFixed(4)));
+        const baseEnd = otherClip.endTime ?? otherClip.startTime + 1;
         otherClip.endTime = Math.max(
           otherClip.startTime + 1,
-          Number((otherClip.endTime + deltaBeats).toFixed(4))
+          Number((baseEnd + deltaBeats).toFixed(4))
         );
         otherClip.notes = otherClip.notes.map((n) => {
           const t = Math.max(0, Number((n.time + deltaBeats).toFixed(4)));
@@ -535,9 +537,10 @@ export function previewMidiGhostNotePruning(
       (config.protectChordTones && isChordTone) ||
       (config.protectAccents && isAccent);
 
-    const lowVelocity = note.velocity <= config.velocityThreshold;
-    const lowProbability = (note.probability ?? 1.0) < config.probabilityThreshold;
-    const shortDuration = note.duration <= config.minDurationBeats;
+    const lowVelocity = note.velocity <= (config.velocityThreshold ?? 40);
+    const probLimit = config.probabilityThreshold ?? config.minProbability ?? 0.5;
+    const lowProbability = (note.probability ?? 1.0) < probLimit;
+    const shortDuration = note.duration <= (config.minDurationBeats ?? 0.125);
 
     const isCandidateToPrune = Boolean(
       note.isGhost || lowVelocity || lowProbability || (shortDuration && note.velocity < 85)

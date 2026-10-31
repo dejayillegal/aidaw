@@ -63,6 +63,31 @@ interface AiComposerIntelligencePanelProps {
   onToggleTrackLock: (trackId: string) => void;
   onSelectTrack: (trackId: string) => void;
   onSeekBeat: (beat: number) => void;
+  onRandomizeTrackVelocities?: (
+    trackId: string,
+    config: {
+      minVelocity: number;
+      maxVelocity: number;
+      blendPct: number;
+      accentLock: boolean;
+      downbeatLock: boolean;
+      seed: number;
+    }
+  ) => void;
+  onApplyMidiQuantizeStrength?: (
+    trackId: string,
+    gridDivision: NoteGridDivision,
+    strengthPct: 50 | 75 | 100
+  ) => void;
+}
+
+export interface TrackVelocityRandomizerConfig {
+  minVelocity: number;
+  maxVelocity: number;
+  blendPct: number;
+  accentLock: boolean;
+  downbeatLock: boolean;
+  seed: number;
 }
 
 const MIDI_TOOLS: { id: MidiToolTransformationId; label: string; desc: string }[] = [
@@ -102,6 +127,8 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
   onToggleTrackLock,
   onSelectTrack,
   onSeekBeat,
+  onRandomizeTrackVelocities,
+  onApplyMidiQuantizeStrength,
 }) => {
   const totalBars = project.arrangementLengthBars || 16;
   const profile = project.musicalProfile || analyzeProjectMusicalProfile(project);
@@ -109,6 +136,13 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
     project.arrangementSections || generateSectionArrangementPlan(activeFormId, totalBars);
   const alsReport = project.alsValidation || validateAlsProjectCadence(project.rawXmlModified);
   const genIdentity = project.lastGenerationIdentity;
+
+  const [velMin, setVelMin] = useState<number>(40);
+  const [velMax, setVelMax] = useState<number>(115);
+  const [velBlendPct, setVelBlendPct] = useState<number>(100);
+  const [velAccentLock, setVelAccentLock] = useState<boolean>(true);
+  const [velDownbeatLock, setVelDownbeatLock] = useState<boolean>(false);
+  const [velSeed, setVelSeed] = useState<number>(42);
 
   const defaultPoly = getDefaultPolyrhythmConfig(selectedTrack?.archetype || 'percussion');
   const [polySteps, setPolySteps] = useState<number>(
@@ -128,6 +162,8 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
   );
   const [customKey, setCustomKey] = useState<string>(project.rootKey || 'F');
   const [customScale, setCustomScale] = useState<string>(project.scale || 'Phrygian');
+  const [quantizeStrengthPct, setQuantizeStrengthPct] = useState<50 | 75 | 100>(75);
+  const [quantizeGridDivision, setQuantizeGridDivision] = useState<NoteGridDivision>('1/16');
   const [stylePrompt, setStylePrompt] = useState<string>(
     'Hypnotic Berghain dark chord stabs with 3/16 dub tension'
   );
@@ -669,6 +705,244 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
               </button>
             ))}
           </div>
+
+          {/* AI Composer Note Velocity Randomizer with Min/Max, Blend %, Accent Lock & Live Distribution */}
+          {(() => {
+            const selectedTrackNotes = selectedTrack?.clips?.[0]?.notes || [];
+            const noteCount = selectedTrackNotes.length;
+            const lockedCount = selectedTrackNotes.filter((n) => {
+              if (velAccentLock && (n.isAccent || n.velocity >= 110)) return true;
+              if (velDownbeatLock && n.time % 4 === 0) return true;
+              return false;
+            }).length;
+            const randomizedCount = Math.max(0, noteCount - lockedCount);
+
+            return (
+              <div className="mt-2.5 p-2.5 bg-[#0D1118] border border-[#232D3F] rounded space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+                    <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                    <span>NOTE VELOCITY RANDOMIZER</span>
+                  </div>
+                  <span className="text-[9.5px] font-mono text-zinc-400">
+                    {selectedTrack ? `${randomizedCount}/${noteCount} notes active` : 'Select a track'}
+                  </span>
+                </div>
+
+                {/* Min & Max Inputs + Blend Slider */}
+                <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-zinc-400">
+                      <span>MIN VEL:</span>
+                      <span className="text-amber-300 font-bold">{velMin}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={Math.min(126, velMax - 1)}
+                      value={velMin}
+                      onChange={(e) => setVelMin(Number(e.target.value))}
+                      className="w-full accent-amber-500 h-1.5 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-zinc-400">
+                      <span>MAX VEL:</span>
+                      <span className="text-amber-300 font-bold">{velMax}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={Math.max(2, velMin + 1)}
+                      max={127}
+                      value={velMax}
+                      onChange={(e) => setVelMax(Number(e.target.value))}
+                      className="w-full accent-amber-500 h-1.5 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-zinc-400">
+                      <span>BLEND:</span>
+                      <span className="text-sky-300 font-bold">{velBlendPct}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={velBlendPct}
+                      onChange={(e) => setVelBlendPct(Number(e.target.value))}
+                      className="w-full accent-sky-500 h-1.5 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Accent Lock, Downbeat Lock, Seed Generator */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono pt-1 border-t border-[#1C2433]">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-zinc-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={velAccentLock}
+                        onChange={(e) => setVelAccentLock(e.target.checked)}
+                        className="accent-amber-500 rounded"
+                      />
+                      <span>Accent Lock (≥110)</span>
+                    </label>
+
+                    <label className="flex items-center gap-1.5 text-zinc-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={velDownbeatLock}
+                        onChange={(e) => setVelDownbeatLock(e.target.checked)}
+                        className="accent-amber-500 rounded"
+                      />
+                      <span>Downbeat Lock (1.1)</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-500 text-[9px]">SEED: {velSeed}</span>
+                    <button
+                      type="button"
+                      onClick={() => setVelSeed(Math.floor(Math.random() * 9000 + 1000))}
+                      className="p-1 rounded bg-[#151B26] hover:bg-[#1E2736] text-amber-300 border border-[#263145]"
+                      title="Generate new random seed"
+                    >
+                      <Dices className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Distribution Mini-Histogram Preview */}
+                <div className="p-1.5 bg-[#080B0F] border border-[#192230] rounded flex items-center justify-between gap-1 text-[8.5px] font-mono">
+                  <span className="text-zinc-500 shrink-0">DIST:</span>
+                  <div className="flex-1 flex items-end gap-0.5 h-5 px-1">
+                    {[20, 35, 50, 65, 80, 95, 110, 125].map((binThreshold, bIdx) => {
+                      const inBin = selectedTrackNotes.filter(
+                        (n) => n.velocity >= binThreshold - 15 && n.velocity < binThreshold
+                      ).length;
+                      const normH = Math.min(100, (inBin / Math.max(1, noteCount)) * 100);
+                      const isTargetRange = binThreshold >= velMin && binThreshold <= velMax + 15;
+                      return (
+                        <div
+                          key={bIdx}
+                          className="flex-1 rounded-xs transition-all"
+                          style={{
+                            height: `${Math.max(15, normH)}%`,
+                            backgroundColor: isTargetRange ? '#F59E0B' : '#334155',
+                            opacity: isTargetRange ? 0.9 : 0.4,
+                          }}
+                          title={`Velocity bin ${binThreshold - 15}-${binThreshold}: ${inBin} notes`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <span className="text-amber-400 font-bold shrink-0">
+                    [{velMin}–{velMax}]
+                  </span>
+                </div>
+
+                {/* Apply Button */}
+                <button
+                  type="button"
+                  disabled={!selectedTrack || selectedTrack.locked || noteCount === 0}
+                  onClick={() => {
+                    if (!selectedTrack || !onRandomizeTrackVelocities) return;
+                    onRandomizeTrackVelocities(selectedTrack.id, {
+                      minVelocity: velMin,
+                      maxVelocity: velMax,
+                      blendPct: velBlendPct,
+                      accentLock: velAccentLock,
+                      downbeatLock: velDownbeatLock,
+                      seed: velSeed,
+                    });
+                  }}
+                  className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold rounded flex items-center justify-center gap-1.5 transition-colors shadow-xs text-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>
+                    Randomize Velocities on {selectedTrack?.name || 'Selected Track'} ({randomizedCount} notes)
+                  </span>
+                </button>
+
+                {/* MIDI Quantize Grid Strength Transformation Tool (50%, 75%, 100%) */}
+                <div className="mt-2.5 pt-2 border-t border-[#1F2837] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
+                      <Wand2 className="w-3.5 h-3.5 text-sky-400" />
+                      <span>MIDI QUANTIZE GRID STRENGTH</span>
+                    </div>
+                    <span className="text-[9.5px] font-mono text-zinc-400">
+                      {selectedTrack ? `${noteCount} notes in clip` : 'Select a track'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                    <div>
+                      <label className="text-zinc-400 block mb-1">Grid Division:</label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {(['1/4', '1/8', '1/16', '1/32'] as NoteGridDivision[]).map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => setQuantizeGridDivision(g)}
+                            className={`py-1 text-[9.5px] font-bold rounded border transition-colors ${
+                              quantizeGridDivision === g
+                                ? 'bg-sky-500/25 text-sky-300 border-sky-500/60'
+                                : 'bg-[#0B0E14] text-zinc-400 border-[#222B3C] hover:text-zinc-200'
+                            }`}
+                          >
+                            {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-zinc-400 block mb-1">Quantize Strength:</label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {([50, 75, 100] as const).map((str) => (
+                          <button
+                            key={str}
+                            type="button"
+                            onClick={() => setQuantizeStrengthPct(str)}
+                            className={`py-1 text-[9.5px] font-bold rounded border transition-colors ${
+                              quantizeStrengthPct === str
+                                ? 'bg-amber-500/25 text-amber-300 border-amber-500/60'
+                                : 'bg-[#0B0E14] text-zinc-400 border-[#222B3C] hover:text-zinc-200'
+                            }`}
+                          >
+                            {str}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!selectedTrack || selectedTrack.locked || noteCount === 0}
+                    onClick={() => {
+                      if (!selectedTrack || !onApplyMidiQuantizeStrength) return;
+                      onApplyMidiQuantizeStrength(
+                        selectedTrack.id,
+                        quantizeGridDivision,
+                        quantizeStrengthPct
+                      );
+                    }}
+                    className="w-full py-1.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 font-bold rounded flex items-center justify-center gap-1.5 transition-colors shadow-xs text-xs"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>
+                      Apply {quantizeStrengthPct}% Quantize ({quantizeGridDivision}) on {selectedTrack?.name || 'Selected Track'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

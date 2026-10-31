@@ -3678,6 +3678,7 @@ export function validateAlsStructuralIntegrity(
   noteCount: number;
   bars: number;
   errors: string[];
+  details: string;
 } {
   const errors: string[] = [];
   const parser = new DOMParser();
@@ -3703,6 +3704,7 @@ export function validateAlsStructuralIntegrity(
     noteCount,
     bars: expectedBars || 16,
     errors,
+    details: errors.join('; '),
   };
 }
 

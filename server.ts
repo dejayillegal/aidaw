@@ -53,6 +53,50 @@ async function startServer() {
     }
   });
 
+  // Downloadable Android / Tablet Standalone Launcher & Capacitor APK Build Spec
+  app.get('/api/download/android-installer', (req, res) => {
+    const appOrigin = `https://ais-pre-rivuqsv2p5yqh2yguttcdy-90877397680.asia-southeast1.run.app`;
+    const installerHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#080A0D" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Parametric ALS DAW — Mobile & Tablet Edition</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { width: 100%; height: 100dvh; background: #080A0D; color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; overflow: hidden; display: flex; flex-direction: column; }
+    .top-bar { height: 42px; background: #0C0F15; border-bottom: 1px solid #1E2530; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12px; }
+    .brand { color: #F59E0B; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .actions { display: flex; align-items: center; gap: 8px; }
+    .btn { background: #10B981; color: #052E16; font-weight: 700; padding: 5px 12px; border-radius: 4px; text-decoration: none; font-size: 11px; border: none; cursor: pointer; }
+    iframe { flex: 1; width: 100%; border: none; background: #080A0D; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <div class="brand">
+      <span>● PARAMETRIC ALS DAW (ANDROID & TABLET STANDALONE)</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="${appOrigin}" target="_blank" rel="noopener noreferrer">Open Native WebAPK Install</a>
+    </div>
+  </div>
+  <iframe src="${appOrigin}" allow="autoplay; midi; clipboard-read; clipboard-write; fullscreen"></iframe>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="Parametric-ALS-DAW-Android-Tablet.html"'
+    );
+    return res.status(200).send(installerHtml);
+  });
+
   // Helper to generate procedural AI techno sequence fallback for all 8 archetypes
   function generateFallbackAiSequence(archetype: string, rootKey: string, _tempo: number) {
     const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];

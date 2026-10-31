@@ -26,6 +26,7 @@ import {
   reorderChannelInsertDevice,
   toggleChannelInsertBypass,
 } from '../engine/channelStripEngine';
+import { getDefaultVcaGroups } from '../engine/alsXmlEngine';
 
 interface SoundCraftMixConsoleProps {
   project: AbletonProjectState;
@@ -69,12 +70,7 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
     slotIdx: number;
   } | null>(null);
 
-  const vcaGroups: VcaGroupState[] = project.vcaGroups || [
-    { id: 'drums', name: 'VCA 1: Drums & Perc', color: '#f97316', gainDb: 0, muted: false, soloed: false },
-    { id: 'bass', name: 'VCA 2: Bass & 303', color: '#eab308', gainDb: 0, muted: false, soloed: false },
-    { id: 'synths', name: 'VCA 3: Synths & Pads', color: '#38bdf8', gainDb: 0, muted: false, soloed: false },
-    { id: 'fx', name: 'VCA 4: FX & Returns', color: '#a855f7', gainDb: 0, muted: false, soloed: false },
-  ];
+  const vcaGroups: VcaGroupState[] = project.vcaGroups || getDefaultVcaGroups();
 
   const handleTrackVolumeChange = (trackId: string, volumeDb: number) => {
     onUpdateProjectWithUndo(
@@ -412,7 +408,7 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                           openInsertPickerSlot?.slotIdx === slotIdx;
 
                         if (dev) {
-                          const compat = getDeviceCompatibilityInfo(dev.type);
+                          const compat = getDeviceCompatibilityInfo(dev);
                           return (
                             <div
                               key={dev.id || `slot_${slotIdx}`}

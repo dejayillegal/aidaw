@@ -397,8 +397,9 @@ export class ProjectQueueService {
           humanization,
           masterBus
         );
-        rec.workingProjectState = cloneProjectState(stageEResult.updatedProject);
-        rec.workingProjectRevision = stageEResult.updatedProject.projectRevision || 2;
+        const nextProject = stageEResult.updatedProject || stageEResult.calibratedProject;
+        rec.workingProjectState = cloneProjectState(nextProject);
+        rec.workingProjectRevision = nextProject.projectRevision || 2;
         rec.verificationReport = stageEResult.verificationReport;
       }
 

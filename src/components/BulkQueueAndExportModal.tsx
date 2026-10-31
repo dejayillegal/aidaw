@@ -126,7 +126,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
     setSampleRate(preset.sampleRate);
     setBitDepth(preset.bitDepth);
     setSampleFormat(preset.sampleFormat);
-    setTargetLufs(preset.targetIntegratedLufs);
+    setTargetLufs(preset.targetIntegratedLufs ?? -9.5);
     setTruePeakCeiling(preset.truePeakCeilingDbtp);
     setNormalize(preset.normalize);
     setDither(preset.dither);
@@ -215,7 +215,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
 
           if (result.alsGzipBytes && result.record.exportedAlsFilename) {
             triggerBrowserDownload(
-              new Blob([result.alsGzipBytes], { type: 'application/gzip' }),
+              new Blob([result.alsGzipBytes as unknown as BlobPart], { type: 'application/gzip' }),
               result.record.exportedAlsFilename
             );
           }
@@ -520,7 +520,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                             );
                             if (res.alsGzipBytes && res.record.exportedAlsFilename) {
                               triggerBrowserDownload(
-                                new Blob([res.alsGzipBytes], { type: 'application/gzip' }),
+                                new Blob([res.alsGzipBytes as unknown as BlobPart], { type: 'application/gzip' }),
                                 res.record.exportedAlsFilename
                               );
                             }
@@ -560,16 +560,16 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                           <div className="text-[10px] text-zinc-300 space-y-0.5 pt-1">
                             <div>
                               Tracks: <strong>{inspectedItem.stageAStatic.trackCount}</strong> | Total Notes:{' '}
-                              <strong>{inspectedItem.stageAStatic.totalNoteEvents}</strong>
+                              <strong>{inspectedItem.stageAStatic.totalNoteEvents ?? inspectedItem.stageAStatic.totalMidiNotes}</strong>
                             </div>
                             <div>
                               Note Density:{' '}
-                              <strong>{inspectedItem.stageAStatic.averageNoteDensityPerBar}</strong> notes/bar
+                              <strong>{inspectedItem.stageAStatic.averageNoteDensityPerBar ?? inspectedItem.stageAStatic.averageNotesPerBar}</strong> notes/bar
                             </div>
                             <div>
                               Low-End Conflict Tracks:{' '}
                               <strong>
-                                {inspectedItem.stageAStatic.lowEndOverlapTrackIds.length}
+                                {inspectedItem.stageAStatic.lowEndOverlapTrackIds?.length ?? 0}
                               </strong>
                             </div>
                           </div>
@@ -670,7 +670,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                                 </div>
                                 <div className="text-[9px] text-emerald-400">
                                   SC: {Math.round(td.proposedSidechainDepth * 100)}% | Preserved User FX:{' '}
-                                  {td.preservedUserDeviceIds.length}
+                                  {td.preservedUserDeviceIds?.length ?? 0}
                                 </div>
                               </div>
                             </div>
@@ -921,9 +921,9 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                       <div className="p-2 rounded bg-zinc-900 border border-zinc-800">
                         <div className="text-[9px] text-zinc-400">Gain / Limiter GR</div>
                         <div className="font-bold text-sky-300">
-                          {lastExportReport.appliedMakeupGainDb >= 0
-                            ? `+${lastExportReport.appliedMakeupGainDb}`
-                            : lastExportReport.appliedMakeupGainDb}{' '}
+                          {(lastExportReport.appliedMakeupGainDb ?? lastExportReport.appliedGainDb ?? 0) >= 0
+                            ? `+${lastExportReport.appliedMakeupGainDb ?? lastExportReport.appliedGainDb ?? 0}`
+                            : (lastExportReport.appliedMakeupGainDb ?? lastExportReport.appliedGainDb ?? 0)}{' '}
                           dB / -{lastExportReport.limiterGainReductionDb} dB
                         </div>
                       </div>

@@ -1476,11 +1476,17 @@ export function detectAudioStripSilenceRegions(
   const beatsPerBin = totalBeats / Math.max(1, resolutionBins);
   const msPerBeat = (60 / Math.max(40, tempo)) * 1000;
 
-  const openLinear = dbToGain(config.thresholdOpenDb);
-  const closeLinear = dbToGain(config.thresholdCloseDb);
-  const minRegionBeats = Math.max(0.0625, config.minActiveDurationMs / msPerBeat);
-  const prePadBeats = Math.max(0, config.preAttackPadMs / msPerBeat);
-  const postPadBeats = Math.max(0, config.postReleasePadMs / msPerBeat);
+  const openDb = config.thresholdOpenDb ?? config.thresholdDb ?? -32;
+  const closeDb = config.thresholdCloseDb ?? (openDb - (config.hysteresisDb ?? 3));
+  const minActiveMs = config.minActiveDurationMs ?? config.minRegionDurationMs ?? 60;
+  const preAttackMs = config.preAttackPadMs ?? config.preRollAttackMs ?? 8;
+  const postReleaseMs = config.postReleasePadMs ?? config.postRollReleaseMs ?? 25;
+
+  const openLinear = dbToGain(openDb);
+  const closeLinear = dbToGain(closeDb);
+  const minRegionBeats = Math.max(0.0625, minActiveMs / msPerBeat);
+  const prePadBeats = Math.max(0, preAttackMs / msPerBeat);
+  const postPadBeats = Math.max(0, postReleaseMs / msPerBeat);
 
   const rawRegions: { startBin: number; endBin: number; peakLinear: number }[] = [];
   let inRegion = false;

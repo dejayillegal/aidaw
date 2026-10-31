@@ -770,6 +770,7 @@ export async function executeMasterExport20(
 ): Promise<{
   blob: Blob;
   arrayBuffer: ArrayBuffer;
+  wavArrayBuffer?: ArrayBuffer;
   report: MasterExportVerificationReport;
   verification: MasterExportVerificationReport;
 }> {
@@ -821,6 +822,7 @@ export async function executeMasterExport20(
     pass1SamplePeakDbfs: masteringResult.pass1Metrics.samplePeakDbfs,
     pass1CrestFactorDb: masteringResult.pass1Metrics.crestFactorDb,
     appliedGainDb: masteringResult.appliedGainDb,
+    appliedMakeupGainDb: masteringResult.appliedGainDb,
     limiterGainReductionDb: masteringResult.limiterGainReductionDb,
     achievedIntegratedLufs: masteringResult.pass2Metrics.integratedLufs,
     achievedTruePeakDbtp: masteringResult.pass2Metrics.truePeakDbtp,
@@ -837,7 +839,7 @@ export async function executeMasterExport20(
     byteSize: arrayBuffer.byteLength,
   };
 
-  return { blob, arrayBuffer, report, verification: report };
+  return { blob, arrayBuffer, wavArrayBuffer: arrayBuffer, report, verification: report };
 }
 
 // ============================================================================
@@ -849,9 +851,13 @@ export async function executeMasterExport20(
  */
 export function evaluateProjectRenderCapabilities(project: AbletonProjectState): {
   canRenderAudio: boolean;
+  canSynthesizeOffline?: boolean;
   hasUnsupportedNativeDevices: boolean;
+  hasExternalUnrenderableAudio?: boolean;
   missingSampleCount: number;
+  missingAudioSampleCount?: number;
   unsupportedDeviceNames: string[];
+  unsupportedDeviceTypes?: string[];
   renderAvailability: 'full_synth' | 'partial_hybrid' | 'metadata_only';
   unavailableReason?: string;
 } {
@@ -876,9 +882,13 @@ export function evaluateProjectRenderCapabilities(project: AbletonProjectState):
   if (playableMidiTracks === 0) {
     return {
       canRenderAudio: false,
+      canSynthesizeOffline: false,
       hasUnsupportedNativeDevices: unsupportedDeviceNames.length > 0,
+      hasExternalUnrenderableAudio: true,
       missingSampleCount,
+      missingAudioSampleCount: missingSampleCount,
       unsupportedDeviceNames,
+      unsupportedDeviceTypes: unsupportedDeviceNames,
       renderAvailability: 'metadata_only',
       unavailableReason:
         missingSampleCount > 0
@@ -889,9 +899,13 @@ export function evaluateProjectRenderCapabilities(project: AbletonProjectState):
 
   return {
     canRenderAudio: true,
+    canSynthesizeOffline: true,
     hasUnsupportedNativeDevices: unsupportedDeviceNames.length > 0,
+    hasExternalUnrenderableAudio: false,
     missingSampleCount,
+    missingAudioSampleCount: missingSampleCount,
     unsupportedDeviceNames,
+    unsupportedDeviceTypes: unsupportedDeviceNames,
     renderAvailability: unsupportedDeviceNames.length > 0 ? 'partial_hybrid' : 'full_synth',
   };
 }
@@ -914,9 +928,11 @@ export function runStageAStaticAnalysis(
     (t) => (t.archetype === 'rumble' || t.archetype === 'acid') && !t.muted
   );
 
+  const lowEndOverlapTrackIds: string[] = [];
   if (hasKick && lowEndTracks.length > 0) {
     lowEndTracks.forEach((lt) => {
       if ((lt.mixer?.sidechainDepth || 0) < 0.35 && !lt.spectralDucking?.enabled) {
+        lowEndOverlapTrackIds.push(lt.id);
         inferredFrequencyConflicts.push(
           `Sub/Fundamental overlap (45–90 Hz) inferred between Kick and ${lt.name} (low sidechain depth).`
         );
@@ -952,11 +968,14 @@ export function runStageAStaticAnalysis(
     trackCount: project.tracks.length,
     activeMidiTrackCount: project.tracks.filter((t) => t.type === 'midi' && !t.muted).length,
     totalMidiNotes,
+    totalNoteEvents: totalMidiNotes,
     averageNotesPerBar: Number((totalMidiNotes / totalBars).toFixed(2)),
+    averageNoteDensityPerBar: Number((totalMidiNotes / totalBars).toFixed(2)),
     existingCompressionCount,
     existingSidechainCount,
     userProtectedDeviceCount,
     inferredFrequencyConflicts,
+    lowEndOverlapTrackIds,
     trackSummaries,
   };
 }
@@ -1033,7 +1052,8 @@ export function buildStageCCalibrationProposal(
   project: AbletonProjectState,
   stageA: SmartCalibrationStageAStatic,
   stageB: SmartCalibrationStageBMeasured,
-  targetIntegratedLufs = -9.5
+  targetIntegratedLufs = -9.5,
+  truePeakCeilingDbtp = -0.3
 ): SmartCalibrationProposal {
   const activeCount = Math.max(1, project.tracks.filter((t) => !t.muted).length);
   const headroomOffsetDb = activeCount > 5 ? -1.4 : -0.5;
@@ -1137,7 +1157,11 @@ export function buildStageCCalibrationProposal(
       eqSuggestion,
       sidechainSuggestion,
       preservesUserDevices: true,
+      preservedUserDeviceIds: [],
       accepted: true,
+      approved: true,
+      reason: eqSuggestion,
+      previousVolumeDb: currentVol,
     };
   });
 
@@ -1172,15 +1196,21 @@ export function buildStageCCalibrationProposal(
     stageAStatic: stageA,
     stageBMeasured: stageB,
     trackProposals,
+    trackDeltas: trackProposals,
     masterGainDeltaDb: rawMasterDelta,
     proposedMasterVolumeDb: rawMasterDelta,
-    limitingCeilingDbtp: -0.3,
+    limitingCeilingDbtp: truePeakCeilingDbtp,
     targetIntegratedLufs,
     predictedIntegratedLufs:
       stageB.available && stageB.integratedLufs !== null
         ? Number((stageB.integratedLufs + rawMasterDelta).toFixed(2))
         : null,
-    predictedTruePeakDbtp: stageB.available ? -0.3 : null,
+    projectedLufs:
+      stageB.available && stageB.integratedLufs !== null
+        ? Number((stageB.integratedLufs + rawMasterDelta).toFixed(2))
+        : null,
+    predictedTruePeakDbtp: stageB.available ? truePeakCeilingDbtp : null,
+    projectedTruePeakDbtp: stageB.available ? truePeakCeilingDbtp : null,
     risks,
     nativeAlsCompatibility: stageB.available ? 'Verified Non-Destructive' : 'Metadata-Only Trim',
   };
@@ -1198,6 +1228,7 @@ export async function applyAndVerifyStageECalibration(
   masterBus: MasterBusConfig
 ): Promise<{
   calibratedProject: AbletonProjectState;
+  updatedProject?: AbletonProjectState;
   calibratedMasterBus: MasterBusConfig;
   verification: SmartCalibrationVerificationReport;
   verificationReport: SmartCalibrationVerificationReport;
@@ -1295,6 +1326,8 @@ export async function applyAndVerifyStageECalibration(
 
   const verification: SmartCalibrationVerificationReport = {
     verifiedAt: new Date().toISOString(),
+    preCalibration: proposal.stageBMeasured,
+    postCalibration: postStageB,
     preCalibrationLufs: proposal.stageBMeasured.integratedLufs,
     postCalibrationLufs: postStageB.integratedLufs,
     requestedTargetLufs: proposal.targetIntegratedLufs,
@@ -1318,6 +1351,7 @@ export async function applyAndVerifyStageECalibration(
 
   return {
     calibratedProject,
+    updatedProject: calibratedProject,
     calibratedMasterBus,
     verification,
     verificationReport: verification,

@@ -1416,3 +1416,39 @@ export function validateAlsProjectCadence(xmlString: string): AlsValidationRepor
     diagnostics,
   };
 }
+
+/**
+ * Applies Quantize Grid Strength (50%, 75%, 100%) to a list of MIDI note events.
+ */
+export function applyMidiQuantizeStrength(
+  notes: MidiNoteEvent[],
+  gridDivision: NoteGridDivision = '1/16',
+  strengthPct: 50 | 75 | 100 = 100
+): { notes: MidiNoteEvent[]; description: string } {
+  if (!notes || notes.length === 0) {
+    return { notes: [], description: 'No MIDI notes in clip to quantize.' };
+  }
+
+  const stepBeats = gridDivisionToStepBeats(gridDivision);
+  const factor = strengthPct / 100;
+
+  const quantized = notes.map((n, idx) => {
+    const targetBeat = Math.round(n.time / stepBeats) * stepBeats;
+    const delta = targetBeat - n.time;
+    const newTime = Number((n.time + delta * factor).toFixed(3));
+    const newQuant = Number((Math.round(newTime / stepBeats) * stepBeats).toFixed(3));
+
+    return {
+      ...n,
+      id: n.id || `q_${idx}_${Date.now()}`,
+      time: Math.max(0, newTime),
+      quantizedTime: Math.max(0, newQuant),
+    };
+  });
+
+  return {
+    notes: quantized.sort((a, b) => a.time - b.time),
+    description: `Applied ${strengthPct}% Quantize Strength to ${gridDivision} grid across ${quantized.length} MIDI notes.`,
+  };
+}
+

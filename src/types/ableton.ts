@@ -15,6 +15,8 @@ export type VoicingSpreadStyle = 'narrow' | 'close' | 'wide' | 'octave';
 
 export type TimelineEditMode = 'grid' | 'slip' | 'shuffle' | 'spot';
 
+export type SpectrumOverlayMode = 'off' | 'compact_lane' | 'expanded_strip';
+
 export type VcaGroupId =
   | 'drums_vca'
   | 'low_end_vca'
@@ -327,6 +329,7 @@ export interface MasterBusConfig {
   delayFeedback: number; // 0.1 to 0.85
   delayReturnLevel: number; // 0.0 to 1.0
   subBassMonoCutoffHz: number; // 120 Hz
+  globalGroovePct?: number; // 50 to 75 (Default 50 = straight 16ths, 75 = heavy swing)
 }
 
 export interface TransportConfig {
@@ -613,6 +616,7 @@ export interface QueuedProjectRecord {
     canRenderAudio?: boolean;
     canSynthesizeOffline?: boolean;
     hasUnsupportedNativeDevices?: boolean;
+    hasExternalUnrenderableAudio?: boolean;
     missingSampleCount?: number;
     missingAudioSampleCount?: number;
     unsupportedDeviceNames?: string[];
