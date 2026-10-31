@@ -1,0 +1,10 @@
+# Regression Risk & Verification Matrix
+
+| Risk Area | Potential Failure Mode | Mitigation in v3.0 | Verification Method |
+| :--- | :--- | :--- | :--- |
+| **Existing `.als` Upload / Download** | Custom XML attributes breaking Ableton Live parser | All v3.0 MIR/Novelty/Session metadata is stored on the in-memory `AbletonProjectState` and serialized only to valid Ableton `<MidiTrack>` / `<KeyTrack>` nodes; verified via `validateAlsProjectCadence()` | Automated DOM & cadence validation on every mutation |
+| **Kick & Sub-Bass Phase / Clash** | Generated bass notes colliding with 4x4 kick transients | `analyzeProjectMusicalProfile()` extracts kick onset steps and `composeProjectConditionedLayerNotes()` ducks velocity/filters or shifts bass attacks off kick steps | `kickCollisionRatio` metric displayed in AI Composer panel |
+| **Repetitive / Identical AI Generations** | Clicking Regenerate produces near-identical note patterns | Bounded multi-candidate novelty search (`evaluateGenerationNovelty`) computes Jaccard rhythmic distance against generation history and picks the highest composite novelty + groove fit candidate | Real-time Novelty Score (`%`) & Candidate Attempt badge |
+| **Accidental Overwrite of User Edits** | "Generate All 4 Layers" overwrites a hand-crafted track | Added per-track `locked` toggle in Sidebar, Arrangement Header, and AI Composer Panel; locked tracks are strictly skipped during bulk generation | Track Lock state check in `handleInjectLayer` and `handleInjectAllMissingLayers` |
+| **Audio Scheduler Memory Growth** | `scheduledNoteKeys` Set growing unbounded over long jams | Bounded pruning at `2,048` entries and pre-allocated `Uint8Array(2048)` buffer in `runVisualPlayheadLoop` | Zero GC spikes during continuous 16-bar loop playback |
+| **24-Bit WAV Export Header Alignment** | Incorrect `blockAlign` or `byteRate` in RIFF header | Verified `bytesPerSample = 3`, `blockAlign = numChannels * 3`, `byteRate = sampleRate * blockAlign`, and signed 24-bit little-endian packing | Bit-exact RIFF/WAVE header inspection in `webAudioSynth.ts` |

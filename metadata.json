@@ -1,0 +1,6 @@
+{
+  "name": "Parametric ALS — AI Techno DAW Engine",
+  "description": "Parametric Ableton Live (.als) XML analysis, underground techno MIDI heuristic generator, anti-slop micro-timing humanizer, and FastAPI lxml exporter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

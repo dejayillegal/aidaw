@@ -1,0 +1,1433 @@
+import {
+  AbletonProjectState,
+  AbletonTrack,
+  AutomationPoint,
+  HumanizationConfig,
+  MasterBusConfig,
+  MidiNoteEvent,
+  TransportConfig,
+} from '../types/ableton';
+
+function midiToFreq(midi: number, transposeSemitones = 0, fineTuneCents = 0): number {
+  const totalSemitones = midi + transposeSemitones + fineTuneCents / 100;
+  return 440 * Math.pow(2, (totalSemitones - 69) / 12);
+}
+
+function dbToGain(db: number): number {
+  if (db <= -48) return 0;
+  return Math.pow(10, db / 20);
+}
+
+/**
+ * Evaluates a track's automation envelope at a given beat (supports 16 to 128 bars / up to 512 beats).
+ * Returns a normalized value in [0.0, 1.0].
+ */
+export function evaluateAutomationAtBeat(
+  points: AutomationPoint[] | undefined,
+  beat: number,
+  maxBeats = 512
+): number {
+  if (!points || points.length === 0) return 0.55;
+  const sorted = [...points].sort((a, b) => a.beat - b.beat);
+  const clampedBeat = Math.max(0, Math.min(maxBeats, beat));
+
+  if (clampedBeat <= sorted[0].beat) return sorted[0].value;
+  if (clampedBeat >= sorted[sorted.length - 1].beat) return sorted[sorted.length - 1].value;
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const p0 = sorted[i];
+    const p1 = sorted[i + 1];
+    if (clampedBeat >= p0.beat && clampedBeat <= p1.beat) {
+      const span = Math.max(0.0001, p1.beat - p0.beat);
+      const t = (clampedBeat - p0.beat) / span;
+      return p0.value + t * (p1.value - p0.value);
+    }
+  }
+  return 0.55;
+}
+
+/**
+ * Creates a soft-clipping analog saturation curve (Drum Buss / Glue / TB-303 Roar saturator).
+ */
+function createSaturationCurve(driveAmount = 1.8): Float32Array<ArrayBuffer> {
+  const samples = 1024;
+  const curve = new Float32Array(new ArrayBuffer(samples * 4));
+  const k = Math.max(0.5, driveAmount * 2.5);
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = Math.tanh(x * k) / Math.tanh(k);
+  }
+  return curve;
+}
+
+/**
+ * Creates a procedural stereo dark warehouse reverb impulse response.
+ */
+function createWarehouseReverbImpulse(
+  ctx: BaseAudioContext,
+  decaySeconds = 3.2
+): AudioBuffer {
+  const sampleRate = ctx.sampleRate;
+  const length = Math.floor(sampleRate * Math.max(0.8, Math.min(6.0, decaySeconds)));
+  const impulse = ctx.createBuffer(2, length, sampleRate);
+
+  for (let ch = 0; ch < 2; ch++) {
+    const data = impulse.getChannelData(ch);
+    let lpState = 0;
+    for (let i = 0; i < length; i++) {
+      const t = i / sampleRate;
+      if (t < 0.018) {
+        data[i] = 0;
+        continue;
+      }
+      const env = Math.pow(1 - i / length, 2.6) * Math.exp(-t * (2.8 / decaySeconds));
+      const rawNoise = Math.random() * 2 - 1;
+      lpState = lpState * 0.76 + rawNoise * 0.24;
+      data[i] = lpState * env * 0.65;
+    }
+  }
+  return impulse;
+}
+
+/**
+ * Creates a reusable white/metallic noise buffer for 909 hats, ride cymbals, and Collision exciters.
+ */
+function createNoiseBuffer(ctx: BaseAudioContext): AudioBuffer {
+  const bufferSize = Math.floor(ctx.sampleRate * 1.5);
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  return buffer;
+}
+
+interface AudioBusGraph {
+  dryBus: GainNode;
+  reverbSendBus: GainNode;
+  delaySendBus: GainNode;
+  masterGain: GainNode;
+  delayNodeL: DelayNode;
+  delayNodeR: DelayNode;
+  delayFeedbackGain: GainNode;
+  reverbReturnGain: GainNode;
+  delayReturnGain: GainNode;
+  compressor: DynamicsCompressorNode;
+  analyser?: AnalyserNode;
+}
+
+function buildAudioBusGraph(
+  ctx: BaseAudioContext,
+  tempo: number,
+  masterBus: MasterBusConfig,
+  withAnalyser: boolean
+): AudioBusGraph {
+  const dryBus = ctx.createGain();
+  const reverbSendBus = ctx.createGain();
+  const delaySendBus = ctx.createGain();
+
+  // Master High-Pass (Sub cleanup at 26 Hz)
+  const masterSubHpf = ctx.createBiquadFilter();
+  masterSubHpf.type = 'highpass';
+  masterSubHpf.frequency.value = 26;
+  masterSubHpf.Q.value = 0.707;
+
+  // Master Glue Compressor
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -14 - masterBus.glueCompressionDrive * 10;
+  compressor.knee.value = 8;
+  compressor.ratio.value = 2.5 + masterBus.glueCompressionDrive * 3.5;
+  compressor.attack.value = 0.015;
+  compressor.release.value = 0.14;
+
+  // Soft-clipping Master Limiter/Saturator (-0.3 dBFS brickwall protection)
+  const masterSaturator = ctx.createWaveShaper();
+  masterSaturator.curve = createSaturationCurve(1.1 + masterBus.glueCompressionDrive * 0.8);
+  masterSaturator.oversample = '2x';
+
+  // Master Output Gain
+  const masterGain = ctx.createGain();
+  masterGain.gain.value =
+    dbToGain(masterBus.masterVolumeDb) * (1 + masterBus.glueCompressionDrive * 0.25);
+
+  // Return A: Warehouse Reverb Convolver + Low-Cut (150Hz) + High-Cut (2800Hz)
+  const reverbConvolver = ctx.createConvolver();
+  reverbConvolver.buffer = createWarehouseReverbImpulse(ctx, masterBus.reverbDecaySec);
+
+  const reverbHpf = ctx.createBiquadFilter();
+  reverbHpf.type = 'highpass';
+  reverbHpf.frequency.value = 150;
+
+  const reverbLpf = ctx.createBiquadFilter();
+  reverbLpf.type = 'lowpass';
+  reverbLpf.frequency.value = 2800;
+
+  const reverbReturnGain = ctx.createGain();
+  reverbReturnGain.gain.value = masterBus.reverbReturnLevel * 0.85;
+
+  reverbSendBus.connect(reverbHpf);
+  reverbHpf.connect(reverbConvolver);
+  reverbConvolver.connect(reverbLpf);
+  reverbLpf.connect(reverbReturnGain);
+  reverbReturnGain.connect(masterSubHpf);
+
+  // Return B: Tempo-Synced 3/16 Stereo Ping-Pong Dub Echo
+  const threeSixteenthSec = Math.max(0.08, Math.min(0.9, (60 / Math.max(90, tempo)) * 0.75));
+  const delayNodeL = ctx.createDelay(2.0);
+  const delayNodeR = ctx.createDelay(2.0);
+  delayNodeL.delayTime.value = threeSixteenthSec;
+  delayNodeR.delayTime.value = threeSixteenthSec;
+
+  const delayFilter = ctx.createBiquadFilter();
+  delayFilter.type = 'bandpass';
+  delayFilter.frequency.value = 1150;
+  delayFilter.Q.value = 1.1;
+
+  const delayFeedbackGain = ctx.createGain();
+  delayFeedbackGain.gain.value = Math.min(0.82, Math.max(0.1, masterBus.delayFeedback));
+
+  const panL = ctx.createStereoPanner();
+  const panR = ctx.createStereoPanner();
+  panL.pan.value = -0.65;
+  panR.pan.value = 0.65;
+
+  const delayReturnGain = ctx.createGain();
+  delayReturnGain.gain.value = masterBus.delayReturnLevel * 0.75;
+
+  delaySendBus.connect(delayFilter);
+  delayFilter.connect(delayNodeL);
+  delayNodeL.connect(panL);
+  delayNodeL.connect(delayNodeR);
+  delayNodeR.connect(panR);
+  delayNodeR.connect(delayFeedbackGain);
+  delayFeedbackGain.connect(delayFilter);
+
+  panL.connect(delayReturnGain);
+  panR.connect(delayReturnGain);
+  delayReturnGain.connect(masterSubHpf);
+
+  dryBus.connect(masterSubHpf);
+  masterSubHpf.connect(compressor);
+  compressor.connect(masterSaturator);
+  masterSaturator.connect(masterGain);
+
+  let analyser: AnalyserNode | undefined;
+  if (withAnalyser) {
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.minDecibels = -90;
+    analyser.maxDecibels = -6;
+    analyser.smoothingTimeConstant = 0.8;
+    masterGain.connect(analyser);
+    analyser.connect(ctx.destination);
+  } else {
+    masterGain.connect(ctx.destination);
+  }
+
+  return {
+    dryBus,
+    reverbSendBus,
+    delaySendBus,
+    masterGain,
+    delayNodeL,
+    delayNodeR,
+    delayFeedbackGain,
+    reverbReturnGain,
+    delayReturnGain,
+    compressor,
+    analyser,
+  };
+}
+
+/**
+ * Schedules a single Ableton track MIDI note at exact Web Audio clock time `whenSec`.
+ * Supports all 8 techno archetypes: kick, rumble, percussion, synth, hats, acid, ride, pad.
+ */
+function scheduleTrackVoiceAtTime(
+  ctx: BaseAudioContext,
+  bus: AudioBusGraph,
+  noiseBuffer: AudioBuffer,
+  track: AbletonTrack,
+  note: MidiNoteEvent,
+  whenSec: number,
+  beatsPerSecond: number,
+  humanization: HumanizationConfig
+) {
+  const time = Math.max(ctx.currentTime, whenSec);
+  const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
+  const velGain = Math.pow(velNorm, 1.35);
+  const durSec = Math.max(0.045, note.duration / beatsPerSecond);
+
+  const mixer = track.mixer || {
+    volumeDb: 0,
+    pan: 0,
+    transposeSemitones: 0,
+    fineTuneCents: 0,
+    sidechainDepth: track.archetype === 'kick' ? 0 : 0.5,
+    reverbSend: 0.2,
+    delaySend: 0.15,
+    filterCutoffHz: 800,
+    filterResonance: 0.3,
+  };
+
+  const autoNorm = evaluateAutomationAtBeat(track.automationPoints, note.time, 512);
+  const lfoPhase = Math.sin(2 * Math.PI * humanization.lfoRateHz * time);
+  const lfoModFactor = 1 + lfoPhase * humanization.lfoDepth * 0.45;
+
+  // Quarter-note Kick Sidechain Ducking envelope calculation
+  const beatPhase = ((note.time % 1) + 1) % 1;
+  const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
+  const isNearKick = beatPhase < 0.22 || beatPhase > 0.94;
+  const initialDuckGain =
+    track.archetype === 'kick'
+      ? 1.0
+      : isNearKick
+      ? 1.0 - scDepth * 0.88
+      : 1.0 - scDepth * 0.12;
+
+  const channelGain = ctx.createGain();
+  const trackLinearGain = dbToGain(mixer.volumeDb);
+  channelGain.gain.setValueAtTime(trackLinearGain * initialDuckGain, time);
+  if (track.archetype !== 'kick' && scDepth > 0.05 && isNearKick) {
+    channelGain.gain.linearRampToValueAtTime(
+      trackLinearGain,
+      time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
+    );
+  }
+
+  // Optional Spectral Auto-Ducking EQEight Fundamental Notch node
+  let voiceDestination: AudioNode = channelGain;
+  if (track.spectralDucking?.enabled && track.archetype !== 'kick') {
+    const eqNotch = ctx.createBiquadFilter();
+    eqNotch.type = 'peaking';
+    eqNotch.frequency.setValueAtTime(track.spectralDucking.notchFreqHz || 55, time);
+    eqNotch.Q.setValueAtTime(track.spectralDucking.notchQ || 2.8, time);
+    const dynamicGainDb = isNearKick
+      ? track.spectralDucking.notchGainDb
+      : track.spectralDucking.notchGainDb * 0.35;
+    eqNotch.gain.setValueAtTime(dynamicGainDb, time);
+    if (isNearKick) {
+      eqNotch.gain.linearRampToValueAtTime(
+        track.spectralDucking.notchGainDb * 0.25,
+        time + Math.min(durSec, 0.22)
+      );
+    }
+    eqNotch.connect(channelGain);
+    voiceDestination = eqNotch;
+  }
+
+  const panner = ctx.createStereoPanner();
+  panner.pan.setValueAtTime(Math.max(-1, Math.min(1, mixer.pan)), time);
+
+  channelGain.connect(panner);
+  panner.connect(bus.dryBus);
+
+  if (mixer.reverbSend > 0.01) {
+    const revSend = ctx.createGain();
+    revSend.gain.setValueAtTime(mixer.reverbSend * (0.7 + autoNorm * 0.5), time);
+    panner.connect(revSend);
+    revSend.connect(bus.reverbSendBus);
+  }
+
+  if (mixer.delaySend > 0.01) {
+    const delSend = ctx.createGain();
+    delSend.gain.setValueAtTime(mixer.delaySend * (0.65 + autoNorm * 0.6), time);
+    panner.connect(delSend);
+    delSend.connect(bus.delaySendBus);
+  }
+
+  if (track.archetype === 'kick') {
+    // =========================================================================
+    // 1. 909 PUNCH KICK + TRANSIENT CLICK + DRUM BUSS WARM SATURATOR
+    // =========================================================================
+    const pitchRatio = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
+    const bodyOsc = ctx.createOscillator();
+    const subOsc = ctx.createOscillator();
+    const clickOsc = ctx.createOscillator();
+
+    const bodyGain = ctx.createGain();
+    const clickGain = ctx.createGain();
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = createSaturationCurve(1.65);
+
+    bodyOsc.type = 'sine';
+    bodyOsc.frequency.setValueAtTime(158 * pitchRatio, time);
+    bodyOsc.frequency.exponentialRampToValueAtTime(52 * pitchRatio, time + 0.042);
+    bodyOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.28);
+
+    subOsc.type = 'triangle';
+    subOsc.frequency.setValueAtTime(78 * pitchRatio, time);
+    subOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.18);
+
+    const subBlend = ctx.createGain();
+    subBlend.gain.setValueAtTime(0.28 * velGain, time);
+    subBlend.gain.exponentialRampToValueAtTime(0.001, time + 0.24);
+
+    clickOsc.type = 'triangle';
+    clickOsc.frequency.setValueAtTime(1150 * pitchRatio, time);
+    clickOsc.frequency.exponentialRampToValueAtTime(140 * pitchRatio, time + 0.014);
+
+    clickGain.gain.setValueAtTime(0.36 * velGain, time);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.016);
+
+    bodyGain.gain.setValueAtTime(0.001, time);
+    bodyGain.gain.linearRampToValueAtTime(0.92 * velGain, time + 0.003);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.31);
+
+    bodyOsc.connect(bodyGain);
+    subOsc.connect(subBlend);
+    subBlend.connect(bodyGain);
+    clickOsc.connect(clickGain);
+    clickGain.connect(shaper);
+    bodyGain.connect(shaper);
+    shaper.connect(voiceDestination);
+
+    bodyOsc.start(time);
+    subOsc.start(time);
+    clickOsc.start(time);
+    bodyOsc.stop(time + 0.33);
+    subOsc.stop(time + 0.33);
+    clickOsc.stop(time + 0.02);
+  } else if (track.archetype === 'rumble') {
+    // =========================================================================
+    // 2. OPERATOR SUB-BASS RUMBLE (Fundamental Sine + FM Harmonic + 24dB LPF)
+    // =========================================================================
+    const freq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
+    const oscFund = ctx.createOscillator();
+    const oscHarm = ctx.createOscillator();
+    const filter1 = ctx.createBiquadFilter();
+    const filter2 = ctx.createBiquadFilter();
+    const voiceGain = ctx.createGain();
+
+    oscFund.type = 'sine';
+    oscFund.frequency.setValueAtTime(freq, time);
+
+    oscHarm.type = 'sawtooth';
+    oscHarm.frequency.setValueAtTime(freq * 2, time);
+
+    const harmGain = ctx.createGain();
+    harmGain.gain.setValueAtTime(0.24 * (0.6 + autoNorm * 0.7), time);
+
+    const baseCut = Math.max(55, Math.min(450, mixer.filterCutoffHz || humanization.cutoffHz));
+    const macroAdd = (humanization.macroTransition / 127) * 140;
+    const targetCutoff = Math.max(
+      52,
+      Math.min(680, (baseCut + macroAdd) * (0.65 + autoNorm * 0.75) * lfoModFactor)
+    );
+
+    filter1.type = 'lowpass';
+    filter1.frequency.setValueAtTime(targetCutoff * 1.35, time);
+    filter1.frequency.exponentialRampToValueAtTime(targetCutoff * 0.82, time + durSec);
+    filter1.Q.setValueAtTime(1.8 + mixer.filterResonance * 4.5, time);
+
+    filter2.type = 'lowpass';
+    filter2.frequency.setValueAtTime(targetCutoff, time);
+    filter2.Q.setValueAtTime(1.1, time);
+
+    const peak = 0.68 * velGain;
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(peak, time + 0.01);
+    voiceGain.gain.setValueAtTime(peak * 0.85, time + durSec * 0.6);
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + durSec + 0.05);
+
+    oscFund.connect(filter1);
+    oscHarm.connect(harmGain);
+    harmGain.connect(filter1);
+    filter1.connect(filter2);
+    filter2.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    oscFund.start(time);
+    oscHarm.start(time);
+    oscFund.stop(time + durSec + 0.07);
+    oscHarm.stop(time + durSec + 0.07);
+  } else if (track.archetype === 'acid') {
+    // =========================================================================
+    // 3. TB-303 ACID RESONANT BASSLINE (Saw + Square Blend + 24dB Diode Filter + Slide + Roar Overdrive)
+    // =========================================================================
+    const freq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
+    const isAccent = Boolean(note.isAccent || note.velocity >= 108);
+    const isSlide = Boolean(note.isSlide || note.duration > 0.3);
+
+    const oscSaw = ctx.createOscillator();
+    const oscSq = ctx.createOscillator();
+    const sqBlend = ctx.createGain();
+    const diodeFilter1 = ctx.createBiquadFilter();
+    const diodeFilter2 = ctx.createBiquadFilter();
+    const shaper = ctx.createWaveShaper();
+    const voiceGain = ctx.createGain();
+
+    oscSaw.type = 'sawtooth';
+    oscSq.type = 'square';
+    sqBlend.gain.setValueAtTime(0.32, time);
+
+    if (isSlide) {
+      // Authentic 60ms TB-303 RC portamento glide from -5 or +7 semitones
+      const startFreq = freq * Math.pow(2, -5 / 12);
+      oscSaw.frequency.setValueAtTime(startFreq, time);
+      oscSaw.frequency.exponentialRampToValueAtTime(freq, time + 0.062);
+      oscSq.frequency.setValueAtTime(startFreq, time);
+      oscSq.frequency.exponentialRampToValueAtTime(freq, time + 0.062);
+    } else {
+      oscSaw.frequency.setValueAtTime(freq, time);
+      oscSq.frequency.setValueAtTime(freq, time);
+    }
+
+    const macroBoost = (humanization.macroTransition / 127) * 1600;
+    const baseCut = Math.max(180, Math.min(3800, mixer.filterCutoffHz || 680));
+    const envPeakHz = Math.min(
+      7500,
+      (baseCut + macroBoost + (isAccent ? 1850 : 650)) * (0.55 + autoNorm * 0.95) * lfoModFactor
+    );
+    const envFloorHz = Math.max(130, baseCut * 0.42);
+
+    diodeFilter1.type = 'lowpass';
+    diodeFilter1.frequency.setValueAtTime(envPeakHz, time);
+    diodeFilter1.frequency.exponentialRampToValueAtTime(
+      envFloorHz,
+      time + (isAccent ? 0.11 : Math.min(0.22, durSec * 0.85))
+    );
+    diodeFilter1.Q.setValueAtTime(
+      (isAccent ? 9.5 : 6.2) + mixer.filterResonance * 8.0,
+      time
+    );
+
+    diodeFilter2.type = 'lowpass';
+    diodeFilter2.frequency.setValueAtTime(envPeakHz * 1.15, time);
+    diodeFilter2.frequency.exponentialRampToValueAtTime(envFloorHz * 1.1, time + durSec);
+    diodeFilter2.Q.setValueAtTime(2.4, time);
+
+    shaper.curve = createSaturationCurve(isAccent ? 2.4 : 1.75);
+
+    const releaseSec = isSlide ? durSec + 0.09 : durSec + 0.03;
+    const peakGain = (isAccent ? 0.46 : 0.34) * velGain;
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(peakGain, time + 0.004);
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + releaseSec);
+
+    oscSaw.connect(diodeFilter1);
+    oscSq.connect(sqBlend);
+    sqBlend.connect(diodeFilter1);
+    diodeFilter1.connect(diodeFilter2);
+    diodeFilter2.connect(shaper);
+    shaper.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    oscSaw.start(time);
+    oscSq.start(time);
+    oscSaw.stop(time + releaseSec + 0.02);
+    oscSq.stop(time + releaseSec + 0.02);
+  } else if (track.archetype === 'percussion') {
+    // =========================================================================
+    // 4. COLLISION INDUSTRIAL FM METALLIC RESONATOR + TRANSIENT EXCITER
+    // =========================================================================
+    const baseFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
+    const carrier = ctx.createOscillator();
+    const mod1 = ctx.createOscillator();
+    const modGain = ctx.createGain();
+    const noiseSrc = ctx.createBufferSource();
+    noiseSrc.buffer = noiseBuffer;
+    const noiseGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const voiceGain = ctx.createGain();
+
+    carrier.type = 'triangle';
+    carrier.frequency.setValueAtTime(baseFreq, time);
+    carrier.frequency.exponentialRampToValueAtTime(baseFreq * 0.92, time + 0.11);
+
+    mod1.type = 'square';
+    mod1.frequency.setValueAtTime(baseFreq * 1.4142, time);
+    modGain.gain.setValueAtTime(baseFreq * (1.8 + autoNorm * 2.4) * velGain, time);
+    modGain.gain.exponentialRampToValueAtTime(2, time + 0.085);
+
+    noiseGain.gain.setValueAtTime(0.18 * velGain, time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.025);
+
+    const filterFreq = Math.max(
+      280,
+      Math.min(5500, (mixer.filterCutoffHz || 1150) * (0.6 + autoNorm * 0.9) * lfoModFactor)
+    );
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(filterFreq, time);
+    filter.Q.setValueAtTime(2.2 + mixer.filterResonance * 5.0, time);
+
+    const decay = Math.max(0.08, Math.min(0.24, durSec * 1.1));
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(0.42 * velGain, time + 0.003);
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+    mod1.connect(modGain);
+    modGain.connect(carrier.frequency);
+    carrier.connect(filter);
+    noiseSrc.connect(noiseGain);
+    noiseGain.connect(filter);
+    filter.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    carrier.start(time);
+    mod1.start(time);
+    noiseSrc.start(time);
+    carrier.stop(time + decay + 0.02);
+    mod1.stop(time + decay + 0.02);
+    noiseSrc.stop(time + 0.03);
+  } else if (track.archetype === 'ride') {
+    // =========================================================================
+    // 5. WAREHOUSE 909 RIDE CYMBAL (Inharmonic Metallic Cluster + Shimmer HPF)
+    // =========================================================================
+    const pitchShift = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
+    const isBell = note.pitch >= 55;
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const ratios = isBell ? [587, 845, 1188, 1740] : [465, 692, 1045, 1512];
+    const metalBus = ctx.createGain();
+    metalBus.gain.setValueAtTime(0.11 * velGain, time);
+    metalBus.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
+
+    const oscs = ratios.map((freqRatio) => {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.setValueAtTime(freqRatio * pitchShift, time);
+      o.connect(metalBus);
+      return o;
+    });
+
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.setValueAtTime((isBell ? 3800 : 2900) * pitchShift, time);
+    bandpass.Q.setValueAtTime(1.6, time);
+
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass';
+    hpf.frequency.setValueAtTime(Math.max(650, (mixer.filterCutoffHz || 4800) * 0.8), time);
+
+    const decaySec = (0.34 + velGain * 0.25) * (0.75 + autoNorm * 0.45);
+    const voiceGain = ctx.createGain();
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(0.28 * velGain, time + 0.003);
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + decaySec);
+
+    noise.connect(hpf);
+    metalBus.connect(bandpass);
+    bandpass.connect(hpf);
+    hpf.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    noise.start(time);
+    oscs.forEach((o) => o.start(time));
+    noise.stop(time + decaySec + 0.02);
+    oscs.forEach((o) => o.stop(time + 0.3));
+  } else if (track.archetype === 'hats') {
+    // =========================================================================
+    // 6. SIMPLER 909 METALLIC HI-HAT (Square Bank + Crisp Noise HPF)
+    // =========================================================================
+    const isOpenHat = note.pitch === 46 || note.duration > 0.3;
+    const pitchShift = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const metal1 = ctx.createOscillator();
+    const metal2 = ctx.createOscillator();
+    metal1.type = 'square';
+    metal2.type = 'square';
+    metal1.frequency.setValueAtTime(342 * pitchShift, time);
+    metal2.frequency.setValueAtTime(523 * pitchShift, time);
+
+    const metalGain = ctx.createGain();
+    metalGain.gain.setValueAtTime(0.09 * velGain, time);
+    metalGain.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
+
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass';
+    const baseCut = Math.max(3500, Math.min(11000, (mixer.filterCutoffHz || 6800) * pitchShift));
+    hpf.frequency.setValueAtTime(isOpenHat ? baseCut * 0.82 : baseCut, time);
+    hpf.Q.setValueAtTime(1.2 + mixer.filterResonance * 2.5, time);
+
+    const decayTime = isOpenHat
+      ? (0.14 + velGain * 0.22) * (0.75 + autoNorm * 0.5)
+      : (0.032 + velGain * 0.048) * (0.8 + autoNorm * 0.4);
+
+    const voiceGain = ctx.createGain();
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(0.32 * velGain, time + 0.002);
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + decayTime);
+
+    noise.connect(hpf);
+    metal1.connect(metalGain);
+    metal2.connect(metalGain);
+    metalGain.connect(hpf);
+    hpf.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    noise.start(time);
+    metal1.start(time);
+    metal2.start(time);
+    noise.stop(time + decayTime + 0.015);
+    metal1.stop(time + 0.04);
+    metal2.stop(time + 0.04);
+  } else if (track.archetype === 'pad') {
+    // =========================================================================
+    // 7. DUB TECHNO ATMOSPHERIC PAD (Warm Detuned Saw/Triangle + Slow LPF Sweep)
+    // =========================================================================
+    const rootFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const voiceGain = ctx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(rootFreq, time);
+    osc1.detune.setValueAtTime(-9, time);
+
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(rootFreq, time);
+    osc2.detune.setValueAtTime(9, time);
+
+    const baseCut = Math.max(200, Math.min(3600, mixer.filterCutoffHz || 780));
+    const macroBoost = (humanization.macroTransition / 127) * 950;
+    const targetCutoff = Math.min(4800, (baseCut + macroBoost) * (0.55 + autoNorm * 0.9) * lfoModFactor);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(targetCutoff * 0.65, time);
+    filter.frequency.linearRampToValueAtTime(targetCutoff, time + durSec * 0.5);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(180, targetCutoff * 0.4), time + durSec + 0.25);
+    filter.Q.setValueAtTime(1.5 + mixer.filterResonance * 4.0, time);
+
+    const releaseTime = durSec + 0.28;
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(0.14 * velGain, time + Math.min(0.12, durSec * 0.35));
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + releaseTime);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + releaseTime + 0.03);
+    osc2.stop(time + releaseTime + 0.03);
+  } else {
+    // =========================================================================
+    // 8. HYPNOTIC WAVETABLE MINOR CHORD STAB (3 Detuned Oscillators + Filter Env)
+    // =========================================================================
+    const rootFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
+    const oscRoot = ctx.createOscillator();
+    const oscDetune = ctx.createOscillator();
+    const oscChord = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const voiceGain = ctx.createGain();
+
+    oscRoot.type = 'sawtooth';
+    oscRoot.frequency.setValueAtTime(rootFreq, time);
+
+    oscDetune.type = 'sawtooth';
+    oscDetune.frequency.setValueAtTime(rootFreq, time);
+    oscDetune.detune.setValueAtTime(11, time);
+
+    oscChord.type = 'triangle';
+    oscChord.frequency.setValueAtTime(rootFreq * Math.pow(2, 3 / 12), time);
+    oscChord.detune.setValueAtTime(-7, time);
+
+    const chordSubGain = ctx.createGain();
+    chordSubGain.gain.setValueAtTime(0.48, time);
+
+    const macroBoost = (humanization.macroTransition / 127) * 1400;
+    const baseFilter = Math.max(220, Math.min(5200, mixer.filterCutoffHz || 920));
+    const peakCutoff = Math.min(
+      6800,
+      (baseFilter + macroBoost) * (0.45 + autoNorm * 1.15) * lfoModFactor
+    );
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(peakCutoff, time);
+    filter.frequency.exponentialRampToValueAtTime(
+      Math.max(180, peakCutoff * 0.28),
+      time + durSec + 0.08
+    );
+    filter.Q.setValueAtTime(2.0 + mixer.filterResonance * 6.5, time);
+
+    const releaseTime = durSec + 0.14;
+    voiceGain.gain.setValueAtTime(0.001, time);
+    voiceGain.gain.linearRampToValueAtTime(0.28 * velGain, time + 0.008);
+    voiceGain.gain.exponentialRampToValueAtTime(0.001, time + releaseTime);
+
+    oscRoot.connect(filter);
+    oscDetune.connect(filter);
+    oscChord.connect(chordSubGain);
+    chordSubGain.connect(filter);
+    filter.connect(voiceGain);
+    voiceGain.connect(voiceDestination);
+
+    oscRoot.start(time);
+    oscDetune.start(time);
+    oscChord.start(time);
+    oscRoot.stop(time + releaseTime + 0.02);
+    oscDetune.stop(time + releaseTime + 0.02);
+    oscChord.stop(time + releaseTime + 0.02);
+  }
+}
+
+/**
+ * Schedules a subtle Ableton-style Metronome click at exact audio time `whenSec`.
+ */
+function scheduleMetronomeClick(
+  ctx: BaseAudioContext,
+  destination: AudioNode,
+  whenSec: number,
+  isDownbeatBar: boolean
+) {
+  const time = Math.max(ctx.currentTime, whenSec);
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(isDownbeatBar ? 1480 : 980, time);
+  gain.gain.setValueAtTime(isDownbeatBar ? 0.18 : 0.1, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.028);
+  osc.connect(gain);
+  gain.connect(destination);
+  osc.start(time);
+  osc.stop(time + 0.032);
+}
+
+/**
+ * Encodes a stereo AudioBuffer into an uncompressed 24-bit PCM (or 16-bit PCM) RIFF WAVE (.wav) Blob.
+ */
+function encodeAudioBufferToWavBlob(buffer: AudioBuffer, bitDepth: 16 | 24 = 24): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const numFrames = buffer.length;
+  const bytesPerSample = bitDepth === 24 ? 3 : 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numFrames * blockAlign;
+  const totalSize = 44 + dataSize;
+
+  const arrayBuffer = new ArrayBuffer(totalSize);
+  const view = new DataView(arrayBuffer);
+
+  const writeAscii = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(8, 'WAVE');
+
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+
+  writeAscii(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const left = buffer.getChannelData(0);
+  const right = numChannels > 1 ? buffer.getChannelData(1) : left;
+
+  let offset = 44;
+  if (bitDepth === 24) {
+    const writeInt24LE = (pos: number, sampleNorm: number) => {
+      const clamped = Math.max(-1, Math.min(1, sampleNorm));
+      const intVal = Math.round(clamped < 0 ? clamped * 8388608 : clamped * 8388607);
+      view.setUint8(pos, intVal & 0xff);
+      view.setUint8(pos + 1, (intVal >> 8) & 0xff);
+      view.setUint8(pos + 2, (intVal >> 16) & 0xff);
+    };
+
+    for (let i = 0; i < numFrames; i++) {
+      writeInt24LE(offset, left[i]);
+      offset += 3;
+      if (numChannels > 1) {
+        writeInt24LE(offset, right[i]);
+        offset += 3;
+      }
+    }
+  } else {
+    for (let i = 0; i < numFrames; i++) {
+      const sL = Math.max(-1, Math.min(1, left[i]));
+      const sR = Math.max(-1, Math.min(1, right[i]));
+      view.setInt16(offset, sL < 0 ? sL * 0x8000 : sL * 0x7fff, true);
+      offset += 2;
+      if (numChannels > 1) {
+        view.setInt16(offset, sR < 0 ? sR * 0x8000 : sR * 0x7fff, true);
+        offset += 2;
+      }
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
+/**
+ * Renders the complete arrangement (16 to 128 bars) to a lossless 44.1kHz / 24-bit Stereo .WAV Blob.
+ */
+export async function renderArrangementToWavBlob(
+  project: AbletonProjectState,
+  humanization: HumanizationConfig,
+  masterBus: MasterBusConfig,
+  totalBars?: number,
+  bitDepth: 16 | 24 = 24
+): Promise<{ blob: Blob; durationSeconds: number; sampleRate: number; bitDepth: number }> {
+  const effectiveBars = totalBars || project.arrangementLengthBars || 16;
+  const sampleRate = 44100;
+  const totalBeats = effectiveBars * 4;
+  const beatsPerSecond = project.tempo / 60;
+  const tailSeconds = 2.4;
+  const durationSeconds = totalBeats / beatsPerSecond + tailSeconds;
+  const totalSamples = Math.ceil(durationSeconds * sampleRate);
+
+  const offlineCtx = new OfflineAudioContext(2, totalSamples, sampleRate);
+  const bus = buildAudioBusGraph(offlineCtx, project.tempo, masterBus, false);
+  const noiseBuffer = createNoiseBuffer(offlineCtx);
+
+  const anySolo = project.tracks.some((t) => t.soloed);
+
+  project.tracks.forEach((track) => {
+    if (track.muted) return;
+    if (anySolo && !track.soloed) return;
+
+    track.clips.forEach((clip) => {
+      clip.notes.forEach((note) => {
+        if (note.time < 0 || note.time >= totalBeats) return;
+        const whenSec = note.time / beatsPerSecond;
+        scheduleTrackVoiceAtTime(
+          offlineCtx,
+          bus,
+          noiseBuffer,
+          track,
+          note,
+          whenSec,
+          beatsPerSecond,
+          humanization
+        );
+      });
+    });
+  });
+
+  const renderedBuffer = await offlineCtx.startRendering();
+  const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth);
+  return { blob, durationSeconds, sampleRate, bitDepth };
+}
+
+/**
+ * Sample-Accurate Lookahead Web Audio Synthesizer & Transport Engine.
+ */
+export class ParametricWebAudioEngine {
+  private ctx: AudioContext | null = null;
+  private bus: AudioBusGraph | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
+
+  private isPlaying = false;
+  private anchorAudioTime = 0;
+  private anchorBeat = 0;
+  private currentBeat = 0;
+  private scheduledNoteKeys = new Set<string>();
+  private loopGeneration = 0;
+
+  private schedulerTimerId: number | null = null;
+  private rafId: number | null = null;
+
+  private project: AbletonProjectState | null = null;
+  private humanization: HumanizationConfig | null = null;
+  private transport: TransportConfig = {
+    loopEnabled: true,
+    loopStartBar: 1,
+    loopLengthBars: 4,
+    arrangementLengthBars: 16,
+    metronomeEnabled: false,
+    followPlayhead: true,
+    showAutomationLanes: false,
+  };
+  private masterBus: MasterBusConfig = {
+    masterVolumeDb: 0,
+    glueCompressionDrive: 0.35,
+    reverbDecaySec: 3.2,
+    reverbReturnLevel: 0.45,
+    delayFeedback: 0.42,
+    delayReturnLevel: 0.4,
+    subBassMonoCutoffHz: 120,
+  };
+
+  private onPlayheadUpdate?: (beat: number, lfoCutoffModHz: number, masterPeakDb: number) => void;
+  private onPlaybackStopped?: () => void;
+
+  private getMaxArrangementBeats(): number {
+    const bars =
+      this.project?.arrangementLengthBars || this.transport.arrangementLengthBars || 16;
+    return Math.max(64, bars * 4);
+  }
+
+  public setState(
+    project: AbletonProjectState,
+    humanization: HumanizationConfig,
+    transport?: TransportConfig,
+    masterBus?: MasterBusConfig,
+    onPlayheadUpdate?: (beat: number, lfoCutoffModHz: number, masterPeakDb: number) => void,
+    onPlaybackStopped?: () => void
+  ) {
+    const prevTempo = this.project?.tempo;
+    this.project = project;
+    this.humanization = humanization;
+    if (transport) {
+      this.transport = transport;
+    }
+    if (masterBus) {
+      this.masterBus = masterBus;
+    }
+    if (onPlayheadUpdate) {
+      this.onPlayheadUpdate = onPlayheadUpdate;
+    }
+    if (onPlaybackStopped) {
+      this.onPlaybackStopped = onPlaybackStopped;
+    }
+
+    if (this.ctx && this.bus) {
+      const now = this.ctx.currentTime;
+      this.bus.masterGain.gain.setTargetAtTime(
+        dbToGain(this.masterBus.masterVolumeDb) * (1 + this.masterBus.glueCompressionDrive * 0.25),
+        now,
+        0.02
+      );
+      this.bus.reverbReturnGain.gain.setTargetAtTime(
+        this.masterBus.reverbReturnLevel * 0.85,
+        now,
+        0.02
+      );
+      this.bus.delayReturnGain.gain.setTargetAtTime(
+        this.masterBus.delayReturnLevel * 0.75,
+        now,
+        0.02
+      );
+      this.bus.delayFeedbackGain.gain.setTargetAtTime(
+        Math.min(0.82, Math.max(0.1, this.masterBus.delayFeedback)),
+        now,
+        0.02
+      );
+      this.bus.compressor.threshold.setTargetAtTime(
+        -14 - this.masterBus.glueCompressionDrive * 10,
+        now,
+        0.03
+      );
+      const threeSixteenthSec = Math.max(
+        0.08,
+        Math.min(0.9, (60 / Math.max(90, project.tempo)) * 0.75)
+      );
+      this.bus.delayNodeL.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
+      this.bus.delayNodeR.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
+
+      if (this.isPlaying && prevTempo && prevTempo !== project.tempo) {
+        this.anchorBeat = this.currentBeat;
+        this.anchorAudioTime = this.ctx.currentTime;
+      }
+    }
+  }
+
+  private ensureContext() {
+    if (!this.ctx) {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new AudioCtx();
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+    if (!this.noiseBuffer && this.ctx) {
+      this.noiseBuffer = createNoiseBuffer(this.ctx);
+    }
+    if (!this.bus && this.ctx) {
+      this.bus = buildAudioBusGraph(
+        this.ctx,
+        this.project?.tempo || 134,
+        this.masterBus,
+        true
+      );
+    }
+  }
+
+  public start(fromStart = false) {
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const maxBeats = this.getMaxArrangementBeats();
+    if (fromStart || this.currentBeat >= maxBeats - 0.05) {
+      this.currentBeat = this.transport.loopEnabled
+        ? Math.max(0, (this.transport.loopStartBar - 1) * 4)
+        : 0;
+    }
+
+    this.anchorBeat = this.currentBeat;
+    this.anchorAudioTime = this.ctx.currentTime + 0.02;
+    this.scheduledNoteKeys.clear();
+    this.loopGeneration = 0;
+
+    if (!this.isPlaying) {
+      this.isPlaying = true;
+      this.schedulerTimerId = window.setInterval(this.runLookaheadScheduler, 20);
+      this.rafId = requestAnimationFrame(this.runVisualPlayheadLoop);
+    }
+  }
+
+  public stop() {
+    this.isPlaying = false;
+    if (this.schedulerTimerId !== null) {
+      clearInterval(this.schedulerTimerId);
+      this.schedulerTimerId = null;
+    }
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.scheduledNoteKeys.clear();
+  }
+
+  public seek(beat: number) {
+    const maxBeats = this.getMaxArrangementBeats();
+    const clamped = Math.max(0, Math.min(maxBeats - 0.01, beat));
+    this.currentBeat = clamped;
+    this.anchorBeat = clamped;
+    if (this.ctx) {
+      this.anchorAudioTime = this.ctx.currentTime;
+    }
+    this.scheduledNoteKeys.clear();
+    this.loopGeneration++;
+  }
+
+  public getIsPlaying(): boolean {
+    return this.isPlaying;
+  }
+
+  public getAnalyser(): AnalyserNode | null {
+    return this.bus?.analyser || null;
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.ctx || null;
+  }
+
+  public getByteFrequencyData(targetArray: Uint8Array<ArrayBuffer>): void {
+    if (this.bus?.analyser) {
+      this.bus.analyser.getByteFrequencyData(targetArray);
+    } else {
+      targetArray.fill(0);
+    }
+  }
+
+  public getFrequencyBinCount(): number {
+    return this.bus?.analyser ? this.bus.analyser.frequencyBinCount : 256;
+  }
+
+  private reusableTimeDomainBuffer: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(512));
+  private reusableFreqBuffer: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(256));
+
+  public getLoudnessMetrics(): { peakDbfs: number; rmsDb: number; kWeightedLufs: number } {
+    if (!this.bus?.analyser || !this.isPlaying) {
+      return { peakDbfs: -60.0, rmsDb: -60.0, kWeightedLufs: -60.0 };
+    }
+
+    const fftSize = this.bus.analyser.fftSize;
+    if (this.reusableTimeDomainBuffer.length !== fftSize) {
+      this.reusableTimeDomainBuffer = new Uint8Array(new ArrayBuffer(fftSize));
+    }
+    this.bus.analyser.getByteTimeDomainData(this.reusableTimeDomainBuffer);
+
+    let maxPeak = 0;
+    let sumSq = 0;
+    for (let i = 0; i < fftSize; i++) {
+      const sample = (this.reusableTimeDomainBuffer[i] - 128) / 128;
+      const abs = Math.abs(sample);
+      if (abs > maxPeak) maxPeak = abs;
+      sumSq += sample * sample;
+    }
+
+    const rms = Math.sqrt(sumSq / fftSize);
+    const peakDbfs =
+      maxPeak > 0.0005 ? Math.max(-60, Math.min(6, 20 * Math.log10(maxPeak))) : -60;
+    const rmsDb = rms > 0.0005 ? Math.max(-60, Math.min(6, 20 * Math.log10(rms))) : -60;
+
+    const binCount = this.bus.analyser.frequencyBinCount;
+    if (this.reusableFreqBuffer.length !== binCount) {
+      this.reusableFreqBuffer = new Uint8Array(new ArrayBuffer(binCount));
+    }
+    this.bus.analyser.getByteFrequencyData(this.reusableFreqBuffer);
+
+    const nyquist = (this.ctx?.sampleRate || 44100) / 2;
+    let weightedEnergySum = 0;
+    let totalWeight = 0;
+
+    for (let b = 1; b < binCount; b++) {
+      const freq = (b * nyquist) / binCount;
+      const rlbWeight = freq < 85 ? Math.pow(freq / 85, 2) : 1.0;
+      const shelfWeight = freq > 1500 ? 1.58 : freq > 800 ? 1.25 : 1.0;
+      const kWeight = rlbWeight * shelfWeight;
+
+      const magLinear = Math.pow(10, (-90 + (this.reusableFreqBuffer[b] / 255) * 84) / 20);
+      weightedEnergySum += magLinear * magLinear * kWeight;
+      totalWeight += kWeight;
+    }
+
+    const meanKWeightedSq = totalWeight > 0 ? weightedEnergySum / totalWeight : 0;
+    const kWeightedLufs =
+      meanKWeightedSq > 1e-7
+        ? Math.max(-60, Math.min(0, -0.691 + 10 * Math.log10(meanKWeightedSq) + 14.5))
+        : -60;
+
+    return {
+      peakDbfs: Math.round(peakDbfs * 10) / 10,
+      rmsDb: Math.round(rmsDb * 10) / 10,
+      kWeightedLufs: Math.round(kWeightedLufs * 10) / 10,
+    };
+  }
+
+  public triggerLivePad(archetype: string, velocity = 105, customPitch?: number): void {
+    this.ensureContext();
+    if (!this.ctx || !this.bus || !this.noiseBuffer || !this.project || !this.humanization) return;
+    const targetTrack =
+      this.project.tracks.find((t) => t.archetype === archetype) || this.project.tracks[0];
+    if (!targetTrack) return;
+
+    const defaultPitch =
+      archetype === 'kick'
+        ? 36
+        : archetype === 'rumble'
+        ? 29
+        : archetype === 'acid'
+        ? 41
+        : archetype === 'percussion'
+        ? 53
+        : archetype === 'ride'
+        ? 51
+        : archetype === 'hats'
+        ? 46
+        : archetype === 'pad'
+        ? 65
+        : 65;
+
+    const pitch =
+      customPitch !== undefined
+        ? customPitch
+        : targetTrack.clips[0]?.notes[0]?.pitch ?? defaultPitch;
+    const note: MidiNoteEvent = {
+      id: `live_${Date.now()}`,
+      time: this.currentBeat,
+      quantizedTime: this.currentBeat,
+      duration: archetype === 'pad' ? 0.85 : archetype === 'synth' ? 0.35 : 0.22,
+      pitch,
+      velocity: Math.max(20, Math.min(127, velocity)),
+      isGhost: false,
+      isAccent: velocity >= 108,
+    };
+
+    scheduleTrackVoiceAtTime(
+      this.ctx,
+      this.bus,
+      this.noiseBuffer,
+      targetTrack,
+      note,
+      this.ctx.currentTime,
+      this.project.tempo / 60,
+      this.humanization
+    );
+  }
+
+  private runLookaheadScheduler = () => {
+    if (
+      !this.isPlaying ||
+      !this.project ||
+      !this.humanization ||
+      !this.ctx ||
+      !this.bus ||
+      !this.noiseBuffer
+    ) {
+      return;
+    }
+
+    if (this.scheduledNoteKeys.size > 2048) {
+      this.scheduledNoteKeys.clear();
+    }
+
+    const nowAudio = this.ctx.currentTime;
+    const beatsPerSecond = this.project.tempo / 60;
+    const lookaheadSeconds = 0.12;
+    const maxBeats = this.getMaxArrangementBeats();
+
+    let exactBeatNow = this.anchorBeat + (nowAudio - this.anchorAudioTime) * beatsPerSecond;
+
+    const loopStartBeat = Math.max(0, (this.transport.loopStartBar - 1) * 4);
+    const loopSpanBeats = this.transport.loopLengthBars * 4;
+    const loopEndBeat = Math.min(maxBeats, loopStartBeat + loopSpanBeats);
+
+    if (this.transport.loopEnabled) {
+      if (exactBeatNow >= loopEndBeat) {
+        const wrappedBeat = loopStartBeat + ((exactBeatNow - loopStartBeat) % loopSpanBeats);
+        this.anchorBeat = wrappedBeat;
+        this.anchorAudioTime = nowAudio;
+        exactBeatNow = wrappedBeat;
+        this.loopGeneration++;
+        this.scheduledNoteKeys.clear();
+      }
+    } else {
+      if (exactBeatNow >= maxBeats) {
+        this.currentBeat = 0;
+        this.stop();
+        if (this.onPlayheadUpdate) {
+          this.onPlayheadUpdate(0, this.humanization.cutoffHz, -60);
+        }
+        if (this.onPlaybackStopped) {
+          this.onPlaybackStopped();
+        }
+        return;
+      }
+    }
+
+    const windowEndBeat = exactBeatNow + lookaheadSeconds * beatsPerSecond;
+
+    if (this.transport.metronomeEnabled) {
+      const firstIntBeat = Math.ceil(exactBeatNow - 0.02);
+      const lastIntBeat = Math.floor(windowEndBeat);
+      for (let b = firstIntBeat; b <= lastIntBeat; b++) {
+        if (b < 0 || b >= maxBeats) continue;
+        const metroKey = `metro_${this.loopGeneration}_${b}`;
+        if (!this.scheduledNoteKeys.has(metroKey)) {
+          const clickAudioTime = this.anchorAudioTime + (b - this.anchorBeat) / beatsPerSecond;
+          if (clickAudioTime >= nowAudio - 0.015) {
+            this.scheduledNoteKeys.add(metroKey);
+            scheduleMetronomeClick(this.ctx, this.bus.masterGain, clickAudioTime, b % 4 === 0);
+          }
+        }
+      }
+    }
+
+    const anySolo = this.project.tracks.some((t) => t.soloed);
+
+    this.project.tracks.forEach((track) => {
+      if (track.muted) return;
+      if (anySolo && !track.soloed) return;
+
+      track.clips.forEach((clip) => {
+        clip.notes.forEach((note) => {
+          if (note.probability !== undefined && note.probability < 1.0) {
+            const detHash =
+              ((Math.round(note.time * 100) + note.pitch * 17 + this.loopGeneration * 31) % 100) /
+              100;
+            if (detHash > note.probability) return;
+          }
+
+          if (note.time >= exactBeatNow - 0.02 && note.time <= windowEndBeat) {
+            if (
+              this.transport.loopEnabled &&
+              (note.time < loopStartBeat || note.time >= loopEndBeat)
+            ) {
+              return;
+            }
+            const key = `${this.loopGeneration}_${track.id}_${note.id}`;
+            if (!this.scheduledNoteKeys.has(key)) {
+              const noteAudioTime =
+                this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
+              if (noteAudioTime >= nowAudio - 0.02) {
+                this.scheduledNoteKeys.add(key);
+                scheduleTrackVoiceAtTime(
+                  this.ctx!,
+                  this.bus!,
+                  this.noiseBuffer!,
+                  track,
+                  note,
+                  noteAudioTime,
+                  beatsPerSecond,
+                  this.humanization!
+                );
+              }
+            }
+          }
+
+          if (this.transport.loopEnabled && windowEndBeat > loopEndBeat) {
+            const overflowBeats = windowEndBeat - loopEndBeat;
+            if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
+              const nextGen = this.loopGeneration + 1;
+              const wrapKey = `${nextGen}_${track.id}_${note.id}`;
+              if (!this.scheduledNoteKeys.has(wrapKey)) {
+                const beatsUntilNote =
+                  loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
+                const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
+                if (noteAudioTime >= nowAudio - 0.01) {
+                  this.scheduledNoteKeys.add(wrapKey);
+                  scheduleTrackVoiceAtTime(
+                    this.ctx!,
+                    this.bus!,
+                    this.noiseBuffer!,
+                    track,
+                    note,
+                    noteAudioTime,
+                    beatsPerSecond,
+                    this.humanization!
+                  );
+                }
+              }
+            }
+          }
+        });
+      });
+    });
+  };
+
+  private runVisualPlayheadLoop = () => {
+    if (!this.isPlaying || !this.project || !this.humanization || !this.ctx) return;
+
+    const nowAudio = this.ctx.currentTime;
+    const beatsPerSecond = this.project.tempo / 60;
+    const beat = this.anchorBeat + Math.max(0, nowAudio - this.anchorAudioTime) * beatsPerSecond;
+    const maxBeats = this.getMaxArrangementBeats();
+
+    const loopStartBeat = Math.max(0, (this.transport.loopStartBar - 1) * 4);
+    const loopSpanBeats = this.transport.loopLengthBars * 4;
+    const loopEndBeat = Math.min(maxBeats, loopStartBeat + loopSpanBeats);
+
+    if (this.transport.loopEnabled && beat >= loopEndBeat) {
+      this.currentBeat = loopStartBeat + ((beat - loopStartBeat) % loopSpanBeats);
+    } else {
+      this.currentBeat = Math.min(maxBeats, beat);
+    }
+
+    const lfoPhase = Math.sin(2 * Math.PI * this.humanization.lfoRateHz * nowAudio);
+    const baseCutoff =
+      this.humanization.cutoffHz + (this.humanization.macroTransition / 127) * 180;
+    const modulatedCutoffHz = Math.max(
+      45,
+      Math.min(2400, baseCutoff * (1 + lfoPhase * this.humanization.lfoDepth * 0.65))
+    );
+
+    let masterPeakDb = -60;
+    if (this.bus?.analyser) {
+      const fftSize = this.bus.analyser.fftSize;
+      if (this.reusableTimeDomainBuffer.length !== fftSize) {
+        this.reusableTimeDomainBuffer = new Uint8Array(new ArrayBuffer(fftSize));
+      }
+      this.bus.analyser.getByteTimeDomainData(this.reusableTimeDomainBuffer);
+      let maxPeak = 0;
+      for (let i = 0; i < fftSize; i++) {
+        const centered = Math.abs((this.reusableTimeDomainBuffer[i] - 128) / 128);
+        if (centered > maxPeak) maxPeak = centered;
+      }
+      if (maxPeak > 0.0005) {
+        masterPeakDb = Math.max(-48, Math.min(6, 20 * Math.log10(maxPeak)));
+      }
+    }
+
+    if (this.onPlayheadUpdate) {
+      this.onPlayheadUpdate(this.currentBeat, modulatedCutoffHz, masterPeakDb);
+    }
+
+    this.rafId = requestAnimationFrame(this.runVisualPlayheadLoop);
+  };
+}
+
+export const synthEngine = new ParametricWebAudioEngine();
