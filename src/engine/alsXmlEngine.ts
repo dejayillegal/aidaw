@@ -21,7 +21,16 @@ import {
   VelocityCurvePreset,
   VoicingSpreadStyle,
 } from '../types/ableton';
-import { decomposeNotesIntoSectionClips } from './compositionIntelligenceEngine';
+import {
+  decomposeNotesIntoSectionClips,
+  generateSectionArrangementProposal,
+  GenerateSectionArrangementProposal,
+} from './compositionIntelligenceEngine';
+
+export {
+  generateSectionArrangementProposal,
+  GenerateSectionArrangementProposal,
+};
 
 export const BROWSER_SUPPORTED_DEVICE_TAGS = new Set<string>([
   'Operator',
@@ -1746,7 +1755,9 @@ export function parseAbletonXmlDom(
     };
 
     const deviceElements = Array.from(
-      trackEl.querySelectorAll('DeviceChain > MidiToAudioDeviceChain > Devices > *, DeviceChain > Devices > *')
+      trackEl.querySelectorAll(
+        'DeviceChain > MidiToAudioDeviceChain > Devices > *, DeviceChain > AudioToAudioDeviceChain > Devices > *, DeviceChain > Devices > *'
+      )
     );
     const devices: AbletonDevice[] = deviceElements.map((devEl, dIdx) => {
       const tag = devEl.tagName;
@@ -1962,20 +1973,10 @@ export function parseAbletonXmlDom(
       };
     });
 
-    // Decompose monolithic full-song single clips (>= 32 bars / 128 beats) into genuine section-based clips
-    // with authentic underground techno section entries and withdrawals, while preserving multi-clip tracks as-is
-    const resolvedClips: AbletonMidiClip[] =
-      clips.length === 1 && clips[0].length >= 128 && !clips[0].isPolymeter
-        ? decomposeNotesIntoSectionClips(
-            effectiveName,
-            archetype,
-            clips[0].notes,
-            Math.round(clips[0].length / 4)
-          ).map((secClip, idx) => ({
-            ...secClip,
-            id: idx === 0 ? clips[0].id : secClip.id,
-          }))
-        : clips;
+    // Content-preserving ALS Import (v7.1 P0-001):
+    // Preserves all original track structures, clips, notes, and timings without destructive transformation on import.
+    // Creative section decomposition is available as an explicit user command via generateSectionArrangementProposal().
+    const resolvedClips: AbletonMidiClip[] = clips;
 
     const defaultMixerByArchetype: Record<TechnoArchetype, TrackMixerParams> = {
       kick: {
@@ -2104,6 +2105,27 @@ export function parseAbletonXmlDom(
             { beat: 64, value: 0.55 },
           ];
 
+    // Extract native automation envelope points from XML if present, preserving original envelopes
+    const nativeAutoPoints: AutomationPoint[] = [];
+    const floatEventEls = Array.from(
+      trackEl.querySelectorAll('AutomationEnvelopes FloatEvent, Automation FloatEvent, Envelope FloatEvent')
+    );
+    if (floatEventEls.length > 0) {
+      floatEventEls.forEach((ev) => {
+        const timeAttr = ev.getAttribute('Time');
+        const valAttr = ev.getAttribute('Value');
+        if (timeAttr !== null && valAttr !== null) {
+          const beat = parseFloat(timeAttr);
+          const value = parseFloat(valAttr);
+          if (!Number.isNaN(beat) && !Number.isNaN(value)) {
+            nativeAutoPoints.push({ beat, value });
+          }
+        }
+      });
+      nativeAutoPoints.sort((a, b) => a.beat - b.beat);
+    }
+    const resolvedAutomationPoints = nativeAutoPoints.length > 0 ? nativeAutoPoints : defaultAutomation;
+
     let detectedRootForTrack = rootNoteAttr || 'F';
     const serializer = new XMLSerializer();
     const initialNotes = clips[0]?.notes ? [...clips[0].notes] : [];
@@ -2162,7 +2184,7 @@ export function parseAbletonXmlDom(
       activeTakeId: defaultTakes[0].id,
       lfoDrift,
       mixer: { ...defaultMixerByArchetype[archetype] },
-      automationPoints: defaultAutomation,
+      automationPoints: resolvedAutomationPoints,
       velocityCurve: getDefaultVelocityCurveForArchetype(archetype),
       spectralDucking: getDefaultSpectralDuckingConfig(archetype, detectedRootForTrack, tempo),
       polyrhythm: getDefaultPolyrhythmConfig(archetype),
@@ -4000,15 +4022,23 @@ export class TechnoHeuristicEngine {
 }
 
 /**
- * Convenience wrapper around parseAbletonXmlDom with default filename support.
+ * Primary content-preserving Ableton Live (.als) XML string parser (v7.1 P0-001).
+ * Strictly preserves 100% of original track structures, clip boundaries, timings,
+ * automation envelopes, and native devices without destructive automatic transformations.
+ * Automatic section proposals are decoupled into GenerateSectionArrangementProposal.
  */
-export function parseAlsXmlString(
+export function parseAbletonXmlString(
   xmlString: string,
   fileName = 'Untitled_Project.als',
   rawXmlBaseline?: string
 ): AbletonProjectState {
   return parseAbletonXmlDom(xmlString, fileName, rawXmlBaseline);
 }
+
+/**
+ * Backward-compatible alias for parseAbletonXmlString.
+ */
+export const parseAlsXmlString = parseAbletonXmlString;
 
 /**
  * Compiles a project's current tracks, velocity curves, memory locations, and mixer state into valid Ableton XML.

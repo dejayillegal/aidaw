@@ -1,0 +1,2023 @@
+GOOGLE AI STUDIO — PARAMETRIC ALS v7.0
+
+MASTER IMPLEMENTATION DIRECTIVE
+
+REAL AUDIO RECOVERY · ABLETON-CLASS ARRANGEMENT · INFINITE-FEEL TIMELINE · ADVANCED UNDERGROUND TECHNO ENGINE · LIVE MIXER · REAL ANDROID APK
+
+Repository: https://github.com/dejayillegal/aidaw
+
+Source baseline to inspect: "b69cd71cf236479a2d99305e61c9e5c3d77a24b7" or the latest available commit.
+
+Required output: Actual tested code modifications to the existing application, not another plan, mockup, or speculative feature list.
+
+Primary deliverable: A functioning, original, professional desktop/browser/Android DAW with sophisticated underground electronic music composition, clip-based arrangement editing, real-time audio playback, accurate mixer controls and a genuinely installable offline Android application.
+
+---
+
+0. EXECUTION AUTHORITY — IMPLEMENT AND VERIFY
+
+You are acting as a multidisciplinary professional DAW engineering team combining:
+
+- Principal Audio Systems Architect
+- Real-Time DSP Engineer
+- MIDI Sequencer and Musical Timing Engineer
+- Ableton Live Arrangement Workflow Specialist
+- SoundCraft Edit/Mix Workflow Designer
+- Electronic Music Composer and Sound Designer
+- Underground Techno and Advanced Rhythm Specialist
+- Music Information Retrieval Researcher
+- Generative Music Systems Engineer
+- Android and Capacitor Engineer
+- React/TypeScript Frontend Architect
+- QA, Performance, Security and Release Engineer
+
+Work at the engineering standard expected of a mature, professionally released DAW.
+
+Do not claim exceptional expertise merely by adding labels, AI explanations or elaborate UI descriptions.
+
+Demonstrate expertise through correct implementations, musically convincing results, verified audio processing, safe project mutation, sophisticated arrangement behavior and executable testing.
+
+The current application has critical functional failures. Fix those first.
+
+Do not add more decorative buttons while playback is broken.
+
+Do not generate more MIDI notes as a substitute for proper independent clips.
+
+Do not use an APK-like ZIP as an Android build.
+
+Do not silently discard features that already work.
+
+Implement using small, reversible, testable changes with regression coverage.
+
+---
+
+1. CRITICAL BUGS CONFIRMED IN CURRENT SOURCE
+
+These findings are based on the actual source code reviewed from the repository.
+
+BUG P0-001 — AUDIO STABILITY SYSTEM INTERRUPTS PLAYBACK
+
+Current file:
+
+"src/engine/webAudioSynth.ts"
+
+The engine contains:
+
+- "stabilityThresholdMs = 12.0"
+- "stabilityAutoPauseEnabled = true"
+- "triggerStabilityAutoPause()"
+- JavaScript scheduler jitter calculations
+- A synthetic latency-spike generator
+- Initial artificial underrun history
+- Diagnostic latency values partly computed with random jitter
+- A "stop()" call when a latency threshold is exceeded
+
+This is NOT a reliable audio-underrun detection system.
+
+The screenshot shows playback being automatically stopped by this protection.
+
+REQUIRED FIX
+
+1. Reproduce the failure with automated tests and runtime logs.
+2. Separate genuine measurements from simulated diagnostics.
+3. Remove fabricated initial underrun events.
+4. Never identify random or synthetic latency values as hardware measurements.
+5. Do not treat ordinary main-thread timer delays as proof of audio-device underruns.
+6. Do not stop playback merely because a JavaScript scheduling interval was late.
+7. Diagnose AudioContext state, scheduler delay, dropped events, voice count, browser visibility and real output status independently.
+8. Repair the scheduler's recovery behavior.
+9. Preserve playback position and allow reliable resume.
+10. Keep user-visible diagnostics grounded in actual observed signals.
+
+Playback recovery design
+
+Use an explicit state machine:
+
+"idle → initializing → ready → playing → paused → interrupted → recovering → playing"
+
+Include error states for:
+
+- AudioContext initialization failure
+- Browser autoplay/user-gesture restriction
+- Audio focus interruption
+- Audio output disconnection
+- Device change
+- Unrecoverable DSP failure
+
+Separate ordinary pause from engine failure.
+
+Scheduler
+
+Use "AudioContext.currentTime" as the authoritative audio timeline.
+
+Schedule notes within a configurable lookahead horizon.
+
+Avoid creating large numbers of nodes inside expensive synchronous loops.
+
+Prevent duplicate scheduling across loop boundaries.
+
+Maintain deterministic scheduling identities.
+
+Recover from late scheduler execution without repeatedly playing past events or silently resetting the transport.
+
+Use bounded recovery rather than uncontrolled retries.
+
+Real-time rendering
+
+Where appropriate, move continuous DSP processing to an AudioWorklet.
+
+Do not perform large waveform calculations, FFT history generation, XML serialization or composition searches on the time-critical scheduling path.
+
+Use worker-based or chunked computation for expensive non-audio tasks.
+
+Acceptance
+
+Playback must work in:
+
+- Browser desktop
+- Android WebView
+- Offline Android app
+- Headphones
+- Speaker output
+- Supported Bluetooth output routes
+
+Test:
+
+- Play/Stop/Resume
+- Loop playback
+- 16/32/64/128/256/512-bar projects
+- Rapid track mute/solo
+- Timeline zoom while playing
+- Mixer adjustment while playing
+- MIDI note editing while playing
+- Device parameter adjustment
+- Project switching
+- Screen rotation
+- Temporary app backgrounding
+- Audio focus loss and regain
+
+Do not claim real-time audio stability without actual playback verification.
+
+Audio playback is the first release blocker.
+
+---
+
+2. BUG P0-002 — FIX THE FALSELY EXTENDED ARRANGEMENT CLIPS
+
+Current file:
+
+"src/components/TimelineCanvas.tsx"
+
+The existing clip display uses logic equivalent to:
+
+"clip.startTime + Math.max(clip.length, totalBeats)"
+
+This can make a short clip appear to span an entire 128-bar arrangement.
+
+That is musically and visually incorrect.
+
+REQUIRED FIX
+
+Model clip boundaries using the actual clip start and actual clip duration.
+
+Never substitute total arrangement length for clip duration.
+
+Separate:
+
+- Absolute arrangement position
+- Clip start beat
+- Clip end beat
+- Clip source content offset
+- Clip loop start
+- Clip loop end
+- Loop enabled
+- Content duration
+- Clip stretch/warp state
+- Track assignment
+- Clip identity
+
+Use proper visible-viewport intersection to render clips.
+
+For example, if a kick clip is four bars long and starts at Bar 17, it must occupy Bars 17–21, not the remaining 128-bar project.
+
+Repeated clip material must be represented explicitly as repeated clip instances or a clearly modeled looping clip.
+
+Never invent continuous clip content just to fill the screen.
+
+---
+
+3. REBUILD THE ARRANGEMENT DATA MODEL
+
+The DAW must support actual clips, not merely a track containing one massive collection of MIDI notes.
+
+Required core entities
+
+Project
+
+- Project ID
+- Project name
+- Musical identity
+- Tempo map
+- Meter map
+- Master key/scale metadata
+- Arrangement length
+- Track groups
+- Tracks
+- Clips
+- Sections
+- Markers
+- Automation
+- Mixer state
+- Source ALS
+- Project revisions
+- Generation history
+
+Track
+
+- Stable ID
+- Name
+- Type
+- Group membership
+- Color
+- Track order
+- Mixer
+- Device chain
+- Audio/MIDI routing
+- Active take
+- Mute/Solo/Arm
+- Instrument role
+- Musical constraints
+- Clips
+- Automation lanes
+
+Clip
+
+- Stable clip ID
+- Track ID
+- Clip type: MIDI or audio
+- Start position
+- Duration
+- Loop start/end
+- Content offset
+- Musical variation ID
+- Velocity/dynamics
+- Notes or audio source reference
+- Fade
+- Gain
+- Warp settings where supported
+- Lock status
+- Take/playlist ownership
+
+Arrangement section
+
+- Section ID
+- Name
+- Start beat
+- End beat
+- Energy target
+- Instrument role changes
+- Transitions
+- Automation plan
+- Musical narrative
+- Variation constraints
+
+Musical phrase
+
+- Phrase ID
+- Length
+- Motif family
+- Rhythm identity
+- Harmonic identity
+- Call/response relationship
+- Variation history
+
+Use a canonical project graph.
+
+Define typed, reversible operations.
+
+Do not make MIDI clip rendering depend on destructive regeneration of source ALS clips.
+
+---
+
+4. REPLACE THE FIXED TIMELINE WITH CONTINUOUS ABLETON-CLASS ZOOM
+
+Current arrangement length options are limited to 16, 32, 64 and 128 bars.
+
+Current zoom is limited to discrete 1×, 2×, 4× and 8× settings.
+
+This must be redesigned.
+
+4.1 Arrangement length is not zoom
+
+These are independent concepts:
+
+Arrangement length: How much musical time the project contains.
+
+Timeline zoom: How much musical time is visible at the current viewport scale.
+
+Changing zoom must never modify arrangement content or duration.
+
+Changing arrangement length must never silently change note timings.
+
+4.2 Dynamic project duration
+
+Support:
+
+- 4 bars
+- 8 bars
+- 16 bars
+- 32 bars
+- 64 bars
+- 128 bars
+- 256 bars
+- 512 bars
+- 1024 bars
+- User-defined lengths
+- Automatic length extension when creating or moving content beyond the existing end
+
+Larger arrangements may be supported using virtualization and resource limits.
+
+Do not allocate an entire massive canvas for all possible bars.
+
+Maintain a configurable practical upper limit based on data and performance constraints, rather than silently imposing 128 bars.
+
+4.3 Continuous zoom
+
+Create a "TimelineViewportController".
+
+Maintain:
+
+- "pixelsPerBeat"
+- "scrollBeat"
+- "viewportWidth"
+- "viewportHeight"
+- "playheadBeat"
+- "selectionAnchorBeat"
+- "selectionRange"
+- "followPlayhead"
+- "zoomAnchorBeat"
+- "visibleStartBeat"
+- "visibleEndBeat"
+
+Use a continuous logarithmic zoom scale, with reasonable minimum and maximum pixel-per-beat limits.
+
+Supported interactions
+
+- Mouse wheel with appropriate modifier
+- Trackpad pinch
+- Touch pinch
+- Plus/Minus
+- Zoom slider
+- Drag ruler vertically
+- Zoom to selected clip
+- Zoom to selected range
+- Zoom to entire arrangement
+- Zoom to current section
+- Zoom to one bar
+- Return to previous zoom state
+
+Zoom behavior
+
+The musical time beneath the cursor or gesture center must remain anchored while zooming.
+
+Use:
+
+"newScrollBeat = anchorBeat - anchorPixel / newPixelsPerBeat"
+
+Adjust for ruler/header origin and clamp to valid viewport bounds.
+
+Do not jump unexpectedly to Bar 1.
+
+Do not force the user back to a fixed zoom preset.
+
+4.4 Adaptive grid
+
+At a broad zoom:
+
+- Show major bars and sections.
+- Hide fine subdivisions that would cause visual noise.
+
+At medium zoom:
+
+- Show bars, quarter beats and useful subdivisions.
+
+At close zoom:
+
+- Show 1/8, 1/16, 1/32 and supported finer divisions.
+- Make MIDI onsets, velocities and note lengths visible.
+
+Use adaptive label spacing and avoid overlapping ruler labels.
+
+4.5 Timeline overview navigator
+
+Add a full-song minimap above the main ruler.
+
+Display all arrangement clips as compact colored overview blocks.
+
+Show the current viewport as a draggable rectangle.
+
+Support:
+
+- Drag to pan
+- Resize/gesture to zoom
+- Double-click to fit project
+- Click a section to navigate
+- Follow playhead
+- Find selected clip
+
+4.6 Horizontal/vertical track interaction
+
+Allow independent track-height control.
+
+Support:
+
+- Fit all tracks vertically
+- Expand one track
+- Collapse groups
+- Scroll vertically
+- Scroll horizontally
+- Resize dock/track headers
+- Preserve synchronized scrolling
+
+A 40-track arrangement must not cause ruler/clip coordinate drift.
+
+4.7 Timeline performance
+
+Render only visible time ranges and visible track lanes.
+
+Use:
+
+- Spatial/time interval indexing
+- Viewport culling
+- Cached waveform peaks
+- Note-density aggregation at distant zooms
+- Precise note rendering at close zooms
+- Canvas/WebGL where warranted
+- Device-pixel-ratio-aware drawing
+- Batched pointer events
+
+Do not recalculate complete 512-bar note sequences on every mouse movement.
+
+---
+
+5. PROFESSIONAL BAR SELECTION, RANGE EDITING AND CLIP CREATION
+
+This is a mandatory interaction feature.
+
+5.1 Selection behavior
+
+Single click on empty timeline
+
+Place the insert marker at the appropriate musical time.
+
+Click on an existing clip
+
+Select that clip without accidentally triggering a live pad.
+
+Drag on empty timeline
+
+Create a time-range selection.
+
+Shift-click
+
+Extend the current time selection.
+
+Multi-select
+
+Select multiple clips or tracks using normal desktop conventions.
+
+Double-click empty MIDI lane
+
+Create a MIDI clip using the current grid/selection rules.
+
+Right-click
+
+Open a context-sensitive editing menu.
+
+Select by bar number
+
+Clicking a bar label must allow an appropriate one-bar range selection without interfering with scrub/seek controls.
+
+Time-range field
+
+Allow explicit input:
+
+- Start Bar.Beat.Sixteenth
+- End Bar.Beat.Sixteenth
+- Length
+
+MIDI clip insertion
+
+Create a clip exactly within the selected range.
+
+Do not default every new clip to 16 or 128 bars.
+
+5.2 Context menu
+
+Provide working operations:
+
+- Create MIDI Clip
+- Import MIDI
+- Create Audio Clip
+- Generate Chord Clip
+- Generate Bass Pattern
+- Generate Drum Pattern
+- Generate Percussion Phrase
+- Generate Automation
+- Duplicate
+- Split
+- Consolidate
+- Move
+- Resize
+- Loop
+- Delete
+- Insert Time
+- Delete Time
+- Duplicate Time
+- Add Marker
+- Rename Section
+
+Only enable an operation when supported by the selected content.
+
+5.3 Example
+
+The producer selects Bars 33–41 on a Dub Chord track.
+
+Clicks Generate Chord Clip.
+
+The application must:
+
+1. Read the exact selected range.
+2. Inspect the project's key, scale, groove, existing bass and chord context.
+3. Generate an eight-bar editable MIDI chord clip.
+4. Place it at Bar 33.
+5. Preserve the remaining arrangement.
+6. Display the clip with correct geometry.
+7. Open it in Piano Roll.
+8. Play the actual generated notes.
+9. Support Undo/Redo.
+10. Persist the clip correctly.
+
+This must also work for a user-created track rather than only an original template track.
+
+---
+
+6. PROFESSIONAL CLIP OPERATIONS
+
+Implement:
+
+- Create
+- Select
+- Move
+- Resize
+- Split
+- Duplicate
+- Delete
+- Copy/Paste
+- Consolidate
+- Loop
+- Slip contents
+- Shuffle clips
+- Spot position
+- Quantize
+- Transpose
+- Stretch supported MIDI phrases
+- Fade audio clips
+- Edit clip envelopes
+- Change clip color
+- Rename
+- Lock
+- Change source take
+
+Respect the semantics of Shuffle, Slip, Spot and Grid.
+
+Do not implement these modes merely as different labels around one generic movement function.
+
+Every edit must update actual project state.
+
+Every edit must be reversible.
+
+Test multi-clip operations across bar boundaries and arrangement end extension.
+
+---
+
+7. BUILD A DEEP UNDERGROUND TECHNO INSTRUMENT ARCHITECTURE
+
+The current fixed eight-track techno suite is too limited as the full composition architecture.
+
+Keep it as a lightweight starter option, but do not treat it as the upper limit.
+
+Design an extensible expert instrument-role taxonomy.
+
+The generator must understand which layers are essential, optional, supportive, conflicting, or inappropriate for each subgenre.
+
+More layers must not automatically mean better music.
+
+A professional arrangement can use many track roles while only a carefully selected subset is active at each moment.
+
+GROUP A — KICK SYSTEM
+
+A1. Primary Kick Foundation
+
+- Low-end fundamental and envelope
+- Precise transient timing
+- Musical tuning where appropriate
+- Controlled decay
+- Phase consistency
+
+A2. Kick Attack Layer
+
+- Transient definition
+- Short click/body component
+- Transient shaping
+- Controlled high-frequency attack
+
+A3. Kick Character / Saturation Layer
+
+- Distorted or driven character
+- Tonal shaping
+- Phase-aligned relationship with primary kick
+- Selective activation by arrangement energy
+
+A4. Kick Room / Texture Layer
+
+- Short room character
+- Industrial ambience
+- Controlled return processing
+- Optional gated decay
+
+A5. Kick Trigger / Sidechain Control
+
+- Single canonical kick-trigger source
+- Consistent routing for bass, pads and textures
+- No duplicated sidechain trigger logic
+- Explicit trigger-to-processor connections
+
+Kick layers must not create uncontrolled phase cancellation or excessive low-end summation.
+
+---
+
+GROUP B — SUB, RUMBLE AND BASS SYSTEM
+
+B1. Pure Sub Foundation
+
+- Monophonic deep low end
+- Fundamental stability
+- Controlled release
+- Tonal relationship with kick
+
+B2. Rumble Tail
+
+- Kick-derived or synthesized rumble
+- Tempo-aware rhythmic pumping
+- Filtered reverb/distortion character
+- Controlled sub-energy distribution
+
+B3. Rolling Mid-Bass
+
+- Rhythmic propulsion
+- Offbeat or syncopated patterns
+- Call/response with kick
+- Spectral separation from sub
+
+B4. Syncopated Ghost Bass
+
+- Lower velocity accents
+- Sparse ghost notes
+- Controlled microtiming
+- Rhythmic counterpoint
+
+B5. Acid Bass
+
+- 303-style resonant filter motion
+- Accent logic
+- Slide/glide relationships
+- Distortion/filter interplay
+- Phrase-aware development
+
+B6. FM or Harmonic Bass Texture
+
+- Metallic or gritty upper harmonics
+- Midrange articulation
+- Optional parallel distortion
+- Musical restraint
+
+Ensure kick/sub/rumble ownership of low-frequency space is deliberate.
+
+---
+
+GROUP C — PRIMARY RHYTHM AND PERCUSSION
+
+C1. Main Clap / Snare
+
+C2. Layered Snare Texture
+
+C3. Ghost Snare
+
+C4. Rimshot and Wood/Metal Clicks
+
+C5. Tom Percussion
+
+C6. Conga / Tribal Percussion
+
+C7. Metallic Industrial Hits
+
+C8. Found-Sound Percussion
+
+C9. Syncopated Percussion Counter-Rhythm
+
+C10. Percussion Fill / Transition Track
+
+Each role needs its own:
+
+- Rhythmic grammar
+- Accent behavior
+- Velocity contour
+- Swing constraints
+- Humanization
+- Probability logic
+- Variation frequency
+- Spectral ownership
+- Phrase evolution
+
+Support controlled Euclidean, polymetric and broken-rhythm structures.
+
+Do not produce all percussion tracks as identical 16th-note repetitions.
+
+---
+
+GROUP D — HI-HATS, SHAKERS AND CYMBALS
+
+D1. Closed Hat Pulse
+
+D2. Offbeat Open Hat
+
+D3. Rolling Hat Layer
+
+D4. Ghost Hat
+
+D5. Ride Cymbal
+
+D6. Shaker / Organic Groove
+
+D7. Metallic Top-End Texture
+
+D8. Crash / Transition Cymbal
+
+D9. Micro-Percussion Texture
+
+Model:
+
+- Accent hierarchies
+- Open/closed hat choke relationships
+- Velocity-dependent articulation
+- Pattern alternation
+- Timing offsets
+- Density variation
+- Spectral masking
+- Section-specific intensity
+
+Avoid permanent maximum-density hats.
+
+---
+
+GROUP E — SYNTHESIZERS AND HARMONIC INSTRUMENTS
+
+E1. Dub Chord Stabs
+
+- Minor seventh/ninth and suspended voicings when musically appropriate
+- Filtered short stabs
+- Tempo-synced delay
+- Chord-tone consistency
+- Rhythmic space
+
+E2. Hypnotic Repeating Motif
+
+- Small motif family
+- Evolving pitch contour
+- Controlled repetition
+- Call/response variations
+- Timbral evolution
+
+E3. FM Percussive Synth
+
+- Metallic, bell-like or struck tones
+- Sparse rhythmic placements
+- Tonal ambiguity where appropriate
+
+E4. Acid Lead / Resonance Pattern
+
+- Filter automation
+- Accent
+- Glide
+- Modulated harmonic content
+- Controlled distortion
+
+E5. Dark Atmospheric Pad
+
+- Slowly changing voicings
+- Long envelope
+- Filter movement
+- Spatial depth
+
+E6. Drone / Tonal Center
+
+- Sustained harmonic reference
+- Spectral movement
+- Controlled dissonance
+
+E7. Rhythmic Chord Sequence
+
+- Distinct chord rhythm
+- Voice-leading
+- Variation
+- Section transitions
+
+E8. Counter-Melody / Response
+
+- Sparse interaction with lead motif
+- Avoid harmonic congestion
+- Enter only when appropriate
+
+E9. Modular Sequence
+
+- Step modulation
+- Probability
+- Polyrhythm
+- Controlled pitch movement
+
+E10. Noise / Resonator Synth Layer
+
+- Abstract texture
+- Tonal or atonal behavior based on style
+- Dynamic spectral shape
+
+All synthesizer layers must have a documented harmonic and rhythmic purpose.
+
+---
+
+GROUP F — ATMOSPHERE, TEXTURE AND ENVIRONMENT
+
+F1. Industrial Drone
+
+F2. Dark Noise Bed
+
+F3. Granular Texture
+
+F4. Filtered Field Recording
+
+F5. Tape / Analog Character
+
+F6. Spatial Movement Texture
+
+F7. Background Percussive Atmosphere
+
+F8. Drone Harmonic Evolution
+
+F9. Transition Noise Architecture
+
+Use genuinely owned or appropriately licensed local audio material where samples are required.
+
+Provide original synthesized alternatives for offline generation.
+
+Do not depend on paid sample subscriptions or unavailable cloud services.
+
+Texture must reinforce the piece's musical identity rather than simply create constant noise.
+
+---
+
+GROUP G — TRANSITIONS AND ARRANGEMENT EVENTS
+
+G1. Pre-Drop Tension
+
+G2. Reverse Impact
+
+G3. Downlifter
+
+G4. Filter Rise
+
+G5. Metallic Impact
+
+G6. Short Silence / Negative Space
+
+G7. Snare or Percussion Fill
+
+G8. Bass Withdrawal / Re-entry
+
+G9. Harmonic Pivot
+
+G10. Outro Decay
+
+Transitions should be composed in relation to phrase length and musical tension.
+
+Avoid automatically placing a generic riser every eight bars.
+
+Silence, subtraction, timbral change, and rhythmic displacement must be available as first-class transition techniques.
+
+---
+
+GROUP H — BUS, MODULATION AND MASTERING CONTROL
+
+Include:
+
+- Drum Bus
+- Kick/Sub Relationship Bus
+- Bass Bus
+- Percussion Bus
+- Synth Bus
+- Atmosphere Bus
+- Return A Reverb
+- Return B Delay
+- Optional additional returns
+- VCA groups
+- Sidechain Control Bus
+- Master Bus
+- Automation Control Lanes
+
+Each group requires real routing.
+
+Do not instantiate all optional return buses unless needed.
+
+Do not let bus architecture create duplicate gain application.
+
+---
+
+8. UNDERGROUND TECHNO SUBGENRE INTELLIGENCE
+
+Create a structured, original, production-oriented subgenre knowledge system.
+
+Support at least:
+
+1. Raw Warehouse Techno
+2. Hypnotic / Deep Techno
+3. Berlin-Style Industrial Techno
+4. Detroit-Informed Techno
+5. Dub Techno
+6. Hardgroove
+7. Tribal / Percussive Techno
+8. Acid Techno
+9. Minimal / Micro-Variation Techno
+10. Broken / Off-Grid Techno
+11. Dark Atmospheric Techno
+12. Driving / Rolling Techno
+13. EBM-Influenced Industrial
+14. Dub-Industrial Hybrid
+15. Percussive Polyrhythmic Techno
+16. Experimental Modular Techno
+
+These should be original musical frameworks, not attempts to recreate copyrighted recordings or specific artist productions.
+
+Each subgenre requires an expert profile
+
+Define:
+
+- Typical tempo character and adjustable ranges
+- Meter assumptions
+- Kick design preferences
+- Bass/rumble relationship
+- Rhythmic density
+- Swing/microtiming behavior
+- Motif vocabulary
+- Harmonic language
+- Sound design methods
+- Arrangement form options
+- Texture behavior
+- Transition vocabulary
+- Frequency priorities
+- Dynamic range strategy
+- Automation behavior
+- Genre-specific exclusions
+- Novelty constraints
+
+Examples
+
+Hypnotic Techno: Restrained motif vocabulary, long controlled evolution, subtle metric displacement, sparse harmonic movement, carefully staged spectral changes.
+
+Hardgroove: Complex interlocking percussion, ghost-note accents, syncopated rhythmic counterpoint, organic velocity contour, strong dancefloor propulsion.
+
+Dub Techno: Sparse chords, deep bass architecture, evolving filtered delays, feedback-aware automation, extensive negative space.
+
+Industrial Techno: Aggressive but controlled transient layers, metallic percussion, distortion management, broken textures, forceful rhythm without indiscriminate clipping.
+
+Minimal Techno: Fewer elements, deeper detail, subtle microvariation and focused rhythmic relationships.
+
+Broken Techno: Non-standard accents, displaced groove, polymetric interactions, intentional tension and release.
+
+The generator must not use the same fixed MIDI pattern and simply change instrument presets.
+
+---
+
+9. GENERATE REAL ARRANGEMENTS, NOT ONE CONTINUOUS 128-BAR CLIP
+
+Implement a true arrangement composition planner.
+
+Required arrangement hierarchy
+
+"Project → Musical Form → Section → Phrase → Clip → Notes / Audio Events → Automation"
+
+The generator must create distinct editable clips.
+
+For example, a 128-bar project might contain:
+
+- Intro
+- Groove Introduction
+- First Development
+- Bass/Texture Expansion
+- Main Drive
+- Breakdown
+- Tension Rebuild
+- Peak Section
+- Variation Section
+- Controlled Exit
+
+This is only an illustrative form.
+
+Do not hardcode it for every new project.
+
+Section planning
+
+Select a form based on:
+
+- Subgenre
+- Musical duration
+- Target energy curve
+- Producer-selected constraints
+- Existing musical material
+- Motif development
+- Creative seed
+
+Phrase planning
+
+Support 1, 2, 4, 8, 16, and 32-bar phrase relationships, including polymetric exceptions.
+
+Clip planning
+
+Generate actual independent clips for every relevant instrument role.
+
+Clips should have meaningful individual durations and placements.
+
+Use:
+
+- Repeated motifs
+- Variations
+- Fill clips
+- Silence
+- Alternating phrases
+- Automation clips
+- Accent shifts
+- Chord changes
+- Call/response sections
+
+Example: one rumble-bass track
+
+The arrangement could contain:
+
+- Bars 1–9: Empty or restrained rumble
+- Bars 9–17: Rumble Pattern A
+- Bars 17–25: Pattern A with subtle decay evolution
+- Bars 25–33: Rumble Pattern B
+- Bars 33–41: Partial withdrawal
+- Bars 41–57: Rumble Pattern C with dynamic movement
+- Later sections: Distinct variants and intentional gaps
+
+The generated project should contain separate clip objects or properly modeled clip instances.
+
+Do not draw one long clip just because the notes occupy many bars.
+
+Every instrument layer must have its own section-aware entrance, exit, variation, dynamics and automation plan.
+
+---
+
+10. ADVANCED MUSICAL GENERATION ENGINE
+
+Preserve "compositionIntelligenceEngine.ts" and evolve it into a production-grade expert composition system.
+
+Use a hybrid architecture:
+
+Layer A — Musical Knowledge Graph
+
+Represent expert relationships among:
+
+- Genre
+- Instrument role
+- Rhythm
+- Groove
+- Harmony
+- Arrangement
+- Frequency
+- Dynamics
+- Sidechain
+- Automation
+- Sound design
+
+Layer B — Constraint Solver
+
+Enforce:
+
+- Harmonic compatibility
+- Low-end ownership
+- Voice-leading
+- Instrument register separation
+- Beat-grid relationships
+- Musical phrasing
+- Track locks
+- Energy progression
+- Supported device routing
+
+Layer C — Generative Pattern Engine
+
+Use:
+
+- Euclidean rhythms
+- Polyrhythms
+- Markov or context-sensitive motif transitions
+- Controlled probabilistic variation
+- Rhythm transformations
+- Phrase recombination
+- Accent hierarchies
+- Per-note velocity curves
+- Microtiming
+- Call/response
+- Context-aware chord generation
+
+Layer D — Arrangement Intelligence
+
+Generate meaningful formal structure.
+
+Decide when elements enter, evolve, interact and leave.
+
+Layer E — Novelty and Repetition Evaluator
+
+Reject weak candidates.
+
+Layer F — DSP and Sound Design Planner
+
+Select instrument/processor chains with real browser DSP support and safe ALS compatibility.
+
+Layer G — Expert QA
+
+Validate every candidate before allowing it into the working project.
+
+---
+
+11. MAKE EVERY PROJECT CREATIVELY DISTINCT
+
+Do not produce the same eight-track arrangement with a new filename.
+
+Identity generation
+
+Generate a structured project identity containing:
+
+- Stable project ID
+- Composition seed
+- Subgenre profile
+- Musical constraints
+- Groove signature
+- Motif family
+- Harmonic fingerprint
+- Arrangement topology
+- Instrumentation profile
+- Automation signature
+- Sound design profile
+
+Controlled variation
+
+Distinct projects should meaningfully differ in:
+
+- Rhythmic architecture
+- Phrase lengths
+- Swing
+- Kick relationship
+- Bass motif
+- Percussion interlocking
+- Harmony
+- Tonal center
+- Instrument selection
+- Texture
+- Arrangement section order
+- Transition choices
+- Automation
+- Dynamics
+- Sound design
+
+Do not introduce arbitrary randomness that damages musical quality.
+
+Similarity rejection
+
+Compare generated candidates against:
+
+- Current project
+- Other queued projects
+- Locally saved generation history
+- Known template fingerprints
+
+Use multiple metrics:
+
+- Rhythmic onset similarity
+- Accent profile similarity
+- Pitch-class and interval similarity
+- Motif contour similarity
+- Instrument-role overlap
+- Section topology similarity
+- Automation contour similarity
+
+Reject candidates exceeding configured similarity thresholds.
+
+Use perceptually meaningful features rather than a single hardcoded novelty number.
+
+Deterministic reproducibility
+
+The same seed and identical configuration should reproduce the same result.
+
+A fresh seed should generate a distinct candidate and trigger similarity checks.
+
+Absolute uniqueness across every possible future project cannot be mathematically guaranteed; implement measurable local novelty and regeneration instead.
+
+Creative quality gates
+
+Reject:
+
+- Excessive pattern repetition
+- Uncontrolled rhythmic density
+- Incoherent harmony
+- Conflicting kick/bass energy
+- Redundant layers
+- Poor groove dynamics
+- Excessive simultaneous transients
+- Unstructured 128-bar loops
+- Arbitrary fills
+- Excessive master clipping
+
+Do not consider a project unique merely because note velocities or colors differ.
+
+---
+
+12. USER-CREATED CHORDS, CLIPS AND ADVANCED INSTRUMENTS
+
+Allow producers to create new musical layers at any time.
+
+Track creation
+
+Support:
+
+- MIDI Instrument
+- Audio Track
+- Drum Rack / Drum Instrument
+- Bass Synth
+- Acid Synth
+- FM Synth
+- Sampler
+- Texture Generator
+- Group
+- Return
+- Automation Track
+
+The available instruments must have real processing implementations or accurate compatibility labels.
+
+Chord engine
+
+Support:
+
+- Minor/major triads
+- Seventh and ninth extensions
+- Suspended chords
+- Quartal voicings
+- Open voicings
+- Modal voicings
+- Controlled atonal clusters
+- Inversions
+- Voice-leading
+- Rhythmic chord patterns
+- Chord humanization
+- Arpeggiation
+- Probability
+- Velocity layering
+
+The generator must respect the chosen project key/scale when appropriate.
+
+When a piece is deliberately atonal, support an explicit atonal mode rather than forcing scale correction.
+
+All generated chords become editable MIDI clips.
+
+User-directed creation
+
+The user must be able to say or select:
+
+- Add a four-bar industrial percussion fill here.
+- Add an eight-bar dub chord progression.
+- Generate a new 303 response phrase for the selected section.
+- Extend this arrangement by sixteen bars.
+- Change only this clip.
+- Keep the kick and bass, regenerate atmospheric layers.
+- Create a transition into the next section.
+- Make the groove less repetitive without increasing density.
+
+Map these actions to typed, validated project operations.
+
+Do not require a paid language-model API for basic composition functionality.
+
+Provide a reliable offline expert rule/constraint engine. An optional locally executable model may enhance suggestions only when the target hardware supports it.
+
+---
+
+13. REAL-TIME SOUNDCRAFT MIX CONSOLE
+
+The Mix Console must be a full professional workspace, not decorative channel cards.
+
+Persistent audio graph
+
+Each track must have:
+
+- Stable input node
+- Ordered insert chain
+- Pan
+- Volume gain
+- Mute/solo gate
+- Pre/post-fader send paths
+- Meter taps
+- Output routing
+
+Real-time behavior
+
+Moving a fader must change the currently playing sound.
+
+Do not apply volume changes only when the next note is scheduled.
+
+Moving pan must immediately change stereo output.
+
+Mute must silence existing sustaining audio.
+
+Solo must correctly isolate tracks and groups.
+
+Effect bypass must change actual processing.
+
+Send level must change real reverb/delay signal.
+
+VCA must change effective gain without rewriting track base faders.
+
+Metering
+
+Per-track meters must use actual audio signal data.
+
+Show:
+
+- Stereo peak
+- RMS
+- Clip indication
+- Peak hold
+- Numeric fader values
+
+Use true-peak labels only for validated true-peak processing.
+
+Effects
+
+Support actual implementations for available processors:
+
+- EQ/filter
+- Saturation
+- Compressor
+- Delay
+- Reverb
+- Chorus
+- Distortion
+- Limiter
+- Utility/gain
+
+Preserve unsupported native Ableton devices as data without pretending to run them.
+
+Mixer state
+
+Every adjustment must:
+
+1. Update audio DSP immediately.
+2. Update UI state.
+3. Persist to canonical project state.
+4. Synchronize safely with applicable ALS representation.
+5. Support Undo/Redo.
+6. Survive project reload.
+7. Work in offline render where supported.
+
+---
+
+14. STABILITY OF EVERY BUTTON AND FEATURE
+
+Audit every interactive element.
+
+Build an automated UI action registry.
+
+For every button, slider, menu, toggle, shortcut, keyboard action and gesture, record:
+
+- Element
+- Label
+- Feature owner
+- Event handler
+- Expected state transition
+- Audio/project effect
+- Persistence requirement
+- Error state
+- Test coverage
+
+Reject:
+
+- No-op handlers
+- Fake success messages
+- Buttons that only change labels
+- Unbounded repeated actions
+- Controls that trigger contradictory state
+- Duplicated event handlers
+- Stale project references
+- Keyboard shortcuts activated while typing into text fields
+- Audio controls detached from DSP
+- Silent export failures
+
+Create automated feature coverage reports.
+
+No enabled production control may be knowingly decorative.
+
+---
+
+15. STUDIO PERFORMANCE AND MEMORY MANAGEMENT
+
+The app must support complex arrangements without immediately degrading.
+
+Optimizations
+
+- Persistent audio graph
+- Bounded voice allocation
+- Voice stealing under controlled policies
+- Caching waveform peak pyramids
+- Arrangement viewport virtualization
+- MIDI event indexing
+- Asynchronous heavy analysis
+- Stable React component boundaries
+- Selective memoization
+- Worker-based offline jobs
+- AudioWorklet for appropriate continuous DSP
+- Avoid excessive main-thread serialization
+- Avoid unnecessary per-frame React state updates
+
+Performance tests
+
+Measure:
+
+- 8 tracks
+- 16 tracks
+- 32 tracks
+- 48 tracks
+- 64 tracks where supported
+
+Also measure:
+
+- 16 bars
+- 128 bars
+- 512 bars
+- Dense note sequences
+- Multiple active effects
+- Multiple automation lanes
+- Live spectrum
+- Mixer interaction during playback
+
+Establish hardware-specific safe limits.
+
+When a limit is reached, degrade nonessential visualization quality before compromising audio.
+
+Do not claim unlimited performance.
+
+---
+
+16. CRITICAL ANDROID APK FAILURE — REMOVE FAKE APK GENERATION
+
+The existing Android pipeline contains a serious defect.
+
+File:
+
+"scripts/build-debug-apk.mjs"
+
+It manually constructs an APK-like ZIP containing:
+
+- A stub DEX file
+- Artificial manifest content
+- Fabricated signature data
+- Arbitrarily packaged web assets
+
+This is not a valid substitute for Android Gradle packaging and signing.
+
+Also inspect:
+
+"src/utils/apkDownloader.ts"
+
+Its fallback APK generation must not produce synthetic downloadable APKs.
+
+MANDATORY REMEDIATION
+
+Delete or disable all fake APK generation paths.
+
+Do not create a ZIP and rename it ".apk".
+
+Do not fabricate DEX content.
+
+Do not fabricate signing certificates.
+
+Do not accept ZIP magic bytes as proof of APK validity.
+
+Do not report successful Android builds without running Android build tools.
+
+---
+
+17. CREATE A GENUINE OFFLINE ANDROID APPLICATION
+
+Use the existing Android project and Capacitor integration correctly.
+
+Application identity
+
+Resolve the mismatch between:
+
+"capacitor.config.json → com.soundcraft.daw"
+
+and:
+
+"android/app/build.gradle → com.parametricals.technodaw"
+
+Choose one consistent canonical application ID after checking existing install/update identity and signing implications.
+
+Do not silently break users' ability to update an installed application.
+
+Maintain consistent:
+
+- Application ID
+- Package namespace
+- Launcher
+- App name
+- Version code
+- Version name
+- Icons
+- Capacitor configuration
+
+Actual build pipeline
+
+Build production web assets.
+
+Synchronize them to Capacitor.
+
+Compile Android with Gradle.
+
+Generate actual Android APKs using Android tooling.
+
+Use the repository Gradle wrapper.
+
+Example commands, adjusted to the verified project environment:
+
+"npm run build:web"
+
+"npx cap sync android"
+
+"cd android && ./gradlew assembleDebug"
+
+On Windows use "gradlew.bat".
+
+The resulting debug APK must come from:
+
+"android/app/build/outputs/apk/debug/app-debug.apk"
+
+Do not overwrite that path with generated fake archives.
+
+APK validation
+
+Require:
+
+- Android build exit code 0
+- APK file exists
+- Proper APK manifest
+- Real DEX
+- Valid signing certificate
+- "apksigner verify"
+- "zipalign" validation
+- Install via "adb install -r"
+- Successful launch
+- No fatal crashes in logcat
+- Audio playback
+- MIDI editing
+- Mixer functionality
+- Offline project import/export
+
+Offline mode
+
+The installed Android app must launch without internet.
+
+All core functionality must work offline:
+
+- Starter templates
+- Composition engine
+- Arrangement editing
+- MIDI generation
+- Instrument playback
+- Mixer
+- DSP
+- Audio export
+- ALS import/export where supported
+- Local project saving
+- Undo/Redo
+- Local sound resources
+
+Do not require a hosted website to launch the standalone app.
+
+Do not require an internet API for its essential music-generation engine.
+
+File handling
+
+Use Android's document picker/storage framework for supported files:
+
+- ALS
+- MIDI
+- WAV
+- Project data
+
+Support saving/exporting to user-selected destinations without relying on unsupported browser download behavior.
+
+Audio focus
+
+Correctly manage:
+
+- Audio focus requests
+- Audio focus loss
+- Interruptions
+- Resume behavior
+- Output device changes
+- Headphones/Bluetooth routes
+- App background/foreground state
+
+Do not let WebView lifecycle changes corrupt project state.
+
+Android quality
+
+Test at least:
+
+- Modern Android phone
+- Modern Android tablet
+- Portrait
+- Landscape
+- Touch
+- Keyboard/mouse
+- Offline startup
+- Playback
+- Project import
+- Project export
+- Repeated app relaunch
+
+If Android SDK or device tooling is unavailable in AI Studio, configure a real CI or supported build environment. Do not claim success or provide a fake APK as a substitute.
+
+---
+
+18. NATIVE ALS SAFETY AND EDITABLE PROJECT EXPORT
+
+The redesigned clip system must preserve the integrity of imported Ableton projects.
+
+Implement:
+
+- Version-aware ALS parsing
+- Correct clip timing mapping
+- MIDI note identity preservation
+- Native clip loop semantics
+- Automation preservation
+- Device preservation
+- Unknown XML subtree preservation
+- Valid track references
+- Valid note IDs
+- Safe serialization
+- Round-trip testing
+
+Do not collapse multiple source clips into one destructive replacement.
+
+Do not silently regenerate unrelated tracks.
+
+Every supported native operation must have a verified XML patch contract.
+
+Distinguish:
+
+- Browser-playable
+- Parametric ALS-editable
+- Native ALS-exportable
+- Verified in Ableton
+
+Do not claim Ableton Live 11/12 compatibility solely because the XML parses or gzip succeeds.
+
+For supported exported files, perform actual Ableton reopen validation when the necessary installation is available.
+
+---
+
+19. COMPLETE AUTOMATED QA — TEST DRIVEN
+
+Use the existing Vitest setup and extend it.
+
+Create failing regression tests for the confirmed bugs before implementing fixes.
+
+Audio tests
+
+- Playback continues despite ordinary JavaScript timer jitter.
+- Simulated latency diagnostics cannot stop production playback.
+- AudioContext resumes after valid user interaction.
+- Notes render at correct times.
+- Loop boundaries do not duplicate notes.
+- Mixer faders change active audio.
+- Solo and mute affect sustaining voices.
+- Offline and real-time audio operations are consistent for supported processors.
+
+Timeline tests
+
+- A four-bar clip renders as exactly four bars.
+- Adding a clip beyond project end extends the arrangement.
+- Continuous zoom preserves cursor anchor.
+- Zoom does not alter clip timing.
+- Bar 33 selection selects the correct range.
+- Creating a chord clip in Bars 33–41 creates an eight-bar clip.
+- Moving a clip preserves note identity.
+- Resizing does not destroy source notes.
+- Multiple clips on one track remain independent.
+- Inserting time moves later content correctly.
+- Collapsing groups preserves timeline alignment.
+
+Music-generation tests
+
+- Different seeds produce meaningful variants.
+- Same seed reproduces identical results.
+- Track locks are respected.
+- Arrangement sections differ meaningfully.
+- Rumble does not conflict excessively with kick.
+- Chord generation uses correct time selections.
+- Generated clips are editable.
+- Novelty thresholds are checked against previous generated projects.
+- Sparse and dense arrangements are both supported.
+
+Android tests
+
+- Real APK generated by Gradle.
+- APK signature verified.
+- APK installs successfully.
+- Application launches offline.
+- Audio plays through native app.
+- File import works.
+- File export works.
+- Project state survives restart.
+- No fatal logcat errors during critical workflows.
+
+UI/UX tests
+
+- All buttons trigger expected actions.
+- All sliders update real state.
+- Workspace switching preserves playback.
+- Mixer responds during playback.
+- Zoom gestures work on touch.
+- No clipping on phone/tablet.
+- No stale dialogs.
+- No duplicate input events.
+
+Performance tests
+
+Use repeatable performance fixtures and actual measurements.
+
+Do not invent CPU, memory, latency or underrun figures.
+
+---
+
+20. DELIVERABLE TEST MATRIX
+
+Complete the following executable release scenarios.
+
+TC-AUDIO-001
+
+Start playback on the default template. Verify audible output and transport progress.
+
+TC-AUDIO-002
+
+Play for an extended session without false auto-pause. Simulate UI thread delays separately and verify recovery.
+
+TC-AUDIO-003
+
+Adjust mixer fader while an instrument sustains. Verify measurable amplitude change without restarting the note.
+
+TC-TIME-001
+
+Create a project with 128 bars, then zoom smoothly into Bar 37. The time under the pointer must stay anchored.
+
+TC-TIME-002
+
+Zoom from one-bar detail to full-song overview without changing any MIDI events or clips.
+
+TC-TIME-003
+
+Extend a 128-bar project to 160 bars by creating new content at the end.
+
+TC-CLIP-001
+
+Create four separate four-bar percussion clips and verify their boundaries.
+
+TC-CLIP-002
+
+Select Bars 33–41 and generate an eight-bar MIDI chord clip.
+
+TC-CLIP-003
+
+Split, duplicate, loop and move the clip. Verify playback, XML safety and Undo/Redo.
+
+TC-MUSIC-001
+
+Generate three underground subgenre projects with different seeds and verify distinct musical structures and audible results.
+
+TC-MUSIC-002
+
+Regenerate only one selected layer without changing locked kick and bass tracks.
+
+TC-MUSIC-003
+
+Verify that section-specific arrangements contain actual variations, gaps, transitions and automation.
+
+TC-MIX-001
+
+Verify pan, gain, mute, solo and sends during continuous playback.
+
+TC-MIX-002
+
+Verify insert effect order and bypass audibly change supported processing.
+
+TC-ANDROID-001
+
+Build a real APK with Gradle, verify signature and install using ADB.
+
+TC-ANDROID-002
+
+Disable network, launch the installed app, play audio, edit MIDI and export a project.
+
+TC-REG-001
+
+Run previous existing regression tests and compare project behavior.
+
+No test may be marked PASS without execution evidence.
+
+---
+
+21. RELEASE GATES
+
+G0 — Source Baseline and Reproduction
+
+Identify current commit, inspect code, capture screenshots, reproduce playback and timeline bugs.
+
+G1 — Audio Playback Restored
+
+No false stability auto-pauses; audible playback verified.
+
+G2 — Real Clip Model
+
+Independent MIDI/audio clips, accurate timing and safe mutations.
+
+G3 — Continuous Timeline
+
+Pointer-anchored zoom, dynamic length, precise selection, adaptive grid and scrolling.
+
+G4 — Advanced Instrument Architecture
+
+Expert layer taxonomy and correct musical routing.
+
+G5 — Underground Genre Intelligence
+
+Distinct subgenre grammar and arrangement strategies.
+
+G6 — Unique Generative Projects
+
+Deterministic seeds, novelty evaluation, musical variation and editable clips.
+
+G7 — Professional Mix Console
+
+Real-time gain, pan, DSP, meters, sends and VCA validated.
+
+G8 — Stable UI
+
+All advertised controls functional and tested.
+
+G9 — Android Build
+
+Genuine Gradle-built and signed debug APK.
+
+G10 — Offline Standalone Android
+
+Install, launch, audio, edit, project save/export and relaunch verified.
+
+G11 — ALS Safety
+
+Supported edits preserve native structures and pass export validation.
+
+G12 — Full QA
+
+Automated tests, screenshot comparison, audio tests, device tests and regression reports complete.
+
+No release while a P0 gate is failing.
+
+---
+
+22. REQUIRED EXECUTION PRIORITY
+
+Follow this order without substituting feature additions for bug fixes.
+
+PHASE 1 — Repair Playback
+Remove false latency reporting and auto-pause behavior, fix scheduling and restore stable audio.
+
+PHASE 2 — Fix Clip Data and Display
+Repair clip duration, start/end boundaries, independent clip creation and note ownership.
+
+PHASE 3 — Implement Continuous Timeline
+Dynamic bars, cursor-anchored zoom, precise selections, scrollbar, minimap and intelligent grid.
+
+PHASE 4 — Implement Real Mixer
+Persistent DSP graph, real-time gains, solo, mute, effects, sends and meters.
+
+PHASE 5 — Repair Android Packaging
+Remove fake APK generation, configure Capacitor consistently and compile a real installable APK.
+
+PHASE 6 — Advanced Underground Music Architecture
+Expand instrument-role taxonomy, subgenre profiles, phrase generation and arrangement planner.
+
+PHASE 7 — Original Composition and AI Intelligence
+Implement novelty evaluation, project-aware constraints, chord creation and advanced musical variation.
+
+PHASE 8 — Complete Offline Android
+Validate startup, audio, MIDI, files and persistence on actual devices.
+
+PHASE 9 — Final QA
+Run all release gates, fix defects and provide evidence.
+
+---
+
+23. FINAL REPORT FORMAT
+
+After implementing, provide:
+
+- Current commit and implementation branch
+- Changed files
+- Root-cause findings
+- Playback fix and before/after logs
+- Timeline screenshots before/after
+- Example multi-clip arrangement
+- Zoom test results
+- Sample generated musical arrangements
+- Actual audible output verification
+- Mixer gain and effect measurements
+- Android APK build command and exit code
+- APK path, size and SHA-256
+- APK signature verification
+- ADB install/launch results
+- Offline functional tests
+- ALS validation evidence
+- Full automated test report
+- Known limitations
+- Remaining defects
+- Release-gate status
+
+Do not conceal incomplete work.
+
+Do not claim installation, playback or native Ableton compatibility without test evidence.
+
+---
+
+24. FINAL INSTRUCTION — BUILD THE REAL PRODUCT
+
+The existing app contains useful engineering work, but the screenshot and source show significant gaps.
+
+The producer must be able to:
+
+- Start the DAW and hear music.
+- Play a complex arrangement without an artificial stability exception.
+- Create a track.
+- Select any bar or time range.
+- Add a clip at that exact position.
+- Generate a musical phrase or chord into that clip.
+- Zoom smoothly to inspect the smallest useful note detail.
+- Zoom back to the complete arrangement.
+- Extend the project naturally.
+- Build sophisticated arrangements from many independent instrument layers.
+- Generate creatively distinct underground tracks across different genre profiles.
+- Edit every generated note, clip, chord, instrument and automation curve.
+- Mix using accurate, real-time faders, effects and meters.
+- Export supported music/project formats safely.
+- Install the application as a genuine standalone Android APK.
+- Launch and use its essential capabilities offline.
+
+No fixed 128-bar limitation.
+
+No single artificially stretched clip.
+
+No repeated generic eight-track arrangement.
+
+No false auto-pause protection.
+
+No fake DSP controls.
+
+No fake APK.
+
+No fabricated validation badges.
+
+No basic or decorative AI suggestions presented as expert musical production.
+
+No unfinished implementation presented as production-ready.
+
+IMPLEMENT AND VERIFY THE COMPLETE PARAMETRIC ALS v7.0 WORKSTATION RECOVERY AND ADVANCED UNDERGROUND MUSIC ENGINE IN THE EXISTING REPOSITORY.
+
+END OF MASTER IMPLEMENTATION PROMPT v7.0.

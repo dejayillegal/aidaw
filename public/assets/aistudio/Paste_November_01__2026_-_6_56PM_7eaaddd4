@@ -1,0 +1,1572 @@
+GOOGLE AI STUDIO — PARAMETRIC ALS v7.1
+
+MASTER COUNTER-REVIEW, FORENSIC AUDIT & PRODUCTION IMPLEMENTATION APPROVAL GATE
+
+MANDATORY PRE-IMPLEMENTATION CHALLENGE PROMPT
+
+Project: Parametric ALS — Advanced Underground Electronic Music Production Workstation
+
+Repository: https://github.com/dejayillegal/aidaw
+
+Latest reviewed reference commit: "b69cd71cf236479a2d99305e61c9e5c3d77a24b7"
+
+Primary specification: Parametric ALS v7.0 Master Implementation Directive, including its 24 sections and release gates G0–G12.
+
+Current task: Perform a complete technical, functional, musical, visual, Android and QA audit. Deliver a comprehensive, source-grounded, implementation-ready plan for external architectural review.
+
+IMPORTANT: DO NOT BEGIN MASS CODE MODIFICATIONS YET. THE FIRST DELIVERABLE IS THE REVIEWABLE IMPLEMENTATION PLAN.
+
+---
+
+0. EXECUTIVE MANDATE
+
+You must challenge, verify, complete and strengthen the entire v7.0 specification.
+
+Do not merely paraphrase the previous prompt.
+
+Do not automatically agree with every proposed architectural decision.
+
+Do not accept an implementation because a file, component, UI button or interface exists.
+
+Do not treat a passing TypeScript build as proof of correct functionality.
+
+Do not treat a ZIP archive as a valid Android APK.
+
+Do not treat generated MIDI data as professional musical composition without evaluating its structure and audible result.
+
+Do not claim that an ALS export is compatible with Ableton Live until the relevant compatibility has been verified.
+
+Your responsibility is to identify everything necessary to transform the existing application into a reliable, professional, offline-capable DAW, including technical dependencies, missing workflows, overlooked edge cases, data corruption risks, DSP defects, UI problems, musical weaknesses and release blockers.
+
+Operate as a coordinated group of specialist reviewers:
+
+- Principal DAW Architect
+- Real-Time Audio and DSP Engineer
+- MIDI Sequencing and Timing Engineer
+- Ableton Live 12 Interoperability Specialist
+- SoundCraft-Class Editing UX Specialist
+- Android/Capacitor Release Engineer
+- Electronic Music Production Specialist
+- Underground Techno Arrangement Expert
+- Generative Music Systems Researcher
+- React/TypeScript Application Architect
+- QA Automation Architect
+- Performance, Security and Reliability Engineer
+- Independent Architecture Reviewer
+
+Evaluate the system holistically rather than allowing specialists to propose mutually incompatible components.
+
+Do not produce inflated claims about expertise, quality, completeness or AI capability. Demonstrate quality through traceable technical decisions and testable acceptance criteria.
+
+---
+
+1. FORENSIC REPOSITORY AUDIT — REQUIRED BEFORE PLANNING
+
+Inspect the actual current repository and determine the latest commit.
+
+Do not assume that the reference commit remains current.
+
+Read the project structure, dependencies, build scripts, types, state management, audio engine, UI components, music-generation engine, native Android files, and existing tests.
+
+Required inspection areas
+
+Application and interface
+
+- "src/App.tsx"
+- "src/components/SoundCraftWorkstation.tsx"
+- "src/components/TimelineCanvas.tsx"
+- "src/components/StudioMenuBar.tsx"
+- "src/components/StudioTransportBar.tsx"
+- "src/components/StudioWorkspaceTabs.tsx"
+- "src/components/StudioEditorToolbar.tsx"
+- "src/components/SoundCraftMixConsole.tsx"
+- "src/components/DeviceRackPanel.tsx"
+- "src/components/AiComposerIntelligencePanel.tsx"
+- "src/components/SelectedTrackAnalysisStrip.tsx"
+- "src/components/DiagnosticsPanel.tsx"
+
+Engine and services
+
+- "src/engine/webAudioSynth.ts"
+- "src/engine/alsXmlEngine.ts"
+- "src/engine/channelStripEngine.ts"
+- "src/engine/compositionIntelligenceEngine.ts"
+- "src/engine/masteringEngine.ts"
+- "src/engine/midiFileExporter.ts"
+- "src/services/commandBus.ts"
+- "src/services/projectQueueService.ts"
+- "src/types/ableton.ts"
+
+Android and build
+
+- "package.json"
+- "capacitor.config.json"
+- "capacitor.config.ts"
+- "android/app/build.gradle"
+- "android/app/src/main/AndroidManifest.xml"
+- "android/app/src/main/java/.../MainActivity.java"
+- "scripts/build-debug-apk.mjs"
+- "src/utils/apkDownloader.ts"
+- Gradle wrapper and Android build configuration
+- Available test and CI configurations
+
+Existing documentation
+
+- "docs/audit/BASELINE_FUNCTIONALITY.md"
+- "docs/audit/EXISTING_API_CONTRACTS.md"
+- "docs/audit/FEATURE_PARITY_MATRIX.md"
+- "docs/audit/KNOWN_FAILURES.md"
+- "docs/audit/REGRESSION_RISK_MATRIX.md"
+
+Mandatory output
+
+Create a complete repository inventory identifying:
+
+- Existing functional features
+- Partially implemented features
+- Unimplemented features
+- Duplicated functionality
+- Architectural inconsistencies
+- Broken integration paths
+- Dead code
+- Unused components
+- Fake/demo functionality
+- Hardcoded limitations
+- Destructive project operations
+- Audio-thread risks
+- Android build blockers
+- Missing test coverage
+
+Every finding must reference actual source files and relevant functions or line ranges.
+
+Classify evidence as:
+
+- Verified in source
+- Reproduced at runtime
+- Confirmed by automated test
+- Suspected, requires reproduction
+- Not verifiable in current environment
+
+Never promote a suspicion into a confirmed defect.
+
+---
+
+2. MANDATORY V7.0 REQUIREMENTS TRACEABILITY
+
+The previous v7.0 specification contains 24 major sections.
+
+You must read and evaluate every one.
+
+Create a requirements ledger with stable identifiers.
+
+Every requirement and significant subrequirement must be included.
+
+Required columns:
+
+ID| Requirement| Existing implementation| Gap| Source evidence| Dependency| Priority| Acceptance test| Status
+
+Use:
+
+- P0 — Release-blocking correctness, data integrity, audio playback or Android viability
+- P1 — Essential professional DAW functionality
+- P2 — Advanced creative and workflow functionality
+- P3 — Optional enhancements
+
+Required coverage
+
+The ledger must cover all v7.0 areas:
+
+1. Audio stability and playback
+2. Incorrect clip boundaries
+3. Canonical arrangement data model
+4. Continuous timeline zoom
+5. Bar and time-range selection
+6. Clip creation and editing
+7. Underground instrument architecture
+8. Subgenre-specific intelligence
+9. Real multisection arrangements
+10. Generative composition engine
+11. Project uniqueness
+12. Chords and user-created instruments
+13. Real-time mixer and DSP
+14. Control and feature reliability
+15. Performance and memory
+16. Fake APK removal
+17. Standalone Android migration
+18. Native ALS preservation
+19. Automated testing
+20. Critical acceptance scenarios
+21. Release gates
+22. Execution dependencies
+23. Evidence and reporting
+24. Final producer workflows
+
+No requirement may silently disappear because it is difficult or expensive.
+
+If a requirement is unsafe, unrealistic or technically contradictory, identify the problem and propose a production-safe alternative preserving user intent.
+
+Provide a total requirements count and explicit coverage summary.
+
+---
+
+3. ROOT-CAUSE REVIEW — AUDIO AUTO-PAUSE
+
+The current "webAudioSynth.ts" contains logic involving:
+
+- A 12ms stability threshold
+- JavaScript scheduler interval timing
+- Generated latency diagnostics
+- "triggerStabilityAutoPause()"
+- Playback "stop()"
+- Simulated latency spikes
+
+Required investigation
+
+Determine:
+
+1. Which precise execution path causes the observed auto-pause.
+2. Whether it is triggered by real playback or an explicit simulation.
+3. Which metrics are measured and which are synthesized.
+4. Whether the scheduling deadline is being confused with audio hardware latency.
+5. How scheduled voices and active nodes are managed.
+6. Whether callbacks are duplicated or stale.
+7. Whether browser audio context suspension is handled.
+8. Whether playback position survives interruption.
+9. Whether expensive tasks run on the main thread during audio scheduling.
+10. Whether playback on Android WebView has additional lifecycle problems.
+
+Required plan
+
+Specify:
+
+- Playback state machine
+- Scheduling clock authority
+- Lookahead algorithm
+- Event deduplication
+- Voice lifecycle
+- Recovery behavior
+- AudioContext lifecycle
+- Diagnostic measurement sources
+- Browser user-gesture handling
+- Android audio focus
+- Test harness
+- Performance instrumentation
+
+Non-negotiable constraint
+
+Do not merely increase the stability threshold from 12ms to a larger arbitrary number.
+
+Do not disable all safety monitoring without introducing reliable diagnostics.
+
+Do not replace the problem with fake stable readings.
+
+The proposed fix must address root cause and preserve usable playback.
+
+---
+
+4. CLIP TIMING, ARRANGEMENT AND TRANSPORT CONSISTENCY
+
+Audit how MIDI note times are represented throughout the code.
+
+Determine whether each note uses:
+
+- Absolute song time
+- Clip-relative time
+- Source-loop-relative time
+- Session-launch-relative time
+
+Identify any ambiguity.
+
+Required architecture contract
+
+Define clear transformations between:
+
+- Musical bar/beat/tick
+- Absolute beat position
+- Clip-local beat
+- Loop iteration
+- Seconds
+- Audio sample frame
+
+Do not hardcode 4 beats per bar across the entire application if a variable time signature is supported.
+
+Investigate
+
+- Clip start
+- Clip duration
+- Note ownership
+- Note offset
+- Loop boundaries
+- Clip repetition
+- Tempo changes
+- Time signature changes
+- Quantization
+- Humanization offsets
+- Playback scheduling
+- MIDI export
+- ALS import/export
+- Automation coordinates
+
+Specific defect
+
+The existing timeline uses a clip-end calculation involving:
+
+"Math.max(clip.length, totalBeats)"
+
+Determine every affected rendering and playback path.
+
+Design a fix that ensures the data model, arrangement drawing, playback, export and editing all interpret clip lengths consistently.
+
+Acceptance example
+
+A four-bar clip at Bar 17 must appear and play over precisely its intended musical range.
+
+Changing zoom must not alter that duration.
+
+Duplicating the clip at Bar 33 must preserve note identity and timing semantics.
+
+---
+
+5. COMPLETE ABLETON-CLASS TIMELINE DESIGN REVIEW
+
+Study the official Ableton Live 12 Arrangement and Clip editing documentation.
+
+Reference:
+
+https://www.ableton.com/en/manual/arrangement-view/
+
+Study SoundCraft's Edit and Mix workspace behavior:
+
+https://github.com/storytold/soundcraft
+
+Analyze each interaction
+
+- Timeline overview
+- Horizontal scroll
+- Vertical scroll
+- Continuous zoom
+- Cursor-anchored zoom
+- Time selection
+- Insert marker
+- Clip selection
+- Zoom to selection
+- Zoom to arrangement
+- Adaptive grid
+- Clip resizing
+- Clip looping
+- Clip splitting
+- Consolidation
+- Insert/Delete/Duplicate Time
+- Track grouping
+- Track-height resizing
+- Memory markers
+- Follow playhead
+- Automation envelopes
+- MIDI editing synchronization
+
+Required mathematical design
+
+Specify one canonical timeline viewport model.
+
+It must support continuous pixels-per-beat zoom, rather than relying on only four zoom multipliers.
+
+Include formulas for:
+
+- Beat-to-pixel
+- Pixel-to-beat
+- Cursor-anchored zoom
+- Horizontal scrolling
+- Viewport clipping
+- Clip boundary intersection
+- Grid subdivision
+- Loop boundary mapping
+- Bar/beat/tick conversion under variable meter
+
+User interaction matrix
+
+Define expected behavior for:
+
+- Click
+- Double-click
+- Drag
+- Shift-click
+- Ctrl/Cmd-click
+- Alt/Option-drag
+- Mouse wheel
+- Ctrl/Cmd-wheel
+- Trackpad pinch
+- Touch pinch
+- Long press
+- Stylus interaction
+- Keyboard shortcuts
+
+Explicitly prevent gesture conflicts.
+
+Dynamic arrangement length
+
+Support automatic extension beyond 128 bars while separating arrangement extent from viewport zoom.
+
+Define practical maximum lengths, memory limits and virtualization.
+
+Do not promise unbounded rendering without a tested strategy.
+
+---
+
+6. REAL MULTICLIP PROJECT MODEL
+
+Challenge the assumption that a track containing a large note array is sufficient for professional clip editing.
+
+Define a canonical typed model containing:
+
+- Project
+- Track
+- Group
+- Clip
+- MIDI source
+- Audio source
+- Clip instance
+- Loop region
+- Musical phrase
+- Arrangement section
+- Automation
+- Device chain
+- Mixer channel
+- Return bus
+- VCA
+- Take/playlist
+- Marker
+- Undo transaction
+
+Identify migration requirements from the existing project types.
+
+Required review
+
+Explain how the new model will preserve:
+
+- Existing imported ALS data
+- Existing template-generated tracks
+- Existing MIDI notes
+- Existing automation
+- Existing device settings
+- Track IDs
+- Clip IDs
+- Unknown native XML
+- Existing queue records
+- Undo history where representable
+
+Plan migrations with versioning, rollback and fixtures.
+
+Do not rewrite source ALS clip structure destructively.
+
+---
+
+7. PRODUCTION MIXER AND DSP REVIEW
+
+The application must have real audio-connected controls.
+
+Audit the complete signal graph.
+
+Validate
+
+- Track gain
+- Track pan
+- Track mute
+- Track solo
+- VCA
+- Group routing
+- Insert ordering
+- Bypass
+- Sends
+- Returns
+- Reverb
+- Delay
+- Sidechain
+- Master gain
+- Limiting
+- Metering
+- Automation
+- Offline rendering
+
+Important contradictions to resolve
+
+A UI showing ten inserts does not prove ten real DSP processors can be used.
+
+A mixer fader updating React state does not prove already-playing notes change volume.
+
+An EQ processor represented by a gain multiplier is not a real EQ.
+
+A solo state that only skips future notes does not isolate sustaining voices.
+
+A master analyzer cannot provide actual independent per-track spectrum measurements.
+
+Required DSP plan
+
+Define:
+
+- Persistent per-track channel graph
+- Exact processor order
+- AudioNode lifecycle
+- Automation update strategy
+- Real-time/OfflineAudioContext parity
+- Voice management
+- Effect parameter contracts
+- Per-track analysis taps
+- Return-bus isolation
+- CPU budget
+- Resource cleanup
+
+Provide signal-flow diagrams and executable audio test designs.
+
+Do not make unsupported device claims.
+
+---
+
+8. NATIVE ALS INTEROPERABILITY — DESTRUCTIVE MUTATION AUDIT
+
+Examine all XML-modifying functions.
+
+For each mutator, identify:
+
+- XML input
+- Target element
+- Required native identifiers
+- Nodes changed
+- Nodes preserved
+- Schema assumptions
+- Export compatibility
+- Failure behavior
+- Undo path
+
+Investigate:
+
+- MIDI insertion
+- Clip creation
+- Note editing
+- Velocity editing
+- Device insertion
+- Device removal
+- Bypass
+- Reorder
+- Automation
+- Track fader
+- Routing
+- Marker changes
+- Sidechain
+- Group changes
+
+Required safeguards
+
+- Canonical project transaction
+- Immutable source snapshot
+- Targeted operation patch
+- Native reference validation
+- XML parse validation
+- Structural invariants
+- Unknown subtree preservation
+- Rollback on failure
+- Version-specific compatibility status
+
+A valid gzip file is not proof of a valid Ableton project.
+
+No "100% native verified" label without actual version-specific evidence.
+
+---
+
+9. CRITICAL ANDROID BUILD FORENSICS
+
+Audit the existing APK pipeline.
+
+Specifically:
+
+- "scripts/build-debug-apk.mjs"
+- "src/utils/apkDownloader.ts"
+- "capacitor.config.json"
+- "capacitor.config.ts"
+- "android/app/build.gradle"
+- Gradle wrapper
+- Android manifest
+- MainActivity
+- Build assets
+- Native plugin availability
+- Android storage workflows
+
+Existing high-risk findings
+
+The previous review found a manual APK-like archive builder that creates stub DEX and signature entries.
+
+The browser downloader also contains a generated-binary fallback.
+
+The Capacitor application ID differs from the Gradle application ID.
+
+Required plan
+
+Propose the exact removal of fake APK generation.
+
+Define the legitimate pipeline:
+
+Web build → Capacitor sync → Android Gradle build → APK validation → Install → Launch → Functional test.
+
+Determine the appropriate canonical app ID without breaking installed-app update compatibility unnecessarily.
+
+Define:
+
+- Debug signing
+- Release signing strategy
+- CI secret handling
+- Minimum/target SDK
+- APK/AAB output paths
+- Manifest verification
+- Signing verification
+- Offline asset packaging
+- File import/export
+- Android audio focus
+- WebView audio lifecycle
+- Screen rotation
+- App restart
+- Storage persistence
+- Network-disabled operation
+
+Mandatory constraints
+
+No custom APK-shaped ZIP.
+
+No fake classes.dex.
+
+No fabricated signatures.
+
+No downloading a non-installable archive under the APK filename.
+
+No Android release badge without an actual verified artifact.
+
+Tooling limitation policy
+
+If the current AI Studio environment cannot compile or install Android applications, provide an actionable real CI/build-system implementation plan.
+
+Mark device validation blocked until actual evidence exists.
+
+Never fabricate success.
+
+---
+
+10. COMPLETE OFFLINE-FIRST ARCHITECTURE
+
+Audit every runtime dependency and external network call.
+
+Classify each as:
+
+- Essential offline
+- Optional online enhancement
+- Development-only
+- Telemetry
+- External API dependency
+- Unnecessary dependency
+
+Offline core must include
+
+- App startup
+- Templates
+- Local project storage
+- MIDI editing
+- Audio playback
+- Arrangement
+- Mixer
+- Basic composition intelligence
+- Instrument generation
+- WAV/MIDI export
+- Supported ALS import/export
+- Undo/Redo
+
+Do not rely on the Google GenAI API or a paid model for essential offline functionality.
+
+AI architecture review
+
+Recommend a hybrid engine:
+
+- Deterministic musical rules
+- Genre knowledge
+- Constraint solving
+- Procedural composition
+- Novelty evaluation
+- Local analysis
+- Optional external AI enhancement
+
+Distinguish deterministic algorithms from genuine ML inference.
+
+If proposing a local model, specify:
+
+- Model architecture
+- License
+- Weights source
+- Quantization
+- Memory requirement
+- CPU/GPU support
+- Android hardware constraints
+- Latency
+- Fallback behavior
+- Privacy/data handling
+
+Do not invent a proprietary foundation model just to satisfy branding.
+
+---
+
+11. ADVANCED UNDERGROUND INSTRUMENT TAXONOMY REVIEW
+
+The previous specification defines eight instrument/control groups.
+
+You must evaluate every proposed role.
+
+Group A — Kick
+
+Primary, Attack, Character, Room, Sidechain Trigger.
+
+Group B — Bass
+
+Sub, Rumble, Rolling Mid-Bass, Ghost Bass, Acid, Harmonic/FM Bass.
+
+Group C — Percussion
+
+Clap/Snare, Layered Snare, Ghost Snare, Rim, Tom, Tribal, Metallic, Found-Sound, Counter-Rhythm, Fill.
+
+Group D — High Percussion
+
+Closed Hat, Open Hat, Rolling Hat, Ghost Hat, Ride, Shaker, Metallic Texture, Crash, Micro-Percussion.
+
+Group E — Synth/Harmony
+
+Dub Chord, Hypnotic Motif, FM Synth, Acid Lead, Pad, Drone, Rhythmic Chords, Counter-Melody, Modular Sequence, Noise/Resonator.
+
+Group F — Texture
+
+Industrial Drone, Noise Bed, Granular Texture, Field Recording, Tape Character, Spatial Texture, Percussive Atmosphere, Evolving Drone, Transition Texture.
+
+Group G — Transitions
+
+Tension, Reverse Impact, Downlifter, Filter Rise, Metallic Impact, Silence, Fill, Bass Withdrawal, Harmonic Pivot, Outro.
+
+Group H — Routing
+
+Drum, Bass, Percussion, Synth, Atmosphere, Returns, VCA, Sidechain and Master architecture.
+
+Required expert analysis for each role
+
+Produce a structured role specification containing:
+
+- Instrument function
+- Musical purpose
+- Required/optional status
+- Genre applicability
+- MIDI/audio generation strategy
+- Rhythmic constraints
+- Harmonic constraints
+- Dynamic envelope
+- Sound-design requirements
+- Automation vocabulary
+- Mixer routing
+- Sidechain requirements
+- Interaction with other roles
+- Failure conditions
+- Arrangement behavior
+- CPU cost
+- Browser DSP compatibility
+- ALS representation
+- Tests
+
+Critical design principle
+
+Do not automatically create all roles in every project.
+
+A deeply sophisticated 12-track arrangement may be better than a congested 50-track one.
+
+The engine should select, layer and deactivate elements intelligently.
+
+---
+
+12. ALL 16 UNDERGROUND SUBGENRE PROFILES
+
+Review and specify the subgenres from v7.0:
+
+1. Raw Warehouse
+2. Hypnotic / Deep
+3. Berlin-Style Industrial
+4. Detroit-Informed
+5. Dub Techno
+6. Hardgroove
+7. Tribal / Percussive
+8. Acid
+9. Minimal
+10. Broken / Off-Grid
+11. Dark Atmospheric
+12. Driving / Rolling
+13. EBM-Influenced Industrial
+14. Dub-Industrial Hybrid
+15. Percussive Polyrhythmic
+16. Experimental Modular
+
+For each, define:
+
+- Rhythmic grammar
+- Groove
+- Tempo characteristics
+- Low-end architecture
+- Harmonic vocabulary
+- Instrument roles
+- Density and negative space
+- Phrase development
+- Arrangement form
+- Signature transitions
+- Automation
+- Sound-design approach
+- Mix considerations
+- Common failure modes
+- Distinguishing generation constraints
+
+Challenge test
+
+Can the engine produce recognizably different Hardgroove, Dub Techno, Minimal and Industrial arrangements without simply changing preset names?
+
+If the answer is not supported by a proposed algorithm and test, the design is insufficient.
+
+Avoid copyrighted artist imitation and direct reconstruction of known recordings.
+
+---
+
+13. REAL MUSICAL ARRANGEMENT PLANNER
+
+Audit how the current generator creates:
+
+- Intro
+- Groove introduction
+- Development
+- Breakdown
+- Tension
+- Drop
+- Peak
+- Variation
+- Outro
+
+Determine whether these are actual distinct clips or merely labels over one continuous note array.
+
+Required system
+
+Project → Form → Section → Phrase → Clip → Musical Events → Automation.
+
+Review the planner
+
+For each arrangement, define:
+
+- Form selection
+- Section duration
+- Phrase boundaries
+- Energy trajectory
+- Instrument entrances/exits
+- Motif introduction
+- Motif transformations
+- Rhythmic variation
+- Harmonic development
+- Negative space
+- Transitions
+- Automation evolution
+- Mix energy control
+
+Required tests
+
+Generate at least three different arrangement forms per representative genre.
+
+Analyze whether the sections differ musically and structurally.
+
+Verify that clip objects correspond to visible, editable regions.
+
+Do not accept a sequence of identically populated 16-bar blocks as a sophisticated arrangement.
+
+---
+
+14. GENERATIVE MUSIC ENGINE AND UNIQUENESS REVIEW
+
+Do not use "AI-powered" as a substitute for actual musical intelligence.
+
+Specify the exact algorithms and state model for:
+
+- Euclidean rhythms
+- Polymeter
+- Controlled probability
+- Groove templates
+- Motif families
+- Phrase variations
+- Bass/kick interaction
+- Chord voicing
+- Call/response
+- Automation generation
+- Section transitions
+- Novelty filtering
+
+Project identity
+
+Each generated project should have:
+
+- Stable seed
+- Musical configuration
+- Subgenre profile
+- Groove fingerprint
+- Motif fingerprint
+- Harmony fingerprint
+- Arrangement fingerprint
+- Instrumentation profile
+- Sound-design settings
+- Automation signature
+
+Novelty system
+
+Define actual algorithms to compare:
+
+- Rhythmic onset patterns
+- Accent positions
+- Motif contours
+- Pitch intervals
+- Chord changes
+- Section topology
+- Instrument-role usage
+- Automation curves
+
+Specify similarity metrics, thresholds, candidate regeneration limits and fallback behavior.
+
+Quality evaluation
+
+Define musical tests for:
+
+- Groove coherence
+- Repetition control
+- Harmonic integrity
+- Low-frequency conflicts
+- Dynamic progression
+- Transition appropriateness
+- Layer independence
+- Variation quality
+
+Do not use fixed novelty scores unrelated to generated content.
+
+Do not guarantee mathematical uniqueness of every conceivable project.
+
+Instead target measurable diversity and deterministic reproducibility.
+
+---
+
+15. USER-DRIVEN COMPOSITION AND CREATIVE CONTROL
+
+Review how users will:
+
+- Create a track
+- Select bars
+- Generate a MIDI clip
+- Insert a chord
+- Create a percussion fill
+- Add a sub-bass phrase
+- Extend a project
+- Duplicate a section
+- Regenerate selected clips
+- Preserve locked tracks
+- Create automation
+- Audition alternatives
+- Apply or reject proposals
+- Undo/Redo
+
+Every action must have a typed command and explicit project-state effect.
+
+Mandatory example
+
+The user selects Bars 33–41 on a newly created Dub Chord track.
+
+The app must generate an eight-bar chord clip based on actual project context.
+
+The clip must appear at the correct position, sound correctly, survive save/reload, support editing and export safely.
+
+Document the event and state sequence.
+
+The plan must explain exactly how this works.
+
+---
+
+16. WORKSTATION UI/UX & FEATURE COMPLETENESS
+
+Audit every existing visible screen and component.
+
+Inspect the screenshot supplied with the v7.0 request.
+
+Review:
+
+- App shell
+- Menu bar
+- Transport
+- Edit Window
+- Mix Console
+- Session Matrix
+- Piano Roll
+- Device Rack
+- AI Composer
+- Project Queue
+- Mastering
+- Diagnostics
+- Settings
+- Android layouts
+
+Required visual specification
+
+Provide target layouts for:
+
+- 1366×768
+- 1440×900
+- 1920×1080
+- 2560×1440
+- Tablet landscape
+- Tablet portrait
+- Phone portrait
+
+Reference SoundCraft and Ableton Live 12 workflows.
+
+Preserve Parametric ALS's original visual identity.
+
+UI inventory
+
+Create an interaction registry for every button, fader, toggle, menu, slider, drag handle and shortcut.
+
+Identify:
+
+- Handler
+- State owner
+- Observable result
+- Audio effect
+- Persistence
+- Undo behavior
+- Accessibility
+- Test
+
+Report disabled, misleading, unfinished and decorative controls.
+
+A polished interface is not acceptable when playback, clip editing or mixer behavior is incorrect.
+
+---
+
+17. PERSISTENCE, MIGRATION AND DATA LOSS PREVENTION
+
+The proposed new clip architecture affects saved project formats.
+
+Review migration risk explicitly.
+
+Required plan
+
+- Project schema versions
+- Backward-compatible readers
+- Migration functions
+- Unknown-property preservation
+- Transactional saving
+- Autosave
+- Crash recovery
+- IndexedDB/OPFS compatibility
+- Source ALS preservation
+- Undo snapshot boundaries
+- Queue persistence
+- Android app update migration
+
+Failure tests
+
+- App closes during save.
+- Device runs out of storage.
+- Project file is corrupt.
+- Imported ALS contains unsupported devices.
+- An old project lacks new clip metadata.
+- User cancels import.
+- User switches projects during analysis.
+- Android app updates between schema versions.
+
+Data integrity must be release-critical.
+
+---
+
+18. PERFORMANCE, SECURITY AND RESILIENCE
+
+Provide a measured performance plan.
+
+Performance
+
+Analyze:
+
+- 8/16/32/48/64 tracks
+- 16/128/512 bars
+- Large MIDI datasets
+- Multiple effect chains
+- FFT visualization
+- Mixer interactions
+- Continuous zoom
+- Long playback
+- Project switching
+- Android memory limits
+
+Specify:
+
+- CPU budgets
+- Audio thread constraints
+- Memory budgets by platform
+- Frame-rate targets
+- Acceptable UI interaction latency
+- Fallback/degradation behavior
+
+Do not invent benchmark values; define targets and the experiments that will verify them.
+
+Security and trust
+
+Evaluate:
+
+- Untrusted ALS/XML input
+- XML parser limits
+- Gzip decompression limits
+- ZIP bombs
+- File-size caps
+- Path and filename validation
+- Local project privacy
+- Remote API use
+- Third-party library licenses
+- Sample licenses
+- Android exported components
+- WebView permissions
+- Network security settings
+
+No silent file uploads.
+
+No hardcoded production API keys.
+
+No unnecessary permissions.
+
+---
+
+19. TEST-DRIVEN IMPLEMENTATION STRATEGY
+
+The implementation plan must show how defects will be reproduced before being fixed.
+
+Use:
+
+RED → GREEN → REFACTOR
+
+For each P0:
+
+1. Write failing regression test.
+2. Prove the current defect.
+3. Implement minimal safe fix.
+4. Run focused test.
+5. Run integration tests.
+6. Run regression tests.
+7. Validate runtime behavior.
+8. Capture evidence.
+
+Test layers
+
+- Unit
+- Integration
+- Browser E2E
+- Audio signal analysis
+- MIDI golden fixtures
+- ALS round-trip
+- Native Ableton reopen where available
+- Android unit and instrumentation
+- APK installation
+- Offline functional
+- Performance
+- Visual regression
+- Accessibility
+- Security validation
+
+Provide test file targets and CI commands.
+
+Do not invent commands not available in "package.json" or Gradle.
+
+If new test scripts are necessary, specify their implementation.
+
+---
+
+20. REQUIRED 360-DEGREE RELEASE-GATE MATRIX
+
+For each major area, define a gate with explicit PASS/FAIL criteria.
+
+Gate| Required capability
+G0| Repository baseline and traceability
+G1| Playback and scheduler reliability
+G2| Clip model and correct timing
+G3| Continuous zoom and timeline editing
+G4| MIDI and chord editing
+G5| Advanced instrument-role architecture
+G6| Underground subgenre knowledge
+G7| Dynamic multisection arrangements
+G8| Novelty and original project generation
+G9| Persistent mixer/DSP
+G10| Full UI interaction reliability
+G11| Project persistence and migration
+G12| ALS data integrity
+G13| Mastering and export
+G14| Android genuine Gradle build
+G15| Offline Android functionality
+G16| Performance and security
+G17| Automated tests and CI
+G18| Final release qualification
+
+For each gate specify:
+
+- Preconditions
+- Implementation dependencies
+- Exact code changes
+- Test cases
+- Required artifacts
+- Pass thresholds
+- Failure/rollback procedure
+
+Never mark a gate complete because its implementation has merely been proposed.
+
+---
+
+21. ARCHITECTURE DESIGN REVIEW — RESOLVE CONFLICTS
+
+Identify contradictions and trade-offs among v7.0 requirements.
+
+At minimum address:
+
+A. Unlimited-feeling timeline vs finite memory
+
+How does viewport virtualization support large arrangements without creating massive allocations?
+
+B. Offline-first AI vs model quality
+
+Which generation features are deterministic algorithms, and which truly need ML inference?
+
+C. Native ALS parity vs browser DSP
+
+How are browser-supported effects distinguished from preserved but unsupported native devices?
+
+D. Continuous zoom vs sample-accurate scheduling
+
+How do visual transforms stay independent of audio event timing?
+
+E. High track counts vs Android performance
+
+What are the device-specific fallback policies?
+
+F. SoundCraft-like UI vs original product identity
+
+Which workflow concepts are adopted while preserving original design and avoiding proprietary asset copying?
+
+G. Real mastering vs fallback audio synthesis
+
+How can the system avoid claiming calibrated output when the render backend omits effects or automation?
+
+H. Project uniqueness vs reproducibility
+
+How can seeded generation be repeatable while new projects exhibit meaningful novelty?
+
+I. Android installability vs browser-only functionality
+
+Which Web APIs require Capacitor bridging, replacement or different file handling?
+
+J. Zero known P0 defects vs impossible absolute zero-error guarantees
+
+How will release decisions use evidence instead of unsupported claims?
+
+Give a recommended decision, alternatives, risks and rationale for each.
+
+---
+
+22. IMPLEMENTATION SEQUENCE — DEPENDENCY DRIVEN
+
+Do not propose every module being rewritten simultaneously.
+
+Produce a dependency graph and phased implementation.
+
+Required milestone structure
+
+M0 — Baseline and root-cause reproduction
+
+M1 — Restore audible playback
+
+M2 — Repair clip timing and canonical project model
+
+M3 — Continuous timeline and real clip editing
+
+M4 — Persistent mixer/DSP and solo/automation
+
+M5 — Native ALS mutation and migration safety
+
+M6 — Genuine Android APK pipeline
+
+M7 — Offline Android playback and file workflows
+
+M8 — Advanced instrument taxonomy and subgenre intelligence
+
+M9 — Multisection arrangement generation and musical novelty
+
+M10 — Professional UI finishing, performance and accessibility
+
+M11 — End-to-end validation and release qualification
+
+For every milestone provide:
+
+- Scope
+- Exact files
+- Existing APIs affected
+- New interfaces
+- Dependencies
+- Data migrations
+- Tests
+- Rollback approach
+- Acceptance criteria
+- Deliverable evidence
+
+Where work can safely proceed in parallel, explain why shared project/audio state will not create integration conflicts.
+
+Prioritize an end-to-end working product over isolated feature count.
+
+---
+
+23. REQUIREMENT COMPLETENESS AND INDEPENDENT CRITIQUE
+
+Before finalizing the plan, perform an independent review as though you are a skeptical external software architecture board.
+
+Challenge the proposed design for:
+
+- Hidden technical debt
+- Unrealistic assumptions
+- Missing algorithms
+- Nonfunctional feature paths
+- Performance bottlenecks
+- Integration gaps
+- Audio defects
+- State inconsistencies
+- ALS corruption risks
+- Android platform gaps
+- Invalid validation claims
+- Poor musical output
+- Repetition and novelty problems
+- UI interaction conflicts
+- Insufficient automated coverage
+- Security vulnerabilities
+- Migration failures
+
+Use three review rounds:
+
+Review Round A — Functional correctness
+
+Can the proposed implementation actually deliver each user-facing behavior?
+
+Review Round B — Engineering resilience
+
+Can it survive large projects, failures, backgrounding, incompatible data and extended playback?
+
+Review Round C — Creative and product quality
+
+Will it produce sophisticated, editable, original underground music arrangements that are meaningfully better than the present eight-track generator?
+
+For each review round, report critical objections and the exact design modifications that resolve them.
+
+Do not suppress legitimate objections to make the plan look complete.
+
+---
+
+24. NUMERICAL QUALITY SCORING — EVIDENCE BASED
+
+Assess the plan in these dimensions:
+
+1. Architecture — 10
+2. Real-time audio engineering — 10
+3. MIDI and arrangement correctness — 10
+4. Timeline usability — 10
+5. Mixer and DSP correctness — 10
+6. ALS interoperability — 10
+7. Underground musical intelligence — 10
+8. Musical novelty and originality — 10
+9. UI/UX fidelity — 10
+10. Android standalone architecture — 10
+11. Offline functionality — 10
+12. Performance and memory — 10
+13. Security and privacy — 10
+14. Testability and QA — 10
+15. Data migration and reliability — 10
+16. Release engineering — 10
+
+Scoring rules
+
+A score of 8/10 means the plan is technically credible, sufficiently specific, and has testable acceptance criteria with limited unresolved issues.
+
+A score of 9/10 requires complete major architectural contracts, meaningful edge-case coverage and credible verification.
+
+A score of 10/10 for a plan requires no material unresolved design gap in that dimension, explicit trade-offs, traceability and executable verification design.
+
+A 10/10 implementation score requires passing implementation evidence and cannot be awarded during planning.
+
+Do not manipulate scores to meet a requested target.
+
+Instead identify exactly what changes would be necessary to improve each dimension.
+
+Report current plan score, blockers, target score, and required corrections.
+
+---
+
+25. MANDATORY FINAL PLAN DOCUMENT STRUCTURE
+
+Your response must be a complete architecture and implementation review artifact.
+
+Use this exact order:
+
+PART 1 — Executive Review
+
+Summary, actual baseline, major risks, recommendation and implementation readiness.
+
+PART 2 — Verified Current State
+
+Source-code findings and reproduction evidence.
+
+PART 3 — Complete Requirements Traceability
+
+Every v7.0 requirement and significant subrequirement.
+
+PART 4 — Root-Cause Defect Register
+
+P0/P1/P2/P3 defect inventory with source references.
+
+PART 5 — Target System Architecture
+
+Application, audio, project, MIDI, ALS, AI and Android architecture diagrams.
+
+PART 6 — Canonical Data Models
+
+Typed contracts and migration strategy.
+
+PART 7 — Audio/DSP Reliability Design
+
+Real-time scheduler, persistent graph, effects, mixer and diagnostic contracts.
+
+PART 8 — Timeline and Clip Engine
+
+Continuous zoom, ranges, exact clip boundaries, editing semantics and performance.
+
+PART 9 — ALS Interoperability
+
+Safe patches, unknown nodes, schema assumptions, validations and native compatibility.
+
+PART 10 — Expert Musical Architecture
+
+Instrument groups A–H, their exact generation rules and integration contracts.
+
+PART 11 — Subgenre Intelligence
+
+All 16 profiles with concrete generation differences.
+
+PART 12 — Arrangement and Novelty Engine
+
+Multisection forms, phrase planning, variation and similarity rejection.
+
+PART 13 — Workstation UI/UX
+
+SoundCraft-inspired desktop/tablet/mobile workspaces and interaction matrix.
+
+PART 14 — Android
+
+Real Gradle build, APK installation, offline behavior, storage, audio focus and lifecycle.
+
+PART 15 — Security, Performance and Persistence
+
+Failure modes, resource budgets and data recovery.
+
+PART 16 — Test Strategy
+
+TDD, golden fixtures, automated browser/audio/native tests and CI.
+
+PART 17 — Milestone Plan
+
+Dependencies, files, interfaces, migrations, tests and rollback.
+
+PART 18 — Release Gates
+
+Pass/fail requirements G0–G18.
+
+PART 19 — Risk Register
+
+Severity, probability, impact, mitigation and owners by engineering role.
+
+PART 20 — Quality Scorecard
+
+Sixteen categories, evidence, unresolved issues and target improvements.
+
+PART 21 — Independent Architecture Review
+
+Counterarguments, alternative approaches, corrections and final readiness decision.
+
+PART 22 — Review Questions
+
+Only unresolved decisions that genuinely require user authorization or unavailable evidence.
+
+Do not ask questions whose answers are already defined by the specification or source code.
+
+---
+
+26. OUTPUT QUALITY CONDITIONS
+
+The plan is unacceptable if it:
+
+- Merely repeats the v7.0 prompt.
+- Uses generic language without code-specific implementation details.
+- Ignores existing components.
+- Recommends a complete rewrite without proving necessity.
+- Fails to identify the false audio-stability detection.
+- Ignores the clip-length rendering defect.
+- Keeps the 128-bar constraint as the final limitation.
+- Describes zoom presets instead of continuous zoom.
+- Treats one large note array as a professional clip arrangement.
+- Produces only generic techno instrument suggestions.
+- Generates the same template with different labels.
+- Treats all proposed layers as mandatory simultaneous tracks.
+- Uses fake CPU/audio meters.
+- Treats fader visuals as actual DSP.
+- Uses a synthetic APK builder.
+- Ignores Android package-ID inconsistency.
+- Relies on cloud AI for essential offline workflows.
+- Assumes every Ableton device is browser-playable.
+- Declares XML valid without native reference integrity.
+- Provides no migration strategy.
+- Provides no release gates.
+- Has no executable acceptance tests.
+- Invents runtime results or Android installation success.
+- Assigns arbitrary high review scores.
+
+---
+
+27. FINAL COUNTER-REVIEW INSTRUCTION
+
+You must now:
+
+1. Reinspect the latest repository.
+2. Read the entire v7.0 specification.
+3. Audit every subsystem.
+4. Identify all confirmed and suspected defects.
+5. Build complete requirements traceability.
+6. Resolve architectural contradictions.
+7. Specify exact source-code changes.
+8. Define advanced underground music-generation contracts.
+9. Define genuine offline Android architecture.
+10. Design executable QA and release gates.
+11. Conduct an independent critical review.
+12. Revise the proposed plan until no material design gap remains unaddressed.
+13. Present the complete plan for external approval.
+
+STOP CONDITION
+
+DO NOT START THE FULL IMPLEMENTATION IN THIS RESPONSE.
+
+I will submit your proposed implementation plan for an independent architecture and technical review.
+
+After that review, you will receive the approved or corrected implementation directive.
+
+Your job now is to deliver an implementation-ready plan strong enough to survive that scrutiny.
+
+Do not provide a superficial summary.
+
+Do not omit requirements for brevity.
+
+If the response length is limited, produce an indexed multi-part planning artifact with full traceability rather than silently skipping sections.
+
+FINAL DELIVERABLE: A COMPLETE, SOURCE-GROUNDED, INDEPENDENTLY CHALLENGED, PRODUCTION-GRADE IMPLEMENTATION PLAN FOR PARAMETRIC ALS v7.1.
+
+END OF MASTER COUNTER-REVIEW PROMPT.

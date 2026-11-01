@@ -806,4 +806,11 @@ export const STUDIO_COMMAND_DEFINITIONS: StudioCommandDefinition[] = [
     shortcut: 'Cmd/Ctrl+Shift+L',
     description: 'Measure ITU-R BS.1770-4 LUFS & 4x True Peak and apply non-destructive calibration',
   },
+  {
+    id: 'arrangement.generateSectionProposal',
+    title: 'Generate Section Arrangement Proposal',
+    category: 'Transport & Timeline',
+    shortcut: 'Cmd/Ctrl+Shift+A',
+    description: 'Propose structured 6-section underground arrangement (Intro, Groove, Hypnotic, Breakdown, Drop, Outro) non-destructively',
+  },
 ];

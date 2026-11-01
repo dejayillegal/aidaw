@@ -31,6 +31,7 @@ import {
   decompressAlsFile,
   formatXmlString,
   generatePolymeterEuclideanClipNotes,
+  generateSectionArrangementProposal,
   injectLibraryDeviceIntoTrackXml,
   injectMidiClipXmlNode,
   parseAbletonXmlDom,
@@ -1294,7 +1295,7 @@ export default function App() {
     setStatusMessage(summary);
   };
 
-  // Handler: Configurable Arrangement Duration (4, 8, 16, 32, 64, 128, 256, 512 Bars)
+  // Handler: Configurable Arrangement Duration (4 to 1024 Bars) - Non-destructive Extent Change (v7.1 P1-006)
   const handleChangeArrangementLength = (bars: number) => {
     const safeBars = Math.max(4, Math.min(1024, Math.round(bars)));
     setTransport((prev) => ({
@@ -1303,72 +1304,15 @@ export default function App() {
     }));
 
     setProject((prev) => {
-      const targetBeats = safeBars * 4;
-      let workingXml = prev.rawXmlModified;
-
-      const updatedTracks = prev.tracks.map((track) => {
-        const allExistingNotes = track.clips.flatMap((c) => c.notes);
-        let nextNotes = [...allExistingNotes];
-
-        if (nextNotes.length > 0) {
-          const currentMaxBeat = Math.max(16, ...nextNotes.map((n) => n.quantizedTime + 0.25));
-          const sourceCycleBeats = Math.min(64, Math.max(16, Math.ceil(currentMaxBeat / 16) * 16));
-          const baseCycleNotes = nextNotes.filter((n) => n.quantizedTime < sourceCycleBeats);
-
-          if (targetBeats > sourceCycleBeats && baseCycleNotes.length > 0) {
-            const tiled: typeof nextNotes = [];
-            const reps = Math.ceil(targetBeats / sourceCycleBeats);
-            for (let r = 0; r < reps; r++) {
-              baseCycleNotes.forEach((bn, idx) => {
-                const offset = r * sourceCycleBeats;
-                if (bn.quantizedTime + offset >= targetBeats) return;
-                tiled.push({
-                  ...bn,
-                  id: `${bn.id}_r${r}_${idx}`,
-                  quantizedTime: Number((bn.quantizedTime + offset).toFixed(3)),
-                  time: Number((bn.time + offset).toFixed(3)),
-                });
-              });
-            }
-            nextNotes = tiled;
-          } else {
-            nextNotes = nextNotes.filter((n) => n.quantizedTime < targetBeats);
-          }
-        }
-
-        const decomposedClips = decomposeNotesIntoSectionClips(
-          track.name,
-          track.archetype,
-          nextNotes,
-          safeBars
-        );
-        workingXml = syncTrackClipsToXml(workingXml, track.id, decomposedClips);
-
-        return {
-          ...track,
-          clips: decomposedClips,
-          automationPoints: generateContextualAutomationPoints(
-            track.archetype,
-            activeFormId,
-            compositionSeed,
-            safeBars
-          ),
-        };
-      });
-
-      return enrichProjectWithAnalysis(
-        {
-          ...prev,
-          arrangementLengthBars: safeBars,
-          tracks: updatedTracks,
-          rawXmlModified: workingXml,
-        },
-        activeFormId
-      );
+      // Non-destructive extent change: Preserves 100% of existing clips, notes, and track structures
+      return {
+        ...prev,
+        arrangementLengthBars: safeBars,
+      };
     });
 
     setStatusMessage(
-      `Scaled Arrangement Timeline & Multi-Clips to ${safeBars} Bars (${safeBars * 4} Beats) with section-aligned automation.`
+      `Set Arrangement Extent to ${safeBars} Bars (${safeBars * 4} Beats). All existing clips and notes preserved.`
     );
   };
 
@@ -2270,6 +2214,22 @@ export default function App() {
         case 'batch.calibrateActiveProject':
           handleApplySmartLeveling();
           break;
+        case 'arrangement.generateSectionProposal': {
+          const proposal = generateSectionArrangementProposal(project);
+          handleExecuteProjectCommand(
+            'Generate Section Arrangement Proposal',
+            'clip_edit',
+            (draft) => {
+              const enriched = {
+                ...draft,
+                tracks: proposal.proposedTracks,
+              };
+              return enrichProjectWithAnalysis(enriched, activeFormId);
+            }
+          );
+          setStatusMessage(proposal.summary);
+          break;
+        }
         default:
           break;
       }
@@ -2281,6 +2241,8 @@ export default function App() {
       handleDropMemoryLocationAtPlayhead,
       selectedTrack,
       handleExecuteProjectCommand,
+      project,
+      activeFormId,
     ]
   );
 

@@ -71,10 +71,25 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
     slotIdx: number;
   } | null>(null);
 
+  const [previewVolumes, setPreviewVolumes] = useState<Record<string, number>>({});
+  const [previewPans, setPreviewPans] = useState<Record<string, number>>({});
+  const [previewSends, setPreviewSends] = useState<Record<string, { reverbSend?: number; delaySend?: number }>>({});
+
   const vcaGroups: VcaGroupState[] = project.vcaGroups || getDefaultVcaGroups();
 
-  const handleTrackVolumeChange = (trackId: string, volumeDb: number) => {
+  const handleTrackVolumePreview = (trackId: string, volumeDb: number) => {
     const roundedVol = Number(volumeDb.toFixed(1));
+    setPreviewVolumes((prev) => ({ ...prev, [trackId]: roundedVol }));
+    synthEngine.updateTrackMixerLive(trackId, { volumeDb: roundedVol });
+  };
+
+  const handleTrackVolumeCommit = (trackId: string, volumeDb: number) => {
+    const roundedVol = Number(volumeDb.toFixed(1));
+    setPreviewVolumes((prev) => {
+      const next = { ...prev };
+      delete next[trackId];
+      return next;
+    });
     synthEngine.updateTrackMixerLive(trackId, { volumeDb: roundedVol });
     onUpdateProjectWithUndo(
       `Set Track Fader (${roundedVol.toFixed(1)} dB)`,
@@ -106,7 +121,17 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
     );
   };
 
-  const handleTrackPanChange = (trackId: string, pan: number) => {
+  const handleTrackPanPreview = (trackId: string, pan: number) => {
+    setPreviewPans((prev) => ({ ...prev, [trackId]: pan }));
+    synthEngine.updateTrackMixerLive(trackId, { pan });
+  };
+
+  const handleTrackPanCommit = (trackId: string, pan: number) => {
+    setPreviewPans((prev) => {
+      const next = { ...prev };
+      delete next[trackId];
+      return next;
+    });
     synthEngine.updateTrackMixerLive(trackId, { pan });
     onUpdateProjectWithUndo(`Set Track Pan (${pan.toFixed(2)})`, 'mixer', (draft) => {
       draft.tracks = draft.tracks.map((t) =>
@@ -116,11 +141,28 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
     });
   };
 
-  const handleTrackSendChange = (
+  const handleTrackSendPreview = (
     trackId: string,
     sendKey: 'reverbSend' | 'delaySend',
     val: number
   ) => {
+    setPreviewSends((prev) => ({
+      ...prev,
+      [trackId]: { ...(prev[trackId] || {}), [sendKey]: val },
+    }));
+    synthEngine.updateTrackMixerLive(trackId, { [sendKey]: val });
+  };
+
+  const handleTrackSendCommit = (
+    trackId: string,
+    sendKey: 'reverbSend' | 'delaySend',
+    val: number
+  ) => {
+    setPreviewSends((prev) => {
+      const next = { ...prev };
+      delete next[trackId];
+      return next;
+    });
     synthEngine.updateTrackMixerLive(trackId, { [sendKey]: val });
     onUpdateProjectWithUndo(`Adjust ${sendKey}`, 'mixer', (draft) => {
       draft.tracks = draft.tracks.map((t) =>
@@ -540,12 +582,26 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                         min={0}
                         max={1}
                         step={0.02}
-                        value={track.mixer?.reverbSend ?? 0.2}
+                        value={previewSends[track.id]?.reverbSend ?? track.mixer?.reverbSend ?? 0.2}
+                        onInput={(e) =>
+                          handleTrackSendPreview(
+                            track.id,
+                            'reverbSend',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                        }
                         onChange={(e) =>
-                          handleTrackSendChange(
+                          handleTrackSendCommit(
                             track.id,
                             'reverbSend',
                             Number(e.target.value)
+                          )
+                        }
+                        onPointerUp={(e) =>
+                          handleTrackSendCommit(
+                            track.id,
+                            'reverbSend',
+                            Number((e.target as HTMLInputElement).value)
                           )
                         }
                         className="w-full accent-sky-400 h-1 mt-0.5"
@@ -555,7 +611,7 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                       <div className="flex justify-between text-[8.5px] text-zinc-400">
                         <span>Send B (Dly)</span>
                         <span className="text-purple-300">
-                          {Math.round((track.mixer?.delaySend ?? 0.15) * 100)}%
+                          {Math.round((previewSends[track.id]?.delaySend ?? track.mixer?.delaySend ?? 0.15) * 100)}%
                         </span>
                       </div>
                       <input
@@ -563,12 +619,26 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                         min={0}
                         max={1}
                         step={0.02}
-                        value={track.mixer?.delaySend ?? 0.15}
+                        value={previewSends[track.id]?.delaySend ?? track.mixer?.delaySend ?? 0.15}
+                        onInput={(e) =>
+                          handleTrackSendPreview(
+                            track.id,
+                            'delaySend',
+                            Number((e.target as HTMLInputElement).value)
+                          )
+                        }
                         onChange={(e) =>
-                          handleTrackSendChange(
+                          handleTrackSendCommit(
                             track.id,
                             'delaySend',
                             Number(e.target.value)
+                          )
+                        }
+                        onPointerUp={(e) =>
+                          handleTrackSendCommit(
+                            track.id,
+                            'delaySend',
+                            Number((e.target as HTMLInputElement).value)
                           )
                         }
                         className="w-full accent-purple-400 h-1 mt-0.5"
@@ -581,11 +651,14 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                     <div className="flex justify-between text-[8.5px] text-zinc-400">
                       <span>Pan</span>
                       <span className="text-zinc-200">
-                        {(track.mixer?.pan ?? 0) === 0
-                          ? 'C'
-                          : (track.mixer?.pan ?? 0) < 0
-                          ? `${Math.round(Math.abs(track.mixer?.pan ?? 0) * 50)}L`
-                          : `${Math.round((track.mixer?.pan ?? 0) * 50)}R`}
+                        {(() => {
+                          const currentPan = previewPans[track.id] ?? track.mixer?.pan ?? 0;
+                          return currentPan === 0
+                            ? 'C'
+                            : currentPan < 0
+                            ? `${Math.round(Math.abs(currentPan) * 50)}L`
+                            : `${Math.round(currentPan * 50)}R`;
+                        })()}
                       </span>
                     </div>
                     <input
@@ -593,9 +666,15 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                       min={-1}
                       max={1}
                       step={0.05}
-                      value={track.mixer?.pan ?? 0}
+                      value={previewPans[track.id] ?? track.mixer?.pan ?? 0}
+                      onInput={(e) =>
+                        handleTrackPanPreview(track.id, Number((e.target as HTMLInputElement).value))
+                      }
                       onChange={(e) =>
-                        handleTrackPanChange(track.id, Number(e.target.value))
+                        handleTrackPanCommit(track.id, Number(e.target.value))
+                      }
+                      onPointerUp={(e) =>
+                        handleTrackPanCommit(track.id, Number((e.target as HTMLInputElement).value))
                       }
                       className="w-full accent-zinc-300 h-1 mt-0.5"
                     />
@@ -606,9 +685,10 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                     <div className="flex items-center justify-between text-[9px]">
                       <span className="text-zinc-400">Base Fader:</span>
                       <span className="font-bold text-zinc-100">
-                        {vcaComp.baseVolumeDb >= 0
-                          ? `+${vcaComp.baseVolumeDb.toFixed(1)}`
-                          : vcaComp.baseVolumeDb.toFixed(1)}{' '}
+                        {(() => {
+                          const displayVol = previewVolumes[track.id] ?? vcaComp.baseVolumeDb;
+                          return displayVol >= 0 ? `+${displayVol.toFixed(1)}` : displayVol.toFixed(1);
+                        })()}{' '}
                         dB
                       </span>
                     </div>
@@ -617,9 +697,15 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                       min={-36}
                       max={6}
                       step={0.5}
-                      value={vcaComp.baseVolumeDb}
+                      value={previewVolumes[track.id] ?? vcaComp.baseVolumeDb}
+                      onInput={(e) =>
+                        handleTrackVolumePreview(track.id, Number((e.target as HTMLInputElement).value))
+                      }
                       onChange={(e) =>
-                        handleTrackVolumeChange(track.id, Number(e.target.value))
+                        handleTrackVolumeCommit(track.id, Number(e.target.value))
+                      }
+                      onPointerUp={(e) =>
+                        handleTrackVolumeCommit(track.id, Number((e.target as HTMLInputElement).value))
                       }
                       className="w-full accent-orange-500 h-1.5"
                     />

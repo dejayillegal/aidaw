@@ -1,0 +1,1307 @@
+This is the Parametric ALS v7.1 Production Remediation Master Prompt. It follows directly from the latest GitHub audit and targets the actual defects in commit `f6f704e`, including the unmerged, CI-tested Android fix in PR #1.
+
+The priority is to repair and verify the existing DAW without losing any working features, then bring its timeline, mixer, ALS interoperability, offline Android application, and advanced composition engine to a production-grade standard.
+
+# GOOGLE AI STUDIO — PARAMETRIC ALS v7.1
+## CRITICAL PRODUCTION REMEDIATION, ARCHITECTURE RECONCILIATION & VERIFIED IMPLEMENTATION
+
+### MASTER IMPLEMENTATION DIRECTIVE — NO MOCK FEATURES, NO DESTRUCTIVE ALS OPERATIONS, NO FAKE APK, NO UNVERIFIED COMPLETION
+
+**Project:** Parametric ALS — AI Underground Techno DAW Engine
+
+**Repository:** https://github.com/dejayillegal/aidaw
+
+**Last audited main commit:** `f6f704eec085ff18406d30f044ba35ab6fa01de0`
+
+**Existing Android corrective PR:** https://github.com/dejayillegal/aidaw/pull/1
+
+**Verified Android CI reference:** https://github.com/dejayillegal/aidaw/actions/runs/41263506192
+
+**Mission:** Complete a root-cause-driven remediation of the v7.0 implementation, preserve the existing application, repair all identified production blockers, reconcile the authentic Android build pipeline, and deliver a fully tested v7.1 release candidate.
+
+**Execution requirement:** Implement actual code changes, integrate them, run verification, and provide evidence. This is not another conceptual architecture proposal.
+
+---
+
+# 0. MANDATORY IMPLEMENTATION POLICY
+
+You must operate as a coordinated engineering team:
+
+- Principal DAW Software Architect
+- Ableton Live ALS Interoperability Engineer
+- Audio DSP and Real-Time Scheduling Engineer
+- MIDI/Timeline Sequencer Architect
+- TypeScript/React Systems Engineer
+- Android/Capacitor Build and Runtime Engineer
+- Data Integrity and Migration Engineer
+- Underground Electronic Music Composition Architect
+- QA Automation and Audio Verification Specialist
+- Performance/Security Engineer
+- Independent Release Auditor
+
+The previous v7.0 completion report claimed that all phases were fulfilled.
+
+An independent source review found that several implementation details do not yet satisfy those claims.
+
+Your task is to **resolve the documented defects and verify the finished product**, not defend the prior implementation.
+
+### Non-negotiable principles
+
+1. Preserve all verified working functionality.
+2. Do not rewrite the entire application without necessity.
+3. No destructive transformations during project import.
+4. No mutation of canonical React state by the audio engine.
+5. No successful project command without confirmed persistence/validation.
+6. No fake audio metrics.
+7. No fabricated or manually simulated Android APK build.
+8. No native ALS compatibility claims without sufficient evidence.
+9. No no-op controls or fake functionality.
+10. No test pass claims without executable results.
+11. No inflated quality scores.
+12. No release while P0 data-integrity or Android acceptance gates fail.
+
+Use test-driven development for behavior changes:
+
+**RED → GREEN → REFACTOR → INTEGRATION → REGRESSION → RELEASE EVIDENCE**
+
+Start by inspecting the latest repository commit and reconciling changes made after the audited baseline.
+
+Work in a dedicated remediation branch. Preserve the original main branch and its user data. Produce reviewable commits and a pull request when repository permissions permit.
+
+---
+
+# 1. VERIFIED DEFECT REGISTER — REQUIRED FIXES
+
+The following are grounded in the source audit.
+
+## P0-001 — DESTRUCTIVE ALS IMPORT DECOMPOSITION
+
+Files:
+
+- `src/engine/alsXmlEngine.ts`
+- `src/engine/compositionIntelligenceEngine.ts`
+
+Existing behavior:
+
+`parseAlsXmlString()` can invoke `decomposeNotesIntoSectionClips()` when an imported track contains one MIDI clip of at least 128 beats.
+
+The decomposition function applies predefined sections and may exclude portions of the original notes based on track archetype.
+
+### REQUIRED IMPLEMENTATION
+
+Make ALS import strictly content-preserving.
+
+Import must:
+
+- Preserve all original track structures.
+- Preserve the original MIDI clips.
+- Preserve note count and timing.
+- Preserve native clip boundaries.
+- Preserve automation and devices.
+- Preserve unknown XML nodes.
+- Preserve original clip/note identifiers.
+- Preserve session clips and supported routing.
+- Never create creative arrangement changes automatically.
+
+Introduce a distinct creative command:
+
+`GenerateSectionArrangementProposal`
+
+This operation must be separate from:
+
+`ParseAlsProject`
+
+### Correct architecture
+
+**Import:**
+
+Source ALS → Decompression → Safe Parsing → Native Source Snapshot → Canonical Project Model → Semantic Validation → Render.
+
+**Optional transformation:**
+
+Canonical Project → Section Proposal → Preview → User Approval → Transaction → Validation → Apply.
+
+The parser must never decide to remove an instrument during a breakdown.
+
+The user, or an explicitly approved creative transformation, must control that change.
+
+### Required tests
+
+- Import a long kick clip containing notes in every section.
+- Verify no notes disappear.
+- Verify all original clips and IDs remain associated with the correct tracks.
+- Verify that import does not change musical content.
+- Verify import, save and reimport preserve the original musical meaning.
+- Verify a failed transformation leaves the original project unchanged.
+
+**Gate:** Zero unexplained loss of imported notes, clips, devices, automation or references.
+
+---
+
+# 2. P0-002 — REPLACE DESTRUCTIVE CLIP XML RECONSTRUCTION
+
+File:
+
+`src/engine/alsXmlEngine.ts`
+
+Affected functions:
+
+- `injectMultipleMidiClipsXmlNodes()`
+- `syncTrackClipsToXml()`
+- Related clip/note XML mutators
+
+Current problem:
+
+Existing MIDI clip nodes are removed and recreated using synthetic IDs and a limited subset of fields.
+
+This can lose metadata or invalidate references not modeled by the application.
+
+### REQUIRED IMPLEMENTATION
+
+Build a version-aware, targeted ALS mutation service.
+
+Suggested modules:
+
+- `src/engine/als/AlsDocumentAdapter.ts`
+- `src/engine/als/AlsPatchEngine.ts`
+- `src/engine/als/AlsReferenceValidator.ts`
+- `src/engine/als/AlsCompatibilityReport.ts`
+- `src/engine/als/AlsTransactionManager.ts`
+
+Use existing modules where more appropriate; avoid redundant architecture.
+
+### Supported operations
+
+- Create clip
+- Update clip bounds
+- Move clip
+- Duplicate clip
+- Split clip
+- Update MIDI note
+- Change note velocity
+- Edit automation
+- Edit track mixer parameters
+- Insert supported native device
+- Remove supported native device
+- Update routing
+
+### Every patch must return
+
+- Operation ID
+- Success/failure status
+- Updated XML if successful
+- Changed node identifiers
+- Preserved node identifiers
+- Reference validation
+- Structural validation
+- Version-specific compatibility status
+- Undo/rollback information
+- Explicit error explanation when unsuccessful
+
+Do not return unchanged XML as if a requested modification succeeded.
+
+If the native schema is not safely understood, reject the native mutation and preserve source data.
+
+### ID management
+
+Replace arbitrary IDs such as `5000 + clipIdx * 100` with a validated allocation strategy.
+
+Preserve existing IDs wherever possible.
+
+Check reference relationships, note IDs and device automation targets.
+
+### Validation
+
+Use representative fixtures from supported Live versions.
+
+Validate semantic round trips and unknown-node preservation.
+
+When native Ableton is unavailable, mark native reopen validation as unverified.
+
+Do not confuse XML parsing success with Ableton compatibility.
+
+---
+
+# 3. P0-003 — REMOVE AUDIO ENGINE MUTATION OF CANONICAL PROJECT STATE
+
+Files:
+
+- `src/engine/webAudioSynth.ts`
+- `src/components/SoundCraftMixConsole.tsx`
+- `src/services/commandBus.ts`
+- `src/App.tsx`
+
+Current problem:
+
+`updateTrackMixerLive()` mutates `this.project.tracks[idx]`.
+
+The Mix Console invokes this function before committing an undoable project command.
+
+This creates a risk of changing the original state before the undo transaction captures it.
+
+### REQUIRED IMPLEMENTATION
+
+Separate canonical project state from real-time audio runtime state.
+
+The audio engine must not mutate the React project object.
+
+### Canonical command flow
+
+UI Action → Command Bus → Immutable Project Transaction → Validation → Commit → Audio Parameter Synchronization → UI Update.
+
+For high-frequency controls such as fader dragging, support an explicit preview/commit workflow:
+
+**Drag preview:** Update DSP parameter values without mutating canonical project objects.
+
+**Commit:** Validate and persist one coalesced undoable change.
+
+**Cancel:** Restore the pre-drag value.
+
+### Required interfaces
+
+Design or adapt typed contracts for:
+
+- `ProjectCommand`
+- `ProjectTransaction`
+- `AudioRuntimeParameterUpdate`
+- `CommandValidationResult`
+- `UndoSnapshot`
+- `ProjectRevision`
+
+### Required behavior
+
+- Undo restores the correct previous mixer value.
+- Redo reapplies the correct new value.
+- A fader drag does not create hundreds of undo entries.
+- Track selection remains stable.
+- A failed XML patch does not leave the UI and audio engine disagreeing.
+- Project switching does not cause stale audio updates.
+- Concurrent UI actions cannot overwrite a newer project revision.
+
+### Regression scenario
+
+Initial fader: -6 dB.
+
+User drags to -12 dB.
+
+Verify:
+
+1. Audio responds during drag.
+2. Project commits -12 dB once.
+3. Undo restores -6 dB.
+4. Audio output also returns to -6 dB.
+5. Redo restores -12 dB.
+6. Save/reload preserves -12 dB.
+7. XML representation agrees where the native operation is supported.
+
+Do the same for pan, sends, mute, solo and VCA.
+
+---
+
+# 4. P0-004 — RECONCILE REAL ANDROID APK PIPELINE
+
+This is a release-blocking requirement.
+
+The latest `main` contains a custom JavaScript APK generator.
+
+Another branch contains an actual CI-tested Gradle/Capacitor implementation.
+
+### Existing verified resources
+
+**PR:** https://github.com/dejayillegal/aidaw/pull/1
+
+**Branch:** `fix/android-debug-apk`
+
+**Tested commit:** `36549acfe1e190966ad4b11d174fc3ec14dcd019`
+
+The corrective branch contains:
+
+- Actual Capacitor sync
+- Gradle `assembleDebug`
+- APK verification script
+- Android CI workflow
+- Emulator installation testing
+- Offline startup tests
+- Android build instructions
+- Removal of synthetic APK generation
+
+### REQUIRED IMPLEMENTATION
+
+Reconcile PR #1 with the latest main branch.
+
+Do not blindly merge or overwrite newer v7.0 changes.
+
+Perform a three-way reconciliation using the appropriate common ancestor.
+
+Inspect all conflicting files.
+
+Preserve useful newer application functionality.
+
+### Mandatory file reconciliation
+
+- `package.json`
+- `package-lock.json`
+- `scripts/build-debug-apk.mjs`
+- `scripts/verify-apk.py`
+- `scripts/apk-download.test.mjs`
+- `src/utils/apkDownloader.ts`
+- `src/__tests__/apkAndUiAutomation.test.tsx`
+- `capacitor.config.ts`
+- `capacitor.config.json`
+- `android/app/build.gradle`
+- `android/app/src/main/AndroidManifest.xml`
+- `.github/workflows/android-debug.yml`
+- `docs/ANDROID_BUILD.md`
+
+### Required final architecture
+
+`npm run build` must build web assets without generating an APK.
+
+`npm run build:apk` must invoke:
+
+1. Web production build
+2. Capacitor sync
+3. Gradle debug build
+4. Native APK verification
+5. SHA-256 calculation
+6. Publication only after verification
+
+No other source is permitted to generate downloadable APK binaries.
+
+### Remove
+
+- Manual Dalvik DEX construction
+- Manual binary AndroidManifest construction
+- Manual APK signing-block construction
+- Synthetic resource tables
+- Fake APK ZIP construction
+- Misleading fallback APK downloads
+- Synthetic Android runtime shims that mask real failures
+
+### IMPORTANT TEST RECONCILIATION
+
+The latest main branch includes tests that import the custom APK generator and assert its handcrafted byte structures.
+
+Those tests must be replaced or reworked.
+
+Do not keep tests that require the broken architecture.
+
+Replace them with tests for:
+
+- Failure when no APK is available
+- No fake APK generation
+- Actual Android SDK signature verification
+- Valid package ID
+- Valid launcher activity
+- Android-compatible DEX and resources
+- Bundled production assets
+- APK installation
+- Offline WebView startup
+- Audio playback
+- Local project storage and export
+
+### Signature policy
+
+Do not generate a random new signing key for every build and claim normal update compatibility.
+
+Use Android's legitimate debug signing workflow for development.
+
+For release artifacts, design controlled signing with secure key management.
+
+### Required real-world verification
+
+Execute:
+
+- Gradle debug build
+- APK signing verification
+- Alignment verification
+- APK manifest inspection
+- Emulator installation
+- Application launch
+- Network-disabled startup
+- Web Audio playback
+- Project import/export smoke tests
+- Repeated relaunch
+
+A successful result from the older PR is not sufficient.
+
+**Rerun the entire Android pipeline against the newly reconciled v7.1 source commit.**
+
+Do not mark Android complete until that exact commit passes.
+
+---
+
+# 5. P1-005 — COMPLETE CONTINUOUS TIMELINE INTEGRATION
+
+Files:
+
+- `src/engine/timelineViewportController.ts`
+- `src/components/TimelineCanvas.tsx`
+- `src/components/SoundCraftWorkstation.tsx`
+- `src/App.tsx`
+
+Current problem:
+
+`TimelineViewportController` exists and supports continuous zoom calculations.
+
+However, the rendered Arrangement still uses independent `arrangementZoom` and `arrangementScrollBar` values.
+
+This means the professional zoom controller is not yet the single source of truth.
+
+### REQUIRED IMPLEMENTATION
+
+Integrate the viewport controller into the running Arrangement.
+
+Remove competing timeline coordinate models.
+
+### Canonical state
+
+- `pixelsPerBeat`
+- `scrollBeat`
+- `viewportWidth`
+- `viewportHeight`
+- `visibleStartBeat`
+- `visibleEndBeat`
+- `playheadBeat`
+- `zoomAnchorBeat`
+- `selectionStartBeat`
+- `selectionEndBeat`
+- `followPlayhead`
+
+### Required timeline behavior
+
+- Smooth continuous zoom
+- Pointer-anchored zoom
+- Trackpad zoom
+- Touch pinch zoom
+- Horizontal pan
+- Drag-to-scroll
+- Zoom to selection
+- Zoom to clip
+- Zoom to section
+- Fit arrangement
+- Full-song minimap
+- Adaptive beat grid
+- Synchronized MIDI editor
+- Dynamic arrangement extension
+
+### Core invariant
+
+Zoom and scrolling must never modify MIDI events, clip durations or source project data.
+
+### Geometry
+
+All the following must use one mapping contract:
+
+- Ruler
+- Bar labels
+- Grid
+- Clips
+- Automation
+- Markers
+- Selection
+- Loop region
+- Playhead
+- Analysis strip
+- Minimap viewport
+
+### Dynamic time signatures
+
+Do not hardcode four beats per bar as the global timing model.
+
+Use a time-signature-aware musical mapping.
+
+Distinguish quarter-note beat units from meter-defined bar positions.
+
+### Acceptance
+
+Create a four-bar clip at Bar 33.
+
+Zoom out to the full song.
+
+Zoom into Bar 35.
+
+Scroll to Bar 65.
+
+Return to Bar 33.
+
+Verify the clip remains in the exact same musical position and maintains its precise duration.
+
+---
+
+# 6. P1-006 — REPAIR ARRANGEMENT LENGTH CHANGES
+
+File:
+
+`src/App.tsx`
+
+Current problem:
+
+The arrangement-length handler collects MIDI notes, tiles them across the new duration, trims them when shrinking, decomposes them into sections, and modifies XML.
+
+Changing the project timeline length should not automatically rewrite existing composition.
+
+### REQUIRED IMPLEMENTATION
+
+Introduce independent typed commands:
+
+- `SetArrangementExtent`
+- `ExtendArrangementWithSilence`
+- `DuplicateTimeRange`
+- `GenerateArrangementExtension`
+- `TrimArrangementWithPreview`
+- `InsertTime`
+- `DeleteTime`
+
+### Behavior
+
+**Set Arrangement Extent:** Changes the display/project extent without rewriting notes.
+
+**Extend With Silence:** Adds space without generating material.
+
+**Duplicate Time Range:** Copies selected musical content through an explicit operation.
+
+**Generate Extension:** Invokes the composition engine to propose new content.
+
+**Trim:** Requires preview and explicit approval before deleting existing musical content.
+
+### Safety
+
+Never delete notes because the visible arrangement duration was reduced.
+
+Never automatically regenerate the user's song when changing zoom or bar count.
+
+Keep all operations undoable.
+
+Persist modifications through validated project transactions.
+
+---
+
+# 7. P1-007 — REAL TEN-INSERT MIXER DSP
+
+Files:
+
+- `src/engine/webAudioSynth.ts`
+- `src/engine/channelStripEngine.ts`
+- `src/components/SoundCraftMixConsole.tsx`
+
+The current persistent track graph is useful.
+
+Preserve that foundation.
+
+However, the runtime does not yet provide a genuine ten-processor ordered insert chain.
+
+### REQUIRED IMPLEMENTATION
+
+Create a processor abstraction:
+
+- `ProcessorInstance`
+- `ProcessorFactory`
+- `ProcessorParameter`
+- `ProcessorBypassState`
+- `ProcessorLifecycle`
+- `ProcessorSerialization`
+- `ProcessorAutomationBinding`
+
+### Supported processors
+
+Implement actual browser audio processing for the processors advertised as functional.
+
+Prioritize:
+
+1. Utility Gain
+2. High/Low/Parametric EQ
+3. Low-pass/High-pass filter
+4. Saturation
+5. Compressor
+6. Delay
+7. Reverb
+8. Chorus/Modulation
+9. Distortion
+10. Limiter
+
+Different processor types must execute their actual processing logic.
+
+Do not simulate all inserts through `gainMultiplier`.
+
+### Signal chain
+
+Instrument/Audio Input
+→ Insert 1
+→ Insert 2
+→ ...
+→ Insert 10
+→ Channel Fader
+→ Pan
+→ Solo/Mute
+→ Routing/Returns
+→ Master
+
+Support explicit pre/post-fader routing where intended.
+
+### Required capabilities
+
+- Enable/disable
+- Bypass
+- Insert
+- Remove
+- Reorder
+- Parameter automation
+- Presets
+- Live DSP updates
+- Save/reload
+- Offline rendering
+- Resource cleanup
+
+### Real-time audio tests
+
+Use generated reference signals.
+
+Verify:
+
+- EQ changes the expected frequency response.
+- Compressor changes dynamic range according to its settings.
+- Delay produces measurable delayed energy.
+- Reverb produces a measurable decay.
+- Bypass restores the expected dry signal.
+- Insert order can change output where processing is noncommutative.
+- Faders change currently sustained audio.
+- Solo immediately affects active voices.
+- Offline output reflects supported insert processing.
+
+### Compatibility
+
+Clearly distinguish:
+
+- Parametric ALS browser DSP
+- Native Ableton device representation
+- Native Ableton device preserved but not browser-renderable
+- Unsupported conversion
+
+Do not claim Ableton device parity without verified equivalent behavior.
+
+---
+
+# 8. P1-008 — ADVANCED UNDERGROUND MUSICAL INTELLIGENCE
+
+Files:
+
+- `src/engine/compositionIntelligenceEngine.ts`
+- `src/engine/alsXmlEngine.ts`
+- `src/types/ableton.ts`
+- `src/components/AiComposerIntelligencePanel.tsx`
+
+Preserve all existing 16 underground subgenre profiles and Groups A–H instrument taxonomy.
+
+However, the current generator uses many fixed rhythmic cells and section templates.
+
+The objective is to produce sophisticated, musically distinct arrangements—not simply a catalog of genre labels.
+
+### Required composition architecture
+
+Implement a hierarchy:
+
+`Project Identity → Subgenre Profile → Musical Form → Section → Phrase → Instrument Role → Clip → Notes/Audio → Automation`
+
+### Genre profiles must influence algorithms
+
+Each subgenre should modify appropriate parameters such as:
+
+- Groove grammar
+- Kick structure
+- Bass interaction
+- Percussion syncopation
+- Note density
+- Swing
+- Accent patterns
+- Harmonic movement
+- Phrase length
+- Instrument selection
+- Texture
+- Modulation
+- Transitions
+- Automation behavior
+- Arrangement form
+- Dynamics
+
+### Candidate generation
+
+Use multiple distinct structural candidates for each generation.
+
+Analyze:
+
+- Repetition
+- Musical coherence
+- Kick/bass relationships
+- Harmonic conflicts
+- Groove continuity
+- Energy progression
+- Instrument redundancy
+- Structural similarity
+
+Reject candidates that fail musical constraints.
+
+### Musical roles
+
+Keep the A–H taxonomy expandable.
+
+Do not instantiate every role in every composition.
+
+Support deep instrument layering while preserving meaningful musical space.
+
+### Arrangement
+
+Generate independent editable clips with real musical development.
+
+Avoid the same fixed six-section structure across all projects.
+
+### User control
+
+Allow:
+
+- Generate full arrangement
+- Generate only selected instrument role
+- Regenerate selected clips
+- Create selected-range chord sequence
+- Add percussion fills
+- Extend song with new section
+- Preserve locked tracks
+- Generate bass variation
+- Create transition
+- Revoice chords
+- Produce restrained/minimal versions
+- Increase groove complexity without uncontrolled density
+
+### Novelty validation
+
+Use source-content fingerprints:
+
+- Rhythm onsets
+- Accent contours
+- Pitch interval relationships
+- Chord progression
+- Arrangement topology
+- Automation curves
+- Instrument distribution
+
+Support deterministic seeds and reproducible output.
+
+Do not advertise guaranteed absolute uniqueness.
+
+### Musical acceptance
+
+Produce multiple original projects under:
+
+- Hardgroove
+- Hypnotic Techno
+- Dub Techno
+- Industrial Techno
+- Minimal Techno
+- Broken Techno
+
+Verify meaningful structural differences using automated feature metrics and listening evaluation.
+
+Simply changing BPM, preset names or colors does not satisfy originality.
+
+---
+
+# 9. COMPLETE UI AND FEATURE RELIABILITY AUDIT
+
+Audit every user-facing action.
+
+Inspect:
+
+- Studio Menu
+- Transport
+- Arrangement
+- Minimap
+- Timeline Tools
+- Clip Controls
+- MIDI Editor
+- Mixer
+- Effects
+- Device Rack
+- AI Composer
+- Session Matrix
+- Project Queue
+- Export
+- Diagnostics
+- Settings
+- Android navigation
+
+### Interaction registry
+
+For every active control, identify:
+
+- Command
+- Event handler
+- State owner
+- Expected result
+- Audio/project effect
+- Persistence
+- Undo behavior
+- Failure handling
+- Test case
+
+Fix every confirmed no-op, disconnected, unstable or misleading control.
+
+Prioritize controls involved in core music workflows.
+
+Do not change the visual design unnecessarily while repairing behavior.
+
+Retain the established SoundCraft-inspired workstation aesthetic.
+
+---
+
+# 10. TEST ARCHITECTURE — EXPAND BEYOND 33 TESTS
+
+The existing three suites contain 33 source-defined tests.
+
+Preserve valid tests.
+
+Remove tests that certify incorrect architecture.
+
+### Required new suites
+
+**ALS Safety**
+
+- Import preservation
+- Unknown subtree preservation
+- Native ID/reference preservation
+- Long clip import
+- Multiple clips
+- Failed XML patch rollback
+- Safe save/reimport
+
+**Project Transaction Integrity**
+
+- Fader undo
+- Pan undo
+- Device insertion undo
+- Clip move undo
+- Clip split undo
+- Failed commit rollback
+- Project switching race conditions
+
+**Timeline**
+
+- Continuous zoom
+- Cursor anchoring
+- Minimap
+- Dynamic bars
+- Multitrack coordinate alignment
+- Precise range selection
+- Clip dragging
+- MIDI note editing
+- Variable meter
+
+**Audio/DSP**
+
+- Real-time gain changes
+- Sustaining notes
+- Solo/mute
+- Effects
+- Sends/returns
+- Automation
+- Offline parity
+
+**Music Intelligence**
+
+- Deterministic regeneration
+- Novelty scoring
+- Subgenre differentiation
+- Locked tracks
+- Musical structure
+- Section-specific variation
+- Clip-level generation
+
+**Android**
+
+- Real Gradle APK
+- APK signature
+- APK install
+- Offline startup
+- Audio playback
+- Local storage
+- File import/export
+- App relaunch
+
+### Test framework
+
+Use appropriate combinations of:
+
+- Vitest
+- React Testing Library
+- Playwright
+- Android JUnit/instrumentation
+- Android emulator
+- Audio reference-signal analysis
+- ALS fixture-based validation
+- CI build verification
+
+Do not call JSDOM tests Android device instrumentation.
+
+Do not claim audible output merely because a mock `AudioContext` changed state.
+
+---
+
+# 11. TDD FAILURE-FIRST MATRIX
+
+Create regression tests before fixes for these specific defects.
+
+| Test ID | Existing defect | Expected corrected behavior |
+|---|---|---|
+| ALS-P0-01 | Imported long clips are decomposed | Import preserves all notes and original clip identity |
+| ALS-P0-02 | XML mutator recreates IDs | Targeted edits preserve native references |
+| ALS-P0-03 | XML failure can be silent | Command fails and entire operation rolls back |
+| STATE-P0-01 | Audio runtime mutates project | Canonical project remains immutable |
+| STATE-P0-02 | Mixer undo may capture modified state | Undo/redo restores exact values |
+| APK-P0-01 | Main builds custom APK bytes | Only real Gradle-generated APK is published |
+| APK-P0-02 | Signing identity changes per build | Correct development/release signing lifecycle |
+| APK-P0-03 | Existing APK test checks handcrafted bytes | Android SDK and emulator validation |
+| TIME-P1-01 | UI bypasses viewport controller | All timeline transforms share one controller |
+| TIME-P1-02 | Arrangement-length changes rewrite notes | Length changes preserve existing music |
+| MIX-P1-01 | Inserts approximated through gain multiplier | Real ordered DSP processing |
+| MUSIC-P1-01 | Genres differ primarily by labels/presets | Measurable rhythmic/formal differences |
+| QA-P1-01 | Tests don't verify live workflows | Real browser/audio/device evidence |
+
+All these tests must be red on the defective baseline or otherwise explicitly demonstrate the defect through a reproducible fixture.
+
+After each fix, rerun focused and regression tests.
+
+---
+
+# 12. PHASED IMPLEMENTATION — STRICT ORDER
+
+## PHASE A — Establish Verified Baseline
+
+- Fetch current main.
+- Inspect PR #1.
+- Create remediation branch.
+- Capture code/test baseline.
+- Generate risk register.
+- Verify reproducible defects.
+
+## PHASE B — Repair ALS Data Safety
+
+- Remove import-time creative decomposition.
+- Introduce safe native patch transactions.
+- Preserve IDs and unknown XML.
+- Implement rollback.
+- Pass ALS data-integrity tests.
+
+## PHASE C — Repair Project State/Undo
+
+- Remove audio-runtime mutation of canonical project.
+- Introduce immutable commands.
+- Update mixer runtime after validated state changes.
+- Implement preview/commit for continuous fader dragging.
+- Pass undo and state-consistency tests.
+
+## PHASE D — Repair Android Packaging
+
+- Reconcile real Gradle build from PR #1.
+- Remove custom APK assembly.
+- Update conflicting tests.
+- Configure genuine CI.
+- Build and install on emulator.
+- Validate offline functionality.
+
+## PHASE E — Complete Timeline
+
+- Integrate `TimelineViewportController`.
+- Remove competing coordinate systems.
+- Implement continuous zoom and bar selection.
+- Separate timeline extent from note regeneration.
+- Verify real clip movement and editing.
+
+## PHASE F — Complete Mixer DSP
+
+- Implement ordered processors.
+- Validate live controls.
+- Validate solo/mute and returns.
+- Verify offline rendering parity.
+
+## PHASE G — Upgrade Composition Intelligence
+
+- Implement genuine genre-specific grammar.
+- Implement varied arrangement forms.
+- Introduce novelty evaluation.
+- Verify original, editable musical outcomes.
+
+## PHASE H — UI and Cross-Platform Regression
+
+- Audit all visible controls.
+- Fix broken actions.
+- Validate responsive views.
+- Verify Android runtime.
+
+## PHASE I — Final Release Qualification
+
+- Full automated suite
+- Real audio tests
+- ALS fixtures
+- Browser E2E
+- Android CI
+- Offline device tests
+- Memory/performance tests
+- Source-to-release traceability
+
+Do not combine all changes into one unreviewable commit.
+
+Keep each phase independently testable and reversible.
+
+---
+
+# 13. MANDATORY RELEASE ACCEPTANCE SCENARIOS
+
+## RC-01 — Safe ALS Import
+
+Import a supported native ALS project with one long kick clip and automation.
+
+Verify source musical material remains unchanged immediately after import.
+
+No automatic section withdrawal.
+
+## RC-02 — Safe MIDI Edit
+
+Change the velocity of one MIDI note.
+
+Verify only the intended native semantic field changes, including all necessary preserved references.
+
+Save and reimport.
+
+## RC-03 — Undo Integrity
+
+Change mixer fader from -6 to -12 dB.
+
+Undo to -6 dB.
+
+Redo to -12 dB.
+
+Verify UI, audio runtime and persisted state agree.
+
+## RC-04 — Continuous Arrangement Zoom
+
+Create an eight-bar clip at Bars 33–41.
+
+Zoom in, pan, zoom out, fit arrangement and inspect Piano Roll.
+
+Verify clip timing remains invariant.
+
+## RC-05 — Arrangement Extension
+
+Extend the project from 128 to 160 bars.
+
+Existing clips and notes must remain untouched.
+
+## RC-06 — Real Audio
+
+Play multiple instruments, adjust fader, pan, send, mute and solo while sound is sustaining.
+
+Verify measurable signal changes.
+
+## RC-07 — Real DSP
+
+Insert EQ, compressor and delay.
+
+Verify effect-specific behavior and order dependence.
+
+## RC-08 — Original Music Generation
+
+Create six projects across distinct underground subgenres.
+
+Verify substantial musical diversity and editable multisection clips.
+
+## RC-09 — Genuine Android APK
+
+Build the reconciled v7.1 application through Capacitor and Gradle.
+
+Verify APK and install on emulator.
+
+## RC-10 — Offline Android
+
+Disable network.
+
+Launch app, play sound, modify clips, save a project and export supported formats.
+
+## RC-11 — Failure Recovery
+
+Simulate a failed project write, interrupted export or malformed ALS import.
+
+Verify no project corruption or silent success.
+
+## RC-12 — UI Reliability
+
+Execute critical user workflows with automated browser and Android tests.
+
+No known disconnected controls in the qualified release scope.
+
+---
+
+# 14. FINAL QUALITY AND RELEASE GATES
+
+### G0 — Baseline
+Source inspected and failures reproduced.
+
+### G1 — ALS Import Integrity
+No unrequested creative transformations or lost material.
+
+### G2 — Safe Native Patching
+Atomic transactions and preserved references.
+
+### G3 — Canonical Project State
+No audio-engine mutation of UI/project objects.
+
+### G4 — Undo/Redo
+Mixer, MIDI, clip and device operations are reversible.
+
+### G5 — Genuine Android APK
+Real Gradle build and SDK verification on latest merged source.
+
+### G6 — Offline Android
+Actual emulator installation and functional smoke tests.
+
+### G7 — Continuous Timeline
+One authoritative viewport and correct clip interaction.
+
+### G8 — Non-Destructive Arrangement Length
+No unwanted MIDI regeneration or deletion.
+
+### G9 — Real Mixer/DSP
+Live and offline signal-processing verification.
+
+### G10 — Creative Music Generation
+Genre-aware variation, musical structure and novelty.
+
+### G11 — UI/UX Regression
+Professional workstation layout and working controls.
+
+### G12 — Data Recovery
+Autosave, backup, rollback and migration safety.
+
+### G13 — Performance
+No unbounded graph creation, memory growth or UI-thread blocking.
+
+### G14 — Final Release
+All critical tests, CI and evidence complete.
+
+A proposed fix is not a passing gate.
+
+A source file existing is not a passing gate.
+
+A test file containing assertions is not a passing gate.
+
+A build that only checks TypeScript is not a passing gate.
+
+---
+
+# 15. REQUIRED DELIVERY REPORT
+
+Provide a final implementation report with:
+
+1. Baseline and final commit SHAs.
+2. Pull request link.
+3. Exact files modified.
+4. Root causes fixed.
+5. Architecture contracts introduced.
+6. New and updated tests.
+7. Total tests executed.
+8. Passing tests.
+9. Failing tests.
+10. Skipped and unverified tests.
+11. Real audio verification evidence.
+12. ALS preservation evidence.
+13. Timeline E2E evidence.
+14. Mixer DSP evidence.
+15. Musical generation comparisons.
+16. Android build and installation logs.
+17. APK SHA-256 and verified file size.
+18. Offline Android test results.
+19. Screenshots.
+20. Performance/resource measurements.
+21. Remaining known defects.
+22. Release-gate status.
+
+### Scoring
+
+Evaluate:
+
+- Architecture
+- Audio engineering
+- ALS integrity
+- Timeline
+- MIDI/clip editing
+- Mixer/DSP
+- Musical creativity
+- UI/UX
+- Android
+- Offline reliability
+- Test quality
+- Performance
+- Security
+- Release engineering
+
+Target 8–10/10 design and implementation quality.
+
+Do not award 10/10 without appropriate supporting evidence.
+
+A failed P0 release gate blocks production approval regardless of aggregate score.
+
+---
+
+# 16. FINAL EXECUTION COMMAND
+
+THE v7.0 IMPLEMENTATION MADE IMPORTANT PROGRESS BUT REMAINS INCOMPLETE.
+
+Your responsibility is to deliver the verified corrections.
+
+**DO NOT:**
+
+- Auto-transform imported Ableton music.
+- Delete native MIDI clips to perform a minor edit.
+- Invent new native IDs without verified reference management.
+- Mutate React project state from the audio runtime.
+- Break Undo/Redo.
+- Continue publishing manually constructed APK files.
+- Ignore the existing CI-tested Android corrective branch.
+- Keep tests that certify the defective APK builder.
+- Change arrangement length by rewriting user-created music.
+- Pretend a simple gain multiplier is a fully implemented audio effect.
+- Claim 16 unique subgenres from labels and fixed patterns.
+- Declare native Ableton compatibility without native verification.
+- Mark Android successful without installing and running the actual APK.
+- Claim completion without executing the relevant tests.
+
+**DO:**
+
+- Preserve original musical content.
+- Implement safe, reversible project mutations.
+- Maintain consistent canonical project/audio state.
+- Complete continuous Ableton-style timeline interactions.
+- Deliver genuine real-time mixer processing.
+- Implement musically distinct underground composition grammars.
+- Build the Android application through the real Gradle toolchain.
+- Verify offline operation.
+- Fix every reproducible regression.
+- Provide concrete runtime, test and release evidence.
+
+**IMPLEMENT THE COMPLETE PARAMETRIC ALS v7.1 PRODUCTION REMEDIATION IN THE EXISTING REPOSITORY.**
+
+Do not stop at a plan.
+
+Do not discard existing work.
+
+Do not publish unsupported success claims.
+
+Produce reviewable source changes and a verified release candidate.
+
+**END OF PARAMETRIC ALS v7.1 MASTER REMEDIATION PROMPT.**
+
+### Recommendation before accepting the next completion report
+
+The most consequential change is making ALS content preservation and project-state integrity mandatory ahead of further creative features. Otherwise, a DAW can appear functional while silently modifying imported music or making Undo unreliable.
+
+Also, the separate Android PR is a real asset: its passing CI provides a foundation the custom APK builder never established. The next build should be based on that genuine Gradle pipeline, reconciled with the latest music-engine changes and retested on the resulting commit.
+
+When you receive Google AI Studio's revised plan or completion report, share it here. The next review should compare its claimed deliverables with the actual changed files, test results and release artifacts rather than relying on its self-reported completion percentage.

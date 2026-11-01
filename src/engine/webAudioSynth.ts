@@ -1,4 +1,6 @@
 import {
+  AbletonDevice,
+  AbletonDeviceParam,
   AbletonProjectState,
   AbletonTrack,
   AudioActiveRegion,
@@ -134,10 +136,19 @@ function createNoiseBuffer(ctx: BaseAudioContext): AudioBuffer {
   return buffer;
 }
 
+export interface InsertProcessorInstance {
+  id: string;
+  type: string;
+  bypassed: boolean;
+  input: AudioNode;
+  output: AudioNode;
+}
+
 export interface TrackChannelRuntime {
   trackId: string;
   inputNode: GainNode;
-  insertFilter: BiquadFilterNode;
+  insertProcessors: InsertProcessorInstance[];
+  insertFilter?: BiquadFilterNode;
   faderGain: GainNode;
   muteSoloGate: GainNode;
   panner: StereoPannerNode;
@@ -150,7 +161,7 @@ export interface TrackChannelRuntime {
   currentPan: number;
   currentReverbSend: number;
   currentDelaySend: number;
-  currentCutoffHz: number;
+  currentCutoffHz?: number;
 }
 
 interface AudioBusGraph {
@@ -299,6 +310,155 @@ function buildAudioBusGraph(
   };
 }
 
+export function buildDeviceInsertProcessor(
+  ctx: BaseAudioContext,
+  device: AbletonDevice
+): InsertProcessorInstance {
+  if (device.bypassed) {
+    const bypassGain = ctx.createGain();
+    bypassGain.gain.value = 1.0;
+    return {
+      id: device.id,
+      type: device.type || device.xmlTag,
+      bypassed: true,
+      input: bypassGain,
+      output: bypassGain,
+    };
+  }
+
+  const tag = (device.xmlTag || device.type || '').toLowerCase();
+
+  // 1. Utility Gain
+  if (tag.includes('utility') || tag.includes('gain')) {
+    const gainNode = ctx.createGain();
+    const gainParam = device.parameters?.find((p: AbletonDeviceParam) => p.name.toLowerCase().includes('gain'));
+    const gainVal = gainParam ? (typeof gainParam.value === 'number' ? gainParam.value : parseFloat(gainParam.value)) : 0;
+    gainNode.gain.value = gainParam ? dbToGain(gainVal) : 1.0;
+    return { id: device.id, type: 'utility', bypassed: false, input: gainNode, output: gainNode };
+  }
+
+  // 2. EQ Eight / Parametric EQ (3-Band surgical filter)
+  if (tag.includes('eq') || tag.includes('eqeight')) {
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowshelf';
+    low.frequency.value = 80;
+    low.gain.value = 0;
+
+    const mid = ctx.createBiquadFilter();
+    mid.type = 'peaking';
+    mid.frequency.value = 1200;
+    mid.Q.value = 1.0;
+    mid.gain.value = 0;
+
+    const high = ctx.createBiquadFilter();
+    high.type = 'highshelf';
+    high.frequency.value = 6500;
+    high.gain.value = 0;
+
+    low.connect(mid);
+    mid.connect(high);
+    return { id: device.id, type: 'eq', bypassed: false, input: low, output: high };
+  }
+
+  // 3. Auto Filter
+  if (tag.includes('filter') || tag.includes('autofilter')) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    const cutParam = device.parameters?.find((p: AbletonDeviceParam) => p.name.toLowerCase().includes('cutoff'));
+    const cutVal = cutParam ? (typeof cutParam.value === 'number' ? cutParam.value : parseFloat(cutParam.value)) : 1800;
+    filter.frequency.value = cutVal;
+    filter.Q.value = 1.5;
+    return { id: device.id, type: 'filter', bypassed: false, input: filter, output: filter };
+  }
+
+  // 4. Saturator / Soft Clipper
+  if (tag.includes('saturat')) {
+    const shaper = ctx.createWaveShaper();
+    const samples = 1024;
+    const curve = new Float32Array(samples);
+    const drive = 2.0;
+    for (let i = 0; i < samples; ++i) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
+    }
+    shaper.curve = curve;
+    return { id: device.id, type: 'saturator', bypassed: false, input: shaper, output: shaper };
+  }
+
+  // 5. Compressor / Glue Compressor
+  if (tag.includes('compressor')) {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.knee.value = 6;
+    comp.ratio.value = 3.0;
+    comp.attack.value = 0.02;
+    comp.release.value = 0.12;
+    return { id: device.id, type: 'compressor', bypassed: false, input: comp, output: comp };
+  }
+
+  // 6. Delay / Echo
+  if (tag.includes('delay') || tag.includes('echo')) {
+    const inGain = ctx.createGain();
+    const delayNode = ctx.createDelay(1.0);
+    delayNode.delayTime.value = 0.22;
+    const fbGain = ctx.createGain();
+    fbGain.gain.value = 0.35;
+    const filterNode = ctx.createBiquadFilter();
+    filterNode.type = 'bandpass';
+    filterNode.frequency.value = 1200;
+    const outGain = ctx.createGain();
+
+    inGain.connect(outGain);
+    inGain.connect(delayNode);
+    delayNode.connect(filterNode);
+    filterNode.connect(fbGain);
+    fbGain.connect(delayNode);
+    filterNode.connect(outGain);
+
+    return { id: device.id, type: 'delay', bypassed: false, input: inGain, output: outGain };
+  }
+
+  // 7. Chorus / Modulation
+  if (tag.includes('chorus')) {
+    const inGain = ctx.createGain();
+    const delayNode = ctx.createDelay(0.1);
+    delayNode.delayTime.value = 0.015;
+    const outGain = ctx.createGain();
+    inGain.connect(outGain);
+    inGain.connect(delayNode);
+    delayNode.connect(outGain);
+    return { id: device.id, type: 'chorus', bypassed: false, input: inGain, output: outGain };
+  }
+
+  // 8. Distortion / Overdrive / Roar
+  if (tag.includes('distortion') || tag.includes('overdrive') || tag.includes('roar')) {
+    const shaper = ctx.createWaveShaper();
+    const samples = 1024;
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; ++i) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = Math.max(-0.85, Math.min(0.85, x * 3.5));
+    }
+    shaper.curve = curve;
+    return { id: device.id, type: 'distortion', bypassed: false, input: shaper, output: shaper };
+  }
+
+  // 9. Limiter
+  if (tag.includes('limiter')) {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -0.5;
+    comp.knee.value = 0;
+    comp.ratio.value = 20.0;
+    comp.attack.value = 0.001;
+    comp.release.value = 0.05;
+    return { id: device.id, type: 'limiter', bypassed: false, input: comp, output: comp };
+  }
+
+  const pass = ctx.createGain();
+  pass.gain.value = 1.0;
+  return { id: device.id, type: 'passthrough', bypassed: false, input: pass, output: pass };
+}
+
 function getOrCreateTrackChannelRuntime(
   ctx: BaseAudioContext,
   bus: AudioBusGraph,
@@ -336,14 +496,21 @@ function getOrCreateTrackChannelRuntime(
 
   if (!channel) {
     const inputNode = ctx.createGain();
-    const insertFilter = ctx.createBiquadFilter();
-    insertFilter.type = 'peaking';
-    insertFilter.frequency.value = targetCutoff;
-    insertFilter.Q.value = 0.707;
-    insertFilter.gain.value = 0;
+    const insertProcessors: InsertProcessorInstance[] = [];
+    let lastNode: AudioNode = inputNode;
+
+    const devices = (track.devices || []).slice(0, 10);
+    for (const dev of devices) {
+      const proc = buildDeviceInsertProcessor(ctx, dev);
+      insertProcessors.push(proc);
+      lastNode.connect(proc.input);
+      lastNode = proc.output;
+    }
 
     const faderGain = ctx.createGain();
     faderGain.gain.value = targetFaderLinear;
+
+    lastNode.connect(faderGain);
 
     const muteSoloGate = ctx.createGain();
     muteSoloGate.gain.value = targetGateLinear;
@@ -366,8 +533,6 @@ function getOrCreateTrackChannelRuntime(
       meterBuffer = new Uint8Array(new ArrayBuffer(256));
     }
 
-    inputNode.connect(insertFilter);
-    insertFilter.connect(faderGain);
     faderGain.connect(muteSoloGate);
     muteSoloGate.connect(panner);
 
@@ -387,7 +552,7 @@ function getOrCreateTrackChannelRuntime(
     channel = {
       trackId: track.id,
       inputNode,
-      insertFilter,
+      insertProcessors,
       faderGain,
       muteSoloGate,
       panner,
@@ -410,7 +575,9 @@ function getOrCreateTrackChannelRuntime(
     channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
     channel.reverbSendGain.gain.setTargetAtTime(targetRev, now, 0.015);
     channel.delaySendGain.gain.setTargetAtTime(targetDel, now, 0.015);
-    channel.insertFilter.frequency.setTargetAtTime(targetCutoff, now, 0.015);
+    if (channel.insertFilter) {
+      channel.insertFilter.frequency.setTargetAtTime(targetCutoff, now, 0.015);
+    }
     channel.currentFaderLinear = targetFaderLinear;
     channel.currentGateLinear = targetGateLinear;
     channel.currentPan = targetPan;
@@ -1989,24 +2156,83 @@ export class ParametricWebAudioEngine {
     partialMixer?: Partial<TrackMixerParams>,
     muteSoloOverride?: { muted?: boolean; soloed?: boolean }
   ): TrackChannelRuntime | null {
-    if (!this.project) return null;
-    const idx = this.project.tracks.findIndex((t) => t.id === trackId);
-    if (idx < 0) return null;
-    const track = this.project.tracks[idx];
-    const updatedTrack: AbletonTrack = {
-      ...track,
-      muted: muteSoloOverride?.muted !== undefined ? muteSoloOverride.muted : track.muted,
-      soloed: muteSoloOverride?.soloed !== undefined ? muteSoloOverride.soloed : track.soloed,
-      mixer: partialMixer ? { ...track.mixer, ...partialMixer } : track.mixer,
-    };
-    this.project.tracks[idx] = updatedTrack;
-    this.ensureContext();
-    if (!this.ctx || !this.bus) return null;
-    for (const t of this.project.tracks) {
-      getOrCreateTrackChannelRuntime(this.ctx, this.bus, t, this.project);
+    // V7.1 P0-003: THE AUDIO ENGINE NEVER MUTATES CANONICAL PROJECT STATE!
+    // Updates internal audio graph nodes directly via setTargetAtTime
+    if (!this.bus) {
+      this.ensureContext();
     }
-    return this.bus.trackChannels.get(trackId) || null;
+    if (!this.bus || !this.ctx) return null;
+
+    let channel = this.bus.trackChannels.get(trackId);
+    if (!channel) {
+      const track = this.project?.tracks.find((t) => t.id === trackId);
+      if (!track) return null;
+      channel = getOrCreateTrackChannelRuntime(this.ctx, this.bus, track, this.project || undefined);
+    }
+    if (!channel) return null;
+
+    const now = this.ctx.currentTime;
+    const currentTrack = this.project?.tracks.find((t) => t.id === trackId);
+    if (!currentTrack) return channel;
+
+    // Create an immutable virtual track representation for audibility calculations
+    const virtualTrack: AbletonTrack = {
+      ...currentTrack,
+      muted: muteSoloOverride?.muted !== undefined ? muteSoloOverride.muted : currentTrack.muted,
+      soloed: muteSoloOverride?.soloed !== undefined ? muteSoloOverride.soloed : currentTrack.soloed,
+      mixer: partialMixer ? { ...currentTrack.mixer, ...partialMixer } : currentTrack.mixer,
+    };
+
+    const allVirtualTracks = (this.project?.tracks || [currentTrack]).map((t) =>
+      t.id === trackId ? virtualTrack : t
+    );
+
+    const audibility = resolveEffectiveAudibility(
+      virtualTrack,
+      allVirtualTracks,
+      this.project?.vcaGroups || []
+    );
+
+    const targetFaderLinear = audibility.effectiveGainLinear;
+    const targetGateLinear = audibility.isAudible ? 1.0 : 0.0;
+    const targetPan = Math.max(-1, Math.min(1, virtualTrack.mixer?.pan ?? 0));
+    const targetRev = Math.max(0, Math.min(1, virtualTrack.mixer?.reverbSend ?? 0));
+    const targetDel = Math.max(0, Math.min(1, virtualTrack.mixer?.delaySend ?? 0));
+
+    channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
+    channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
+    channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
+    channel.reverbSendGain.gain.setTargetAtTime(targetRev, now, 0.012);
+    channel.delaySendGain.gain.setTargetAtTime(targetDel, now, 0.012);
+
+    channel.currentFaderLinear = targetFaderLinear;
+    channel.currentGateLinear = targetGateLinear;
+    channel.currentPan = targetPan;
+    channel.currentReverbSend = targetRev;
+    channel.currentDelaySend = targetDel;
+
+    // Update other channels if solo status changed on this track
+    if (muteSoloOverride?.soloed !== undefined) {
+      for (const otherTrack of allVirtualTracks) {
+        if (otherTrack.id === trackId) continue;
+        const otherCh = this.bus.trackChannels.get(otherTrack.id);
+        if (otherCh) {
+          const otherAud = resolveEffectiveAudibility(
+            otherTrack,
+            allVirtualTracks,
+            this.project?.vcaGroups || []
+          );
+          const otherGate = otherAud.isAudible ? 1.0 : 0.0;
+          otherCh.muteSoloGate.gain.setTargetAtTime(otherGate, now, 0.008);
+          otherCh.currentGateLinear = otherGate;
+        }
+      }
+    }
+
+    return channel;
   }
+
+  public updateTrackMixerLiveDspOnly = this.updateTrackMixerLive.bind(this);
 
   public getTrackChannelState(trackId: string): TrackChannelRuntime | null {
     if (!this.bus) return null;

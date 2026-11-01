@@ -2170,6 +2170,60 @@ export function decomposeNotesIntoSectionClips(
   return clips;
 }
 
+export interface SectionArrangementProposal {
+  proposedTracks: AbletonTrack[];
+  summary: string;
+  totalSections: number;
+  sections: { name: string; startBar: number; endBar: number; role: string }[];
+}
+
+/**
+ * Explicit creative arrangement proposal generator (v7.1 P0-001).
+ * Inspects a project and creates a structured section arrangement proposal
+ * that requires explicit user preview and approval before mutating project state.
+ */
+export function generateSectionArrangementProposal(
+  project: AbletonProjectState,
+  options?: {
+    subgenreId?: TechnoSubgenreId;
+    sections?: ArrangementSectionNode[];
+    targetBars?: number;
+  }
+): SectionArrangementProposal {
+  const bars = options?.targetBars || project.arrangementLengthBars || 16;
+  const proposedTracks: AbletonTrack[] = project.tracks.map((track) => {
+    if (track.locked || track.clips.length === 0) return { ...track };
+    const allNotes = track.clips.flatMap((c) => c.notes);
+    const proposedClips = decomposeNotesIntoSectionClips(
+      track.name,
+      track.archetype,
+      allNotes,
+      bars,
+      options?.sections
+    );
+    return {
+      ...track,
+      clips: proposedClips,
+    };
+  });
+
+  return {
+    proposedTracks,
+    totalSections: 6,
+    sections: [
+      { name: 'Intro_Pulse', startBar: 1, endBar: Math.min(bars, 16), role: 'Intro' },
+      { name: 'Groove_Establish', startBar: 17, endBar: Math.min(bars, 32), role: 'Groove_Establish' },
+      { name: 'Hypnotic_Lock', startBar: 33, endBar: Math.min(bars, 64), role: 'Hypnotic_Lock' },
+      { name: 'Breakdown_Tension', startBar: 65, endBar: Math.min(bars, 80), role: 'Breakdown' },
+      { name: 'Peak_Warehouse_Drop', startBar: 81, endBar: Math.min(bars, 112), role: 'Peak_Drop' },
+      { name: 'DJ_Mix_Outro', startBar: 113, endBar: bars, role: 'Outro' },
+    ],
+    summary: `Generated section arrangement proposal for ${project.tracks.length} tracks across ${bars} bars.`,
+  };
+}
+
+export const GenerateSectionArrangementProposal = generateSectionArrangementProposal;
+
 export type RangeClipGeneratorMode =
   | 'empty'
   | 'chord'

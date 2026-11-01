@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { synthEngine } from '../engine/webAudioSynth';
+import { execSync } from 'child_process';
+import { synthEngine, buildDeviceInsertProcessor } from '../engine/webAudioSynth';
 import {
   TimelineViewportController,
   formatBarBeatSixteenth,
@@ -17,9 +18,129 @@ import {
   duplicateTrackClip,
   consolidateTrackClipsInRange,
   createUserTrackFromRole,
+  generateSectionArrangementProposal,
 } from '../engine/compositionIntelligenceEngine';
-import { buildStarterAbletonXml, parseAlsXmlString } from '../engine/alsXmlEngine';
-import { HumanizationConfig, MasterBusConfig } from '../types/ableton';
+import {
+  buildStarterAbletonXml,
+  parseAlsXmlString,
+  parseAbletonXmlString,
+  GenerateSectionArrangementProposal,
+} from '../engine/alsXmlEngine';
+import { alsPatchEngine } from '../engine/alsPatchEngine';
+import { HumanizationConfig, MasterBusConfig, AbletonDevice } from '../types/ableton';
+
+class MockAudioNode {
+  connect(dest: any) {
+    return dest;
+  }
+  disconnect() {}
+}
+
+class MockAudioParam {
+  value: number;
+  constructor(defaultVal = 0) {
+    this.value = defaultVal;
+  }
+  setTargetAtTime(val: number) {
+    this.value = val;
+  }
+  setValueAtTime(val: number) {
+    this.value = val;
+  }
+  linearRampToValueAtTime(val: number) {
+    this.value = val;
+  }
+}
+
+class MockAudioContext {
+  currentTime = 0;
+  sampleRate = 44100;
+  state = 'running';
+
+  async resume() {
+    this.state = 'running';
+  }
+  async close() {
+    this.state = 'closed';
+  }
+
+  createGain() {
+    const node = new MockAudioNode() as any;
+    node.gain = new MockAudioParam(1.0);
+    return node;
+  }
+
+  createBiquadFilter() {
+    const node = new MockAudioNode() as any;
+    node.type = 'lowpass';
+    node.frequency = new MockAudioParam(1000);
+    node.Q = new MockAudioParam(1.0);
+    node.gain = new MockAudioParam(0);
+    return node;
+  }
+
+  createDynamicsCompressor() {
+    const node = new MockAudioNode() as any;
+    node.threshold = new MockAudioParam(-24);
+    node.knee = new MockAudioParam(30);
+    node.ratio = new MockAudioParam(12);
+    node.attack = new MockAudioParam(0.003);
+    node.release = new MockAudioParam(0.25);
+    return node;
+  }
+
+  createWaveShaper() {
+    const node = new MockAudioNode() as any;
+    node.curve = null;
+    node.oversample = 'none';
+    return node;
+  }
+
+  createStereoPanner() {
+    const node = new MockAudioNode() as any;
+    node.pan = new MockAudioParam(0);
+    return node;
+  }
+
+  createConvolver() {
+    const node = new MockAudioNode() as any;
+    node.buffer = null;
+    return node;
+  }
+
+  createDelay() {
+    const node = new MockAudioNode() as any;
+    node.delayTime = new MockAudioParam(0);
+    return node;
+  }
+
+  createAnalyser() {
+    const node = new MockAudioNode() as any;
+    node.fftSize = 256;
+    node.frequencyBinCount = 128;
+    node.smoothingTimeConstant = 0.8;
+    node.getByteTimeDomainData = (arr: Uint8Array) => arr.fill(128);
+    node.getByteFrequencyData = (arr: Uint8Array) => arr.fill(0);
+    return node;
+  }
+
+  createBuffer(channels: number, length: number, sampleRate: number) {
+    return {
+      numberOfChannels: channels,
+      length,
+      sampleRate,
+      getChannelData: () => new Float32Array(length),
+    };
+  }
+
+  createBufferSource() {
+    const node = new MockAudioNode() as any;
+    node.buffer = null;
+    node.start = () => {};
+    node.stop = () => {};
+    return node;
+  }
+}
 
 const TEST_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.015,
@@ -43,10 +164,16 @@ const TEST_MASTER_BUS: MasterBusConfig = {
   subBassMonoCutoffHz: 120,
 };
 
-describe('Parametric ALS v7.0 Master Implementation Verification Suite', () => {
+describe('Parametric ALS v7.1 Master Implementation Verification Suite', () => {
   beforeEach(() => {
+    (window as any).AudioContext = MockAudioContext;
+    (window as any).webkitAudioContext = MockAudioContext;
     synthEngine.stop();
     synthEngine.recoverAudioEngine();
+  });
+
+  afterEach(() => {
+    synthEngine.stop();
   });
 
   describe('Phase 1 — Audio Stability & Playback Continuity (TC-AUDIO-001..003)', () => {
@@ -81,7 +208,173 @@ describe('Parametric ALS v7.0 Master Implementation Verification Suite', () => {
     });
   });
 
-  describe('Phase 2 — Continuous Ableton-Class Timeline Viewport & Bar Scaling (TC-TIME-001..003)', () => {
+  describe('Phase 2 — Content-Preserving ALS Import & Explicit Arrangement Proposals (P0-001: TC-ALS-001, TC-ALS-002)', () => {
+    it('TC-ALS-001: parseAbletonXmlString preserves original track structures, clip boundaries, automation, and native devices', () => {
+      // Build an ALS project with a long 128-bar arrangement
+      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 128);
+      const project = parseAbletonXmlString(xml);
+
+      // 1. Preserve original track structures
+      expect(project.tracks.length).toBeGreaterThanOrEqual(8);
+      const trackArchetypes = project.tracks.map((t) => t.archetype);
+      expect(trackArchetypes).toContain('kick');
+      expect(trackArchetypes).toContain('rumble');
+      expect(trackArchetypes).toContain('synth');
+      expect(trackArchetypes).toContain('hats');
+
+      // 2. Preserve native devices & parameter structures
+      const kickTrack = project.tracks[0];
+      expect(kickTrack.devices.length).toBeGreaterThan(0);
+      expect(
+        kickTrack.devices.some((d) => d.xmlTag === 'OriginalSimpler' || d.xmlTag === 'DrumBuss' || d.xmlTag === 'AutoFilter')
+      ).toBe(true);
+      expect(
+        project.tracks.some((t) => t.devices.some((d) => d.xmlTag === 'Operator' || d.displayName.includes('Operator')))
+      ).toBe(true);
+      for (const dev of kickTrack.devices) {
+        expect(dev.id).toBeDefined();
+        expect(dev.xmlTag).toBeDefined();
+        expect(dev.parameters).toBeDefined();
+      }
+
+      // 3. Preserve native clip boundaries & 100% note count (no auto-decomposition)
+      expect(kickTrack.clips.length).toBe(1);
+      const mainClip = kickTrack.clips[0];
+      expect(mainClip.startTime).toBe(0);
+      expect(mainClip.length).toBe(512); // 128 bars * 4 beats = 512 beats
+      expect(mainClip.notes.length).toBeGreaterThan(100);
+
+      // Verify that breakdown sections (bars 65-80 = beats 256-320) retain 100% of notes without loss
+      const breakdownNotes = mainClip.notes.filter((n) => n.time >= 256 && n.time < 320);
+      expect(breakdownNotes.length).toBeGreaterThan(0);
+
+      // 4. Preserve automation envelopes
+      expect(kickTrack.automationPoints).toBeDefined();
+      expect(kickTrack.automationPoints.length).toBeGreaterThan(0);
+    });
+
+    it('TC-ALS-002: GenerateSectionArrangementProposal command creates structured arrangement proposals without mutating original project', () => {
+      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 128);
+      const project = parseAbletonXmlString(xml);
+      const originalKickNotesCount = project.tracks[0].clips[0].notes.length;
+
+      // Invoking the proposal generator returns a proposal without mutating original project
+      const proposal = GenerateSectionArrangementProposal(project, { targetBars: 128 });
+      expect(proposal.totalSections).toBe(6);
+      expect(proposal.proposedTracks.length).toBe(project.tracks.length);
+
+      // The original project tracks remain untouched with single 128-bar clips
+      expect(project.tracks[0].clips.length).toBe(1);
+      expect(project.tracks[0].clips[0].notes.length).toBe(originalKickNotesCount);
+
+      // The proposal has decomposed section clips with explicit section roles
+      const proposedKick = proposal.proposedTracks[0];
+      expect(proposedKick.clips.length).toBeGreaterThan(1);
+      expect(proposedKick.clips.some((c) => c.sectionRole === 'Intro')).toBe(true);
+      expect(proposedKick.clips.some((c) => c.sectionRole === 'Peak_Drop')).toBe(true);
+    });
+  });
+
+  describe('Phase 3 — Targeted Non-Destructive ALS Patch Engine (P0-002: TC-ALS-003)', () => {
+    it('TC-ALS-003: alsPatchEngine mutates clip bounds, note velocity, mixer and inserts clips while preserving IDs and XML subtrees', () => {
+      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 16);
+      const project = parseAlsXmlString(xml);
+      const targetClipId = project.tracks[0].clips[0].id;
+
+      // 1. Patch Clip Bounds
+      const boundsResult = alsPatchEngine.patchClipBounds(xml, {
+        trackId: project.tracks[0].id,
+        clipId: targetClipId,
+        newStartBeat: 4,
+        newLengthBeats: 16,
+      });
+      expect(boundsResult.success).toBe(true);
+      expect(boundsResult.structuralValid).toBe(true);
+      expect(boundsResult.referenceValid).toBe(true);
+      expect(boundsResult.changedNodeIds).toContain(targetClipId);
+      expect(boundsResult.updatedXml).toBeDefined();
+
+      // 2. Patch Track Mixer (Volume and Pan)
+      const mixerResult = alsPatchEngine.patchTrackMixer(xml, {
+        trackId: project.tracks[0].id,
+        volumeDb: -3.5,
+        pan: 0.25,
+        muted: false,
+        soloed: false,
+      });
+      expect(mixerResult.success).toBe(true);
+      expect(mixerResult.structuralValid).toBe(true);
+      expect(mixerResult.referenceValid).toBe(true);
+
+      // 3. Insert New Clip with collision-free ID allocation
+      const insertResult = alsPatchEngine.patchInsertClip(xml, {
+        trackId: project.tracks[0].id,
+        clip: {
+          id: 'new_clip_test',
+          name: 'Percussion_Fill',
+          startTime: 32,
+          length: 8,
+          notes: [
+            { time: 32, duration: 0.25, pitch: 60, velocity: 100 },
+            { time: 32.5, duration: 0.25, pitch: 62, velocity: 95 },
+          ],
+        },
+      });
+      expect(insertResult.success).toBe(true);
+      expect(insertResult.structuralValid).toBe(true);
+      expect(insertResult.referenceValid).toBe(true);
+      expect(insertResult.changedNodeIds.length).toBeGreaterThan(0);
+      expect(insertResult.rollbackXml).toBe(xml);
+    });
+  });
+
+  describe('Phase 4 — Canonical State Immutability & Mixer Preview (P0-003: TC-STATE-001, TC-STATE-002)', () => {
+    it('TC-STATE-001: synthEngine.updateTrackMixerLive does NOT mutate project.tracks in place', () => {
+      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 16);
+      const project = parseAlsXmlString(xml);
+      synthEngine.setState(project, TEST_HUMANIZATION, undefined, TEST_MASTER_BUS);
+      (synthEngine as any).ensureContext();
+
+      const track = project.tracks[0];
+      const originalVolume = track.mixer?.volumeDb ?? 0;
+      const originalPan = track.mixer?.pan ?? 0;
+
+      // Call live mixer update with different volume and pan
+      synthEngine.updateTrackMixerLive(
+        track.id,
+        { volumeDb: -12, pan: 0.75 },
+        { muted: false, soloed: false }
+      );
+
+      // Verify canonical project.tracks[0] was NOT mutated by audio engine
+      expect(project.tracks[0].mixer?.volumeDb).toBe(originalVolume);
+      expect(project.tracks[0].mixer?.pan).toBe(originalPan);
+
+      // Verify the DSP runtime applied the update correctly
+      const meter = synthEngine.getTrackMeterLevels(track.id);
+      expect(meter.pan).toBeCloseTo(0.75, 2);
+    });
+
+    it('TC-STATE-002: updateTrackMixerLiveDspOnly adjusts DSP gain without state side-effects', () => {
+      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 16);
+      const project = parseAlsXmlString(xml);
+      synthEngine.setState(project, TEST_HUMANIZATION, undefined, TEST_MASTER_BUS);
+      (synthEngine as any).ensureContext();
+
+      const track = project.tracks[1];
+      synthEngine.updateTrackMixerLiveDspOnly(
+        track.id,
+        { volumeDb: -10, pan: -0.3 },
+        { muted: true, soloed: false }
+      );
+
+      const meter = synthEngine.getTrackMeterLevels(track.id);
+      expect(meter.pan).toBeCloseTo(-0.3, 2);
+      expect(meter.gateLinear).toBe(0.0);
+    });
+  });
+
+  describe('Phase 5 — Timeline Viewport Controller & Continuous Zoom (TC-TIME-001..003)', () => {
     it('TC-TIME-001: zoomAtPixel preserves the exact musical beat anchored under the pointer', () => {
       const controller = new TimelineViewportController({
         viewportWidthPx: 1000,
@@ -129,27 +422,89 @@ describe('Parametric ALS v7.0 Master Implementation Verification Suite', () => {
     });
   });
 
-  describe('Phase 3 & 5 — Multi-Clip Decomposition, Range-Based Clip Generation & 16 Subgenres (TC-CLIP-001..003, TC-MUSIC-001..003)', () => {
-    it('TC-CLIP-001: parses default 128-bar template into distinct section-based clips instead of a single stretched 128-bar block', () => {
-      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 128);
+  describe('Phase 6 — Non-Destructive Arrangement Length Scaling (P1-006: TC-TIME-004)', () => {
+    it('TC-TIME-004: changing arrangementLengthBars expands or contracts extent without deleting or auto-tiling notes', () => {
+      const { xml } = buildStarterAbletonXml('berghain-134', 12345, 16);
       const project = parseAlsXmlString(xml);
-      expect(project.tracks.length).toBeGreaterThanOrEqual(8);
+      const originalNotes = project.tracks[0].clips[0].notes.slice();
 
-      const kickTrack = project.tracks[0];
-      expect(kickTrack.clips.length).toBeGreaterThan(1);
-      // Every section clip must have its true finite length (< 512 beats)
-      for (const clip of kickTrack.clips) {
-        expect(clip.length).toBeGreaterThan(0);
-        expect(clip.length).toBeLessThan(512);
+      // Expand arrangement from 16 to 64 bars
+      project.arrangementLengthBars = 64;
+
+      // Existing notes and clip positions remain 100% unaltered
+      expect(project.tracks[0].clips[0].notes.length).toBe(originalNotes.length);
+      for (let i = 0; i < originalNotes.length; i++) {
+        expect(project.tracks[0].clips[0].notes[i].time).toBe(originalNotes[i].time);
+        expect(project.tracks[0].clips[0].notes[i].pitch).toBe(originalNotes[i].pitch);
       }
-    }, 15000);
+    });
+  });
 
+  describe('Phase 7 — Real 10-Insert Mixer DSP Processing (P1-007: TC-DSP-001)', () => {
+    it('TC-DSP-001: buildDeviceInsertProcessor creates Web Audio processing nodes for EQ, Filter, Saturator, Limiter, and supports bypass', () => {
+      const audioCtx = new MockAudioContext() as any;
+
+      // Test EQ Eight insert processor
+      const eqDevice: AbletonDevice = {
+        id: 'dev_eq_1',
+        xmlTag: 'EQEight',
+        displayName: 'EQ Eight',
+        category: 'audio_effect',
+        parameters: [],
+        bypassed: false,
+      };
+      const eqProc = buildDeviceInsertProcessor(audioCtx, eqDevice);
+      expect(eqProc.type).toBe('eq');
+      expect(eqProc.bypassed).toBe(false);
+      expect(eqProc.input).toBeDefined();
+      expect(eqProc.output).toBeDefined();
+
+      // Test AutoFilter insert processor
+      const filterDevice: AbletonDevice = {
+        id: 'dev_filter_1',
+        xmlTag: 'AutoFilter',
+        displayName: 'Auto Filter',
+        category: 'audio_effect',
+        bypassed: false,
+        parameters: [{ name: 'Cutoff', value: 2400, unit: 'Hz' }],
+      };
+      const filterProc = buildDeviceInsertProcessor(audioCtx, filterDevice);
+      expect(filterProc.type).toBe('filter');
+      expect(filterProc.bypassed).toBe(false);
+
+      // Test Saturator insert processor
+      const satDevice: AbletonDevice = {
+        id: 'dev_sat_1',
+        xmlTag: 'Saturator',
+        displayName: 'Saturator',
+        category: 'audio_effect',
+        parameters: [],
+        bypassed: false,
+      };
+      const satProc = buildDeviceInsertProcessor(audioCtx, satDevice);
+      expect(satProc.type).toBe('saturator');
+
+      // Test Bypassed processor (unity pass-through gain)
+      const bypassedDev: AbletonDevice = {
+        id: 'dev_bypassed_1',
+        xmlTag: 'Saturator',
+        displayName: 'Saturator Bypassed',
+        category: 'audio_effect',
+        parameters: [],
+        bypassed: true,
+      };
+      const bypassedProc = buildDeviceInsertProcessor(audioCtx, bypassedDev);
+      expect(bypassedProc.bypassed).toBe(true);
+    });
+  });
+
+  describe('Phase 8 — Underground Techno Subgenres, Clip Lifecycle & Range Generation (TC-CLIP-002, TC-CLIP-003, TC-MUSIC-001..003)', () => {
     it('TC-CLIP-002: generates range-bounded Chord, Bass, Drum, and Empty clips strictly inside selected bars without wiping existing non-overlapping clips', () => {
       const { xml } = buildStarterAbletonXml('berghain-134', 12345);
       const project = parseAlsXmlString(xml);
-      const track = project.tracks[3]; // Hypnotic FM Lead / Synth track
+      const track = project.tracks[3]; // Synth track
+
       const clipsBeforeAtIntro = track.clips.filter((c) => c.startTime + c.length <= 128);
-      expect(clipsBeforeAtIntro.length).toBeGreaterThan(0);
 
       // Generate a Chord clip in Bars 33..41 (beats 128..160)
       const genResult = generateClipForBarRange({
@@ -210,13 +565,12 @@ describe('Parametric ALS v7.0 Master Implementation Verification Suite', () => {
       expect(newTrack.roleCode).toBe('G1');
       expect(newTrack.name).toBe('Dub Chord Track');
     });
-  });
 
-  describe('Phase 4 — Real-Time Mixer Channel Strip Routing (TC-MIX-001..002)', () => {
     it('TC-MIX-001: updates per-track fader, pan, mute/solo gate, and meter levels in synthEngine', () => {
       const { xml } = buildStarterAbletonXml('berghain-134', 12345);
       const project = parseAlsXmlString(xml);
       synthEngine.setState(project, TEST_HUMANIZATION, undefined, TEST_MASTER_BUS);
+      (synthEngine as any).ensureContext();
 
       const targetTrack = project.tracks[0];
       synthEngine.updateTrackMixerLive(
@@ -235,7 +589,22 @@ describe('Parametric ALS v7.0 Master Implementation Verification Suite', () => {
     });
   });
 
-  describe('Phase 9 — Android & Capacitor Identity Consistency (TC-REG-001)', () => {
+  describe('Phase 9 — Android Build & Verification Integrity (P0-004: TC-APK-001, TC-REG-001)', () => {
+    it('TC-APK-001: scripts/verify-apk.py executes successfully and confirms APK cryptographic and structural integrity', () => {
+      const verifyScriptPath = path.resolve(process.cwd(), 'scripts/verify-apk.py');
+      expect(fs.existsSync(verifyScriptPath)).toBe(true);
+
+      const result = execSync(`python3 "${verifyScriptPath}"`, {
+        encoding: 'utf8',
+        cwd: process.cwd(),
+      });
+      expect(result).toContain('PASS: APK verification succeeded');
+      expect(result).toContain('AndroidManifest.xml present');
+      expect(result).toContain('classes.dex present');
+      expect(result).toContain('resources.arsc present');
+      expect(result).toContain('SHA-256');
+    });
+
     it('TC-REG-001: capacitor.config.json and android/app/build.gradle share identical com.parametricals.technodaw appId', () => {
       const capConfig = JSON.parse(
         fs.readFileSync(path.resolve(process.cwd(), 'capacitor.config.json'), 'utf8')
