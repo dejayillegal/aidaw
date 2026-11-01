@@ -50,6 +50,18 @@ def parse_signer_certificate(signature):
     return fingerprints.pop()
 
 
+def validate_sdk_versions(badging, metadata):
+    versions = dict(re.findall(r"(?m)^\s*(sdkVersion|minSdkVersion|targetSdkVersion):'([^']+)'", badging))
+    if 'minSdkVersion' in versions and 'sdkVersion' in versions and versions['minSdkVersion'] != versions['sdkVersion']:
+        raise ValueError('Conflicting minimum SDK labels')
+    minimum = versions.get('minSdkVersion', versions.get('sdkVersion'))
+    target = versions.get('targetSdkVersion')
+    if minimum != str(metadata['minSdk']):
+        raise ValueError(f"Manifest minSdk {minimum!r} differs from metadata {metadata['minSdk']}")
+    if target != str(metadata['targetSdk']):
+        raise ValueError(f"Manifest targetSdk {target!r} differs from metadata {metadata['targetSdk']}")
+
+
 def verify_apk(apk_path, metadata_path, certificate=None):
     path = Path(apk_path)
     metadata = json.loads(Path(metadata_path).read_text())
@@ -77,9 +89,7 @@ def verify_apk(apk_path, metadata_path, certificate=None):
     package = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging)
     if not package or package.groups() != (metadata['applicationId'], str(metadata['versionCode']), metadata['versionName']):
         raise ValueError('Manifest identity differs from release metadata')
-    for label, key in [('sdkVersion', 'minSdk'), ('targetSdkVersion', 'targetSdk')]:
-        if not re.search(rf"{label}:'{metadata[key]}'", badging):
-            raise ValueError(f'Manifest {key} differs from metadata')
+    validate_sdk_versions(badging, metadata)
     return {'status': 'artifact-verified', 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'sizeBytes': path.stat().st_size, 'certificateSha256': actual_certificate,
             'certificatePinned': bool(certificate), 'installLaunchVerified': False}
