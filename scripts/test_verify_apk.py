@@ -12,6 +12,9 @@ class SignerOutputTests(unittest.TestCase):
     def test_sdk_range_and_repeated_scheme(self):
         line = 'Signer (minSdkVersion=24, maxSdkVersion=2147483647) #1 certificate SHA-256 digest: ' + 'A'*64
         self.assertEqual(parse_signer_certificate(line+'\n'+line), 'a'*64)
+    def test_scheme_prefixed_sdk_output_from_ci(self):
+        signature = 'Number of signers: 1\nV2 Signer: certificate SHA-256 digest: 2fdbf7d84e2acc24b10f03dbf6bef3d757f1c823841c02b616258725a35aec5e'
+        self.assertEqual(parse_signer_certificate(signature), '2fdbf7d84e2acc24b10f03dbf6bef3d757f1c823841c02b616258725a35aec5e')
     def test_source_stamp_is_not_an_app_signer(self):
         signature = 'Signer #1 certificate SHA-256 digest: ' + 'a'*64 + '\nSource Stamp Signer certificate SHA-256 digest: ' + 'b'*64
         self.assertEqual(parse_signer_certificate(signature), 'a'*64)

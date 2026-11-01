@@ -40,7 +40,7 @@ def parse_signer_certificate(signature):
         raise ValueError('Expected exactly one APK signer')
     fingerprints = set()
     for line in signature.splitlines():
-        if not line.strip().startswith('Signer'):
+        if not line.strip().startswith(('Signer ', 'V1 Signer:', 'V2 Signer:', 'V3 Signer:', 'V3.0 Signer:', 'V3.1 Signer:', 'V4 Signer:')):
             continue
         match = re.search(r'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})(?:\s|$)', line)
         if match:
