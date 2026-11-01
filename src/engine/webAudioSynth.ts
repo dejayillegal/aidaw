@@ -64,14 +64,14 @@ export function evaluateAutomationAtBeat(
  * Creates a transparent lookahead limiter curve with a hard transparent ceiling at limiterCeilingDbtp (default -1.0 dBTP).
  * Unity gain (y = x) for signals up to ~ -3.5 dBFS, smoothly curved into ceiling without hard digital square clipping.
  */
-function createTransparentLimiterCurve(ceilingDbtp = -1.0): Float32Array<ArrayBuffer> {
-  const samples = 2048;
+export function createTransparentLimiterCurve(ceilingDbtp = -1.0): Float32Array<ArrayBuffer> {
+  const samples = 2049;
   const curve = new Float32Array(new ArrayBuffer(samples * 4));
   const ceilingLinear = Math.min(0.98, Math.max(0.2, Math.pow(10, ceilingDbtp / 20))); // ~0.891 for -1.0 dBTP
   const kneeLinear = ceilingLinear * 0.72; // ~0.64 (-3.8 dB)
 
   for (let i = 0; i < samples; i++) {
-    const x = (i * 2) / samples - 1; // [-1.0, 1.0]
+    const x = (i * 2) / (samples - 1) - 1; // [-1.0, 1.0]
     const absX = Math.abs(x);
     if (absX <= kneeLinear) {
       curve[i] = x;
@@ -89,12 +89,12 @@ function createTransparentLimiterCurve(ceilingDbtp = -1.0): Float32Array<ArrayBu
 /**
  * Creates a soft-clipping analog saturation curve (Drum Buss / Glue / TB-303 Roar saturator).
  */
-function createSaturationCurve(driveAmount = 1.8): Float32Array<ArrayBuffer> {
-  const samples = 1024;
+export function createSaturationCurve(driveAmount = 1.8): Float32Array<ArrayBuffer> {
+  const samples = 1025;
   const curve = new Float32Array(new ArrayBuffer(samples * 4));
   const k = Math.max(0.5, driveAmount * 2.5);
   for (let i = 0; i < samples; i++) {
-    const x = (i * 2) / samples - 1;
+    const x = (i * 2) / (samples - 1) - 1;
     curve[i] = Math.tanh(x * k) / Math.tanh(k);
   }
   return curve;
@@ -103,6 +103,14 @@ function createSaturationCurve(driveAmount = 1.8): Float32Array<ArrayBuffer> {
 /**
  * Creates a procedural stereo dark warehouse reverb impulse response.
  */
+export function createSeededNoise(seed: number): () => number {
+  let state = seed >>> 0 || 1;
+  return () => {
+    state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+    return (state >>> 0) / 2147483648 - 1;
+  };
+}
+
 function createWarehouseReverbImpulse(
   ctx: BaseAudioContext,
   decaySeconds = 3.2
@@ -111,6 +119,7 @@ function createWarehouseReverbImpulse(
   const length = Math.floor(sampleRate * Math.max(0.8, Math.min(6.0, decaySeconds)));
   const impulse = ctx.createBuffer(2, length, sampleRate);
 
+  const random = createSeededNoise(0x52455642);
   for (let ch = 0; ch < 2; ch++) {
     const data = impulse.getChannelData(ch);
     let lpState = 0;
@@ -121,8 +130,7 @@ function createWarehouseReverbImpulse(
         continue;
       }
       const env = Math.pow(1 - i / length, 2.6) * Math.exp(-t * (2.8 / decaySeconds));
-      const n = Math.sin((i + ch * length) * 12.9898 + 78.233) * 43758.5453;
-      const rawNoise = (n - Math.floor(n)) * 2 - 1;
+      const rawNoise = random();
       lpState = lpState * 0.76 + rawNoise * 0.24;
       data[i] = lpState * env * 0.65;
     }
@@ -137,9 +145,9 @@ function createNoiseBuffer(ctx: BaseAudioContext): AudioBuffer {
   const bufferSize = Math.floor(ctx.sampleRate * 1.5);
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const data = buffer.getChannelData(0);
+  const random = createSeededNoise(0x4e4f4953);
   for (let i = 0; i < bufferSize; i++) {
-    const n = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
-    data[i] = (n - Math.floor(n)) * 2 - 1;
+    data[i] = random();
   }
   return buffer;
 }
@@ -180,6 +188,7 @@ interface AudioBusGraph {
   delayNodeL: DelayNode;
   delayNodeR: DelayNode;
   delayFeedbackGain: GainNode;
+  delayLeftTapGain: GainNode;
   reverbReturnGain: GainNode;
   delayReturnGain: GainNode;
   compressor: DynamicsCompressorNode;
@@ -255,7 +264,7 @@ function buildAudioBusGraph(
   const delayNodeL = ctx.createDelay(2.0);
   const delayNodeR = ctx.createDelay(2.0);
   delayNodeL.delayTime.value = threeSixteenthSec;
-  delayNodeR.delayTime.value = threeSixteenthSec;
+  delayNodeR.delayTime.value = threeSixteenthSec * 2;
 
   const delayFilter = ctx.createBiquadFilter();
   delayFilter.type = 'bandpass';
@@ -264,6 +273,8 @@ function buildAudioBusGraph(
 
   const delayFeedbackGain = ctx.createGain();
   delayFeedbackGain.gain.value = Math.min(0.82, Math.max(0.1, masterBus.delayFeedback));
+  const delayLeftTapGain = ctx.createGain();
+  delayLeftTapGain.gain.value = delayFeedbackGain.gain.value;
 
   const panL = ctx.createStereoPanner();
   const panR = ctx.createStereoPanner();
@@ -276,10 +287,16 @@ function buildAudioBusGraph(
   delaySendBus.connect(delayFilter);
   delayFilter.connect(delayNodeL);
   delayNodeL.connect(panL);
-  delayNodeL.connect(delayNodeR);
+  // One feedback delay with a half-period output tap. Keep filtering outside
+  // the cycle: native filter-containing cycles can change render-quantum order.
+  delayFilter.connect(delayNodeR);
   delayNodeR.connect(panR);
   delayNodeR.connect(delayFeedbackGain);
-  delayFeedbackGain.connect(delayFilter);
+  delayFeedbackGain.connect(delayNodeR);
+  // Keep the loop gain's sole destination inside the cycle. A separate tap gain
+  // preserves left repeats without making native cycle traversal depend on fan-out.
+  delayNodeR.connect(delayLeftTapGain);
+  delayLeftTapGain.connect(delayNodeL);
 
   panL.connect(delayReturnGain);
   panR.connect(delayReturnGain);
@@ -311,6 +328,7 @@ function buildAudioBusGraph(
     delayNodeL,
     delayNodeR,
     delayFeedbackGain,
+    delayLeftTapGain,
     reverbReturnGain,
     delayReturnGain,
     compressor,
@@ -390,7 +408,7 @@ export function buildDeviceInsertProcessor(
     const curve = new Float32Array(samples);
     const drive = 2.0;
     for (let i = 0; i < samples; ++i) {
-      const x = (i * 2) / samples - 1;
+      const x = (i * 2) / (samples - 1) - 1;
       curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
     }
     shaper.curve = curve;
@@ -421,11 +439,11 @@ export function buildDeviceInsertProcessor(
     const outGain = ctx.createGain();
 
     inGain.connect(outGain);
-    inGain.connect(delayNode);
-    delayNode.connect(filterNode);
-    filterNode.connect(fbGain);
+    inGain.connect(filterNode);
+    filterNode.connect(delayNode);
+    delayNode.connect(fbGain);
     fbGain.connect(delayNode);
-    filterNode.connect(outGain);
+    delayNode.connect(outGain);
 
     return { id: device.id, type: 'delay', bypassed: false, input: inGain, output: outGain };
   }
@@ -448,7 +466,7 @@ export function buildDeviceInsertProcessor(
     const samples = 1024;
     const curve = new Float32Array(samples);
     for (let i = 0; i < samples; ++i) {
-      const x = (i * 2) / samples - 1;
+      const x = (i * 2) / (samples - 1) - 1;
       curve[i] = Math.max(-0.85, Math.min(0.85, x * 3.5));
     }
     shaper.curve = curve;
@@ -582,12 +600,12 @@ function getOrCreateTrackChannelRuntime(
     bus.trackChannels.set(track.id, channel);
   } else {
     const now = ctx.currentTime;
-    channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
-    channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
-    channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
-    channel.reverbSendGain.gain.setTargetAtTime(targetRev, now, 0.015);
-    channel.delaySendGain.gain.setTargetAtTime(targetDel, now, 0.015);
-    if (channel.insertFilter) {
+    if (channel.currentFaderLinear !== targetFaderLinear) channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
+    if (channel.currentGateLinear !== targetGateLinear) channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
+    if (channel.currentPan !== targetPan) channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
+    if (channel.currentReverbSend !== targetRev) channel.reverbSendGain.gain.setTargetAtTime(targetRev, now, 0.015);
+    if (channel.currentDelaySend !== targetDel) channel.delaySendGain.gain.setTargetAtTime(targetDel, now, 0.015);
+    if (channel.insertFilter && channel.currentCutoffHz !== targetCutoff) {
       channel.insertFilter.frequency.setTargetAtTime(targetCutoff, now, 0.015);
     }
     channel.currentFaderLinear = targetFaderLinear;
@@ -2179,9 +2197,9 @@ export class ParametricWebAudioEngine {
     const targetRev = Math.max(0, Math.min(1, virtualTrack.mixer?.reverbSend ?? 0));
     const targetDel = Math.max(0, Math.min(1, virtualTrack.mixer?.delaySend ?? 0));
 
-    channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
-    channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
-    channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
+    if (channel.currentFaderLinear !== targetFaderLinear) channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
+    if (channel.currentGateLinear !== targetGateLinear) channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
+    if (channel.currentPan !== targetPan) channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
     channel.reverbSendGain.gain.setTargetAtTime(targetRev, now, 0.012);
     channel.delaySendGain.gain.setTargetAtTime(targetDel, now, 0.012);
 
@@ -2324,6 +2342,11 @@ export class ParametricWebAudioEngine {
         now,
         0.02
       );
+      this.bus.delayLeftTapGain.gain.setTargetAtTime(
+        Math.min(0.82, Math.max(0.1, this.masterBus.delayFeedback)),
+        now,
+        0.02
+      );
       this.bus.compressor.threshold.setTargetAtTime(
         -14 - this.masterBus.glueCompressionDrive * 10,
         now,
@@ -2334,7 +2357,7 @@ export class ParametricWebAudioEngine {
         Math.min(0.9, (60 / Math.max(90, project.tempo)) * 0.75)
       );
       this.bus.delayNodeL.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
-      this.bus.delayNodeR.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
+      this.bus.delayNodeR.delayTime.setTargetAtTime(threeSixteenthSec * 2, now, 0.03);
 
       // Immediately sync all persistent per-track channel strips in real time
       this.syncLiveTrackChannels();

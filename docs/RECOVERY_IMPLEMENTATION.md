@@ -49,3 +49,11 @@ The composition changes repair form/orchestration defects. A complete progressio
 ## CI follow-up
 
 The first PR run failed before dependency installation because setup-android's default requested the retired `tools` package. The workflow now selects platform-tools, Android36 and build-tools36 explicitly, uses Ubuntu24.04, and removes a checked-in machine-specific `local.properties` before Gradle. This addresses the observed setup failure; subsequent CI status must still be checked.
+
+## Repeat-render feedback correction
+
+A subsequent CI repeatability check found a larger intermittent waveform difference (local stress reproduction: max~0.138, RMS~0.0116). Isolated project comparisons confirmed identical audible inputs. Independent native controls reproduced variability with a biquad filter inside a DelayNode feedback cycle; removing that filter from the cycle restored deterministic control output. The global ping-pong and per-track echo now filter incoming audio before recirculation. One full-period feedback delay supplies alternating half-period left/right taps, including recirculated left taps. Live tempo updates use the corresponding full/half-period delay times. The filter therefore colors input once rather than every repeat; playback and export share this deliberate effect change.
+
+The browser regression now repeats the full-effects short export eight times before the64-bar and mastering checks; its tolerances were not relaxed. Saturator/limiter curves also use odd, exactly centered lookup tables so zero input maps to zero output. Corrective repeat and full-track validation must pass before the draft is considered build-qualified.
+
+Final local corrective validation: all eight full-effects short repeats,64-bar render/decode,48kHz mastering,three responsive settings sizes and stalled-render guard passed together. Procedural impulse/noise resources now use integer seeded state rather than floating sine/fraction hashes. The ping-pong left tap uses a separate gain; sharing the gain inside the feedback loop with the tap was rejected by independent32-render controls. APK CI must still pass on this final source revision.

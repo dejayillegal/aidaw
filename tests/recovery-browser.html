@@ -46,15 +46,15 @@ async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDu
     assert(decoded.sampleRate === expectedSampleRate, 'Decoded sample rate mismatch');
     assert(Math.abs(decoded.duration - frames / expectedSampleRate) <= 1 / expectedSampleRate, 'Decoded duration mismatch');
     const pcmCopy = decoded.getChannelData(0);
-    let repeatMaxAbsoluteError = 0, repeatRmsError = 0;
+    let repeatMaxAbsoluteError = 0, repeatRmsError = 0, repeatMaxFrame = 0;
     if (referencePcm && referencePcm.length === pcmCopy.length) {
       for (let i = 0; i < pcmCopy.length; i++) {
         const difference = pcmCopy[i] - referencePcm[i];
-        repeatMaxAbsoluteError = Math.max(repeatMaxAbsoluteError, Math.abs(difference));
+        if (Math.abs(difference) > repeatMaxAbsoluteError) { repeatMaxAbsoluteError = Math.abs(difference); repeatMaxFrame = i; }
         repeatRmsError += difference * difference;
       }
       repeatRmsError = Math.sqrt(repeatRmsError / pcmCopy.length);
-      assert(repeatMaxAbsoluteError < 0.001 && repeatRmsError < 0.0001, 'Repeated render differs audibly');
+      assert(repeatMaxAbsoluteError < 0.001 && repeatRmsError < 0.0001, `Repeated render differs: max=${repeatMaxAbsoluteError}, rms=${repeatRmsError}, frame=${repeatMaxFrame}`);
     }
     referencePcm = new Float32Array(pcmCopy);
     let peak = 0;

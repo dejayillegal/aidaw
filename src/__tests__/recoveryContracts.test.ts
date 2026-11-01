@@ -7,7 +7,7 @@ import {
   generateSectionArrangementProposal,
 } from '../engine/compositionIntelligenceEngine';
 import { buildStarterAbletonXml, parseAlsXmlString } from '../engine/alsXmlEngine';
-import { encodeAudioBufferToWavBlob, renderArrangementToWavBlob, shouldPlayNote } from '../engine/webAudioSynth';
+import { encodeAudioBufferToWavBlob, renderArrangementToWavBlob, shouldPlayNote, createTransparentLimiterCurve, createSaturationCurve, createSeededNoise } from '../engine/webAudioSynth';
 import type { ArrangementSectionNode, HumanizationConfig, MasterBusConfig, MidiNoteEvent } from '../types/ableton';
 
 const humanization: HumanizationConfig = {
@@ -161,4 +161,22 @@ it('zero-probability notes are excluded and first-pass eligibility is reproducib
   expect(shouldPlayNote({ ...note, probability: 1 })).toBe(true);
   const candidate = { ...note, probability: 0.5 };
   expect(shouldPlayNote(candidate)).toBe(shouldPlayNote(candidate));
+});
+
+it('saturator and limiter curves preserve exact silence and symmetric headroom', () => {
+  for (const curve of [createTransparentLimiterCurve(), createSaturationCurve()]) {
+    expect(curve.length % 2).toBe(1);
+    expect(curve[(curve.length - 1) / 2]).toBe(0);
+    for (let i = 0; i < curve.length; i++) expect(Math.abs(curve[i] + curve[curve.length - 1 - i])).toBeLessThan(0.000001);
+  }
+});
+
+it('procedural noise uses reproducible integer state and bounded finite samples', () => {
+  const left = createSeededNoise(0x4e4f4953), right = createSeededNoise(0x4e4f4953);
+  for (let i = 0; i < 10000; i++) {
+    const sample = left();
+    expect(sample).toBe(right());
+    expect(sample).toBeGreaterThanOrEqual(-1);
+    expect(sample).toBeLessThan(1);
+  }
 });

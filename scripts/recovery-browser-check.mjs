@@ -43,7 +43,7 @@ try {
   page.setDefaultTimeout(20000);
   await page.goto(`${origin}/tests/recovery-browser.html`);
   await page.waitForFunction(() => typeof window.recovery?.runAudioCase === 'function');
-  for (const testCase of [{ bars: 4 }, { bars: 4 }, { bars: 64 }, { bars: 4, master: true }]) {
+  for (const testCase of [...Array.from({ length: 8 }, () => ({ bars: 4 })), { bars: 64 }, { bars: 4, master: true }]) {
     console.log(`Rendering ${testCase.bars} bars${testCase.master ? ' / mastering' : ''} in Chromium...`);
     let timeout;
     const result = await Promise.race([
@@ -53,7 +53,7 @@ try {
     report.audio.push(result);
     console.log(JSON.stringify(result));
   }
-  assert(report.audio[1].repeatMaxAbsoluteError < 0.001 && report.audio[1].repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
+  for (const repeat of report.audio.slice(1, 8)) assert(repeat.repeatMaxAbsoluteError < 0.001 && repeat.repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
   await page.goto(origin);
   const settings = page.getByTitle('Open DAW Workstation Settings');
   await settings.waitFor({ state: 'visible' });
