@@ -52,6 +52,63 @@ export interface MemoryLocationMarker {
   comment?: string;
 }
 
+export type PlaybackEngineState =
+  | 'idle'
+  | 'initializing'
+  | 'ready'
+  | 'playing'
+  | 'paused'
+  | 'interrupted'
+  | 'recovering'
+  | 'error';
+
+export type InstrumentGroupCode = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
+
+export type TechnoSubgenreId =
+  | 'raw_warehouse'
+  | 'hypnotic_deep'
+  | 'berlin_industrial'
+  | 'detroit_informed'
+  | 'dub_techno'
+  | 'hardgroove'
+  | 'tribal_percussive'
+  | 'acid_techno'
+  | 'minimal_micro'
+  | 'broken_offgrid'
+  | 'dark_atmospheric'
+  | 'driving_rolling'
+  | 'ebm_industrial'
+  | 'dub_industrial_hybrid'
+  | 'percussive_polyrhythmic'
+  | 'experimental_modular';
+
+export interface InstrumentRoleTemplate {
+  roleCode: string; // e.g. 'A1', 'B1', 'E2'
+  groupCode: InstrumentGroupCode;
+  groupName: string;
+  name: string;
+  archetype: TechnoArchetype;
+  defaultTrackName: string;
+  defaultColorHex: string;
+  frequencyBandHz: [number, number];
+  defaultCutoffHz: number;
+  defaultResonance: number;
+  defaultVolumeDb: number;
+  defaultSidechainDepth: number;
+  defaultReverbSend: number;
+  defaultDelaySend: number;
+  vcaGroupId: VcaGroupId;
+  description: string;
+}
+
+export interface TimelineBarRangeSelection {
+  startBar: number; // 1-indexed inclusive
+  endBar: number; // 1-indexed exclusive (e.g. startBar=33, endBar=41 is an 8-bar span [33..40])
+  startBeat: number; // 0-indexed beat
+  endBeat: number; // 0-indexed end beat
+  trackId?: string;
+}
+
 export type CompositionStrategyId =
   | 'hypnotic_evolving'
   | 'asymmetric_industrial'
@@ -60,7 +117,8 @@ export type CompositionStrategyId =
   | 'detroit_funk'
   | 'raw_warehouse'
   | 'acid_modulation'
-  | 'peak_rolling';
+  | 'peak_rolling'
+  | TechnoSubgenreId;
 
 export type MacroArrangementFormId =
   | 'hypnotic_longform'
@@ -98,12 +156,14 @@ export interface AbletonMidiClip {
   name: string;
   startTime: number; // In beats (0 = Bar 1)
   endTime?: number; // Optional end beat
-  length: number; // In beats (64 = 16 bars, up to 512 = 128 bars)
+  length: number; // In beats (e.g. 16 = 4 bars, 32 = 8 bars, 64 = 16 bars)
   contentOffsetBeats?: number; // Slip-mode internal clip offset in beats
   loopEndBeats?: number; // Poly-metered <Loop><LoopEnd> cycle in beats (e.g., 1.75 for 7/16)
   isPolymeter?: boolean; // True when clip uses non-4/4 Euclidean loop markers
   notes: MidiNoteEvent[];
   sceneVariationName?: string;
+  sectionRole?: string;
+  color?: string;
   revision?: number;
 }
 
@@ -293,6 +353,8 @@ export interface AbletonTrack {
   name: string;
   type: 'midi' | 'audio';
   archetype: TechnoArchetype;
+  roleCode?: string;
+  groupCode?: InstrumentGroupCode;
   isGenerated: boolean;
   locked?: boolean; // Protects track from bulk regeneration or clearing
   colorIndex: number;
@@ -343,9 +405,9 @@ export interface MasterBusConfig {
 export interface TransportConfig {
   loopEnabled: boolean; // True = Loop region, False = Play full sequence to end
   loopStartBar: number; // 1-indexed
-  loopLengthBars: 4 | 8 | 16 | 32 | 64 | 128; // Loop span in bars
-  arrangementLengthBars?: 16 | 32 | 64 | 128; // Total arrangement duration in bars
-  timelineZoom?: number; // 1.0 to 8.0 horizontal zoom multiplier
+  loopLengthBars: 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | number; // Loop span in bars
+  arrangementLengthBars?: 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | number; // Total arrangement duration in bars
+  timelineZoom?: number; // Continuous horizontal zoom multiplier
   timelineScrollBar?: number; // 0-indexed leftmost visible bar when zoomed in
   gridResolution?: NoteGridDivision; // '1/4' | '1/8' | '1/16' | '1/32'
   editMode?: TimelineEditMode; // 'grid' | 'slip' | 'shuffle' | 'spot'
@@ -358,6 +420,8 @@ export interface TransportConfig {
 
 export interface HumanizationConfig {
   microTimingMaxShiftBeats: number; // Default 0.012 beats
+  swingStrength?: number; // 0 to 100 percentage-based 16th-note swing strength (default 0)
+  shuffleSwing?: number; // -100 to 100 adjustable 'Dilla-style' push/pull to the 16th-note grid based on BPM (default 0)
   velocityVariancePct: number; // Default 0.08 (+/- 8%)
   ghostVelocityMin: number; // Default 20
   ghostVelocityMax: number; // Default 45
@@ -698,7 +762,9 @@ export interface QueuedProjectRecord {
   exportVerification?: MasterExportVerificationReport;
   exportedAlsFilename?: string;
   exportedWavFilename?: string;
+  exportedWavBlob?: Blob;
   isMidiExport?: boolean;
+  midiIncludeHumanization?: boolean;
   exportedMidiFilename?: string;
   exportedMidiBlob?: Blob;
   exportArtifactRef?: {
@@ -720,6 +786,25 @@ export interface QueuedProjectRecord {
   };
 }
 
+export interface BatchWavExportProgress {
+  currentIndex: number;
+  totalSelected: number;
+  currentQueueId: string;
+  currentFilename: string;
+  completedCount: number;
+  percentage: number;
+}
+
+export interface BatchWavExportItemResult {
+  queueId: string;
+  originalFilename: string;
+  exportedWavFilename: string;
+  wavBlob: Blob;
+  wavArrayBuffer: ArrayBuffer;
+  verification?: MasterExportVerificationReport;
+  record: QueuedProjectRecord;
+}
+
 export interface AbletonProjectState {
   fileName: string;
   schemaVersion: string;
@@ -729,7 +814,8 @@ export interface AbletonProjectState {
   scale: string;
   polyrhythmicGrid: string;
   energyDensity: number; // Notes per bar
-  arrangementLengthBars?: 4 | 8 | 16 | 32 | 64 | 128;
+  arrangementLengthBars?: 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | number;
+  subgenreId?: TechnoSubgenreId;
   revision?: number;
   projectRevision?: number;
   tracks: AbletonTrack[];

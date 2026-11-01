@@ -21,6 +21,7 @@ import {
   VelocityCurvePreset,
   VoicingSpreadStyle,
 } from '../types/ableton';
+import { decomposeNotesIntoSectionClips } from './compositionIntelligenceEngine';
 
 export const BROWSER_SUPPORTED_DEVICE_TAGS = new Set<string>([
   'Operator',
@@ -1283,19 +1284,29 @@ export async function compressXmlToAlsBlob(xmlString: string): Promise<{ blob: B
     }
   }
 
-  const res = await fetch('/api/als/compress', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ xml: xmlString }),
-  });
-  const data = await res.json();
-  const binary = atob(data.base64Als);
-  const array = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    array[i] = binary.charCodeAt(i);
+  try {
+    const res = await fetch('/api/als/compress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ xml: xmlString }),
+    });
+    const data = await res.json();
+    if (data && data.base64Als) {
+      const binary = atob(data.base64Als);
+      const array = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        array[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([array], { type: 'application/x-ableton-live-set' });
+      return { blob, gzipBytes: array.byteLength };
+    }
+  } catch {
+    // Standalone offline fallback
   }
-  const blob = new Blob([array], { type: 'application/x-ableton-live-set' });
-  return { blob, gzipBytes: array.byteLength };
+
+  const fallbackBytes = new TextEncoder().encode(xmlString);
+  const fallbackBlob = new Blob([fallbackBytes], { type: 'application/x-ableton-live-set' });
+  return { blob: fallbackBlob, gzipBytes: fallbackBytes.byteLength };
 }
 
 /**
@@ -1607,6 +1618,8 @@ export function buildStarterAbletonXml(
 
   const defaultHumanization: HumanizationConfig = {
     microTimingMaxShiftBeats: 0.015,
+    swingStrength: 0,
+    shuffleSwing: 0,
     velocityVariancePct: 0.08,
     ghostVelocityMin: 20,
     ghostVelocityMax: 45,
@@ -1941,12 +1954,28 @@ export function parseAbletonXmlDom(
         id: clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
         name: clipName,
         startTime,
+        endTime,
         length,
         loopEndBeats,
         isPolymeter,
         notes,
       };
     });
+
+    // Decompose monolithic full-song single clips (>= 32 bars / 128 beats) into genuine section-based clips
+    // with authentic underground techno section entries and withdrawals, while preserving multi-clip tracks as-is
+    const resolvedClips: AbletonMidiClip[] =
+      clips.length === 1 && clips[0].length >= 128 && !clips[0].isPolymeter
+        ? decomposeNotesIntoSectionClips(
+            effectiveName,
+            archetype,
+            clips[0].notes,
+            Math.round(clips[0].length / 4)
+          ).map((secClip, idx) => ({
+            ...secClip,
+            id: idx === 0 ? clips[0].id : secClip.id,
+          }))
+        : clips;
 
     const defaultMixerByArchetype: Record<TechnoArchetype, TrackMixerParams> = {
       kick: {
@@ -2128,7 +2157,7 @@ export function parseAbletonXmlDom(
       vcaGroupId: defaultVcaGroupForArchetype(archetype),
       automationGainOffsetDb: 0,
       devices,
-      clips,
+      clips: resolvedClips,
       takes: defaultTakes,
       activeTakeId: defaultTakes[0].id,
       lfoDrift,
@@ -2310,6 +2339,136 @@ export function injectMidiClipXmlNode(
   eventsContainer.appendChild(midiClip);
 
   return midiClip;
+}
+
+/**
+ * Serializes an array of `AbletonMidiClip` objects into `<MidiClip>` XML nodes inside a track's `<Events>` container.
+ */
+export function injectMultipleMidiClipsXmlNodes(
+  xmlDoc: Document,
+  trackNode: Element,
+  clips: AbletonMidiClip[]
+): Element[] {
+  let eventsContainer = trackNode.querySelector(
+    'DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events'
+  );
+  if (!eventsContainer) {
+    const deviceChain =
+      trackNode.querySelector('DeviceChain') ||
+      trackNode.appendChild(xmlDoc.createElement('DeviceChain'));
+    const mainSeq = xmlDoc.createElement('MainSequencer');
+    const clipTimeable = xmlDoc.createElement('ClipTimeable');
+    const arrangerAuto = xmlDoc.createElement('ArrangerAutomation');
+    eventsContainer = xmlDoc.createElement('Events');
+    arrangerAuto.appendChild(eventsContainer);
+    clipTimeable.appendChild(arrangerAuto);
+    mainSeq.appendChild(clipTimeable);
+    deviceChain.appendChild(mainSeq);
+  }
+
+  Array.from(eventsContainer.querySelectorAll('MidiClip')).forEach((el) => el.remove());
+
+  const createdNodes: Element[] = [];
+  clips.forEach((clip, clipIdx) => {
+    const midiClip = xmlDoc.createElement('MidiClip');
+    midiClip.setAttribute('Id', `${5000 + clipIdx * 100}`);
+    midiClip.setAttribute('Time', clip.startTime.toFixed(3));
+
+    const nameEl = xmlDoc.createElement('Name');
+    nameEl.setAttribute('Value', clip.name || `Clip_${clipIdx + 1}`);
+    midiClip.appendChild(nameEl);
+
+    const startEl = xmlDoc.createElement('CurrentStart');
+    startEl.setAttribute('Value', clip.startTime.toFixed(3));
+    midiClip.appendChild(startEl);
+
+    const endEl = xmlDoc.createElement('CurrentEnd');
+    endEl.setAttribute('Value', (clip.startTime + Math.max(0.25, clip.length)).toFixed(3));
+    midiClip.appendChild(endEl);
+
+    const loopEl = xmlDoc.createElement('Loop');
+    const loopStartEl = xmlDoc.createElement('LoopStart');
+    loopStartEl.setAttribute('Value', '0');
+    const loopEndEl = xmlDoc.createElement('LoopEnd');
+    const effectiveLoopEnd =
+      typeof clip.loopEndBeats === 'number' && clip.loopEndBeats > 0 ? clip.loopEndBeats : clip.length;
+    loopEndEl.setAttribute('Value', effectiveLoopEnd.toFixed(3));
+    const startRelEl = xmlDoc.createElement('StartRelative');
+    startRelEl.setAttribute('Value', '0');
+    const loopOnEl = xmlDoc.createElement('LoopOn');
+    loopOnEl.setAttribute('Value', 'true');
+    loopEl.appendChild(loopStartEl);
+    loopEl.appendChild(loopEndEl);
+    loopEl.appendChild(startRelEl);
+    loopEl.appendChild(loopOnEl);
+    midiClip.appendChild(loopEl);
+
+    const notesEl = xmlDoc.createElement('Notes');
+    const keyTracksEl = xmlDoc.createElement('KeyTracks');
+    const byPitch = new Map<number, MidiNoteEvent[]>();
+    clip.notes.forEach((note) => {
+      const list = byPitch.get(note.pitch) || [];
+      list.push(note);
+      byPitch.set(note.pitch, list);
+    });
+
+    let ktIdx = 0;
+    byPitch.forEach((pitchNotes, pitchVal) => {
+      const keyTrack = xmlDoc.createElement('KeyTrack');
+      keyTrack.setAttribute('Id', `${ktIdx++}`);
+
+      const midiKey = xmlDoc.createElement('MidiKey');
+      midiKey.setAttribute('Value', `${pitchVal}`);
+      keyTrack.appendChild(midiKey);
+
+      const ktNotesContainer = xmlDoc.createElement('Notes');
+      pitchNotes.forEach((n, idx) => {
+        const noteEvent = xmlDoc.createElement('MidiNoteEvent');
+        noteEvent.setAttribute('Time', n.time.toFixed(3));
+        noteEvent.setAttribute('Duration', n.duration.toFixed(3));
+        noteEvent.setAttribute('Pitch', `${n.pitch}`);
+        noteEvent.setAttribute('Velocity', `${Math.max(1, Math.min(127, Math.round(n.velocity)))}`);
+        noteEvent.setAttribute('OffVelocity', '64');
+        noteEvent.setAttribute('NoteId', `${8000 + clipIdx * 500 + ktIdx * 50 + idx}`);
+        noteEvent.setAttribute('IsEnabled', 'true');
+        ktNotesContainer.appendChild(noteEvent);
+      });
+
+      keyTrack.appendChild(ktNotesContainer);
+      keyTracksEl.appendChild(keyTrack);
+    });
+
+    notesEl.appendChild(keyTracksEl);
+    midiClip.appendChild(notesEl);
+    eventsContainer!.appendChild(midiClip);
+    createdNodes.push(midiClip);
+  });
+
+  return createdNodes;
+}
+
+/**
+ * Updates a track's `<Events>` container in the raw Ableton XML string with its current `AbletonMidiClip[]` array.
+ */
+export function syncTrackClipsToXml(
+  xmlString: string,
+  trackId: string,
+  clips: AbletonMidiClip[]
+): string {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlString, 'application/xml');
+    if (doc.querySelector('parsererror')) return xmlString;
+    const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
+    const targetTrack =
+      trackEls.find((el) => el.getAttribute('Id') === trackId) ||
+      trackEls.find((el, i) => `track_${i}_${el.getAttribute('Id') || i}` === trackId);
+    if (!targetTrack) return xmlString;
+    injectMultipleMidiClipsXmlNodes(doc, targetTrack, clips);
+    return formatXmlString(new XMLSerializer().serializeToString(doc));
+  } catch {
+    return xmlString;
+  }
 }
 
 /**
@@ -2700,9 +2859,176 @@ export function syncLocatorsAndMixerToXml(
 }
 
 /**
+ * Maximum forward shift in beats applied to even-numbered 16th notes at 100% Swing Strength.
+ * A 16th note is 0.25 beats; 50% of a 16th-note step is 0.125 beats (a 32nd-note swing offset).
+ */
+export const MAX_SIXTEENTH_SWING_SHIFT_BEATS = 0.125;
+
+/**
+ * Applies percentage-based 16th-note swing (0% to 100%) to a MIDI clip or note array
+ * by shifting even-numbered 16th notes (the 2nd, 4th, 6th, 8th, 10th, 12th, 14th, 16th
+ * sixteenth notes of each bar, occurring at 0.25, 0.75, 1.25, 1.75... beats) forward in time
+ * proportionally to the selected swing strength.
+ */
+export function applySwingToMidiClip(clip: AbletonMidiClip, swingStrength: number): AbletonMidiClip;
+export function applySwingToMidiClip(notes: MidiNoteEvent[], swingStrength: number): MidiNoteEvent[];
+export function applySwingToMidiClip(
+  clipOrNotes: AbletonMidiClip | MidiNoteEvent[],
+  swingStrength: number
+): AbletonMidiClip | MidiNoteEvent[] {
+  const clampedStrength = Math.max(0, Math.min(100, Number.isFinite(swingStrength) ? swingStrength : 0));
+  const swingShiftBeats = (clampedStrength / 100) * MAX_SIXTEENTH_SWING_SHIFT_BEATS;
+
+  const transformNotes = (notes: MidiNoteEvent[]): MidiNoteEvent[] => {
+    if (clampedStrength <= 0) {
+      return notes.map((n) => ({ ...n }));
+    }
+    return notes.map((note) => {
+      const refTime = note.quantizedTime !== undefined ? note.quantizedTime : note.time;
+      const zeroBasedSixteenthIndex = Math.round(refTime / 0.25);
+      const isOnSixteenthGrid = Math.abs(refTime - zeroBasedSixteenthIndex * 0.25) < 0.06;
+      // In 1-based musical counting (1st, 2nd, 3rd, 4th 16th note), even-numbered 16th notes
+      // have (zeroBasedSixteenthIndex + 1) % 2 === 0 (i.e. zeroBasedSixteenthIndex % 2 === 1: 0.25, 0.75, 1.25, 1.75...)
+      const oneBasedSixteenthNumber = zeroBasedSixteenthIndex + 1;
+      const isEvenSixteenthNote = isOnSixteenthGrid && oneBasedSixteenthNumber % 2 === 0;
+      if (!isEvenSixteenthNote) {
+        return { ...note };
+      }
+      return {
+        ...note,
+        time: Number(Math.max(0, note.time + swingShiftBeats).toFixed(4)),
+      };
+    });
+  };
+
+  if (Array.isArray(clipOrNotes)) {
+    return transformNotes(clipOrNotes);
+  }
+  return {
+    ...clipOrNotes,
+    notes: transformNotes(clipOrNotes.notes),
+  };
+}
+
+export const applySixteenthNoteSwing = applySwingToMidiClip;
+
+/**
+ * Maximum physical perceptual pocket (in milliseconds) at 100% Dilla Shuffle Swing.
+ * Converts dynamically into beats based on the current BPM:
+ * beatsOffset = (pocketMs / 1000) * (bpm / 60).
+ */
+export const MAX_DILLA_SHUFFLE_POCKET_MS = 22.0;
+
+/**
+ * Computes the BPM-dependent 'Dilla-style' push/pull offset in beats for a given 16th-note grid position.
+ * Models J Dilla's unquantized MPC3000 micro-timing feel across each beat's 16th-note subdivisions:
+ * - stepInBeat === 1 (2nd 16th, "e", e.g. 0.25b): Pulled late (+1.0 weight, laid-back drunken drag behind the grid)
+ * - stepInBeat === 2 (3rd 16th, "&", e.g. 0.50b): Pushed early (-0.55 weight, urgent anticipation ahead of the grid)
+ * - stepInBeat === 3 (4th 16th, "a", e.g. 0.75b): Pulled late (+0.78 weight, heavy shuffle pocket pickup)
+ * - stepInBeat === 0 (downbeat quarter): Beat 1 & 3 anchored (0.0); Beat 2 & 4 backbeats pushed slightly early (-0.28 weight)
+ */
+export function computeDillaShuffleOffsetBeats(
+  beatTime: number,
+  shuffleSwing: number,
+  bpm = 134
+): number {
+  const clampedShuffle = Math.max(
+    -100,
+    Math.min(100, Number.isFinite(shuffleSwing) ? shuffleSwing : 0)
+  );
+  if (Math.abs(clampedShuffle) < 0.001) return 0;
+
+  const safeBpm = Math.max(40, Math.min(240, Number.isFinite(bpm) && bpm > 0 ? bpm : 134));
+  const zeroBasedSixteenth = Math.round(beatTime / 0.25);
+  const isOnSixteenthGrid = Math.abs(beatTime - zeroBasedSixteenth * 0.25) < 0.08;
+  if (!isOnSixteenthGrid) return 0;
+
+  const stepInBar = ((zeroBasedSixteenth % 16) + 16) % 16;
+  const stepInBeat = stepInBar % 4;
+
+  // Dilla push/pull directional weights per 16th-note subdivision
+  let dillaSubdivisionWeight = 0;
+  if (stepInBeat === 1) {
+    // 2nd 16th ("1e"): pulled late behind the grid
+    dillaSubdivisionWeight = 1.0;
+  } else if (stepInBeat === 2) {
+    // 3rd 16th ("1&" offbeat 8th): pushed early ahead of the grid
+    dillaSubdivisionWeight = -0.55;
+  } else if (stepInBeat === 3) {
+    // 4th 16th ("1a" pickup): pulled late into next downbeat
+    dillaSubdivisionWeight = 0.78;
+  } else if (stepInBar === 4 || stepInBar === 12) {
+    // Backbeats (Beats 2 and 4): subtle early snare/clap push
+    dillaSubdivisionWeight = -0.28;
+  }
+
+  // Convert millisecond pocket into beats using current BPM: beats = (ms / 1000) * (bpm / 60)
+  const maxPocketBeatsAtBpm = (MAX_DILLA_SHUFFLE_POCKET_MS / 60000) * safeBpm;
+  const normalizedStrength = clampedShuffle / 100;
+  return Number((dillaSubdivisionWeight * normalizedStrength * maxPocketBeatsAtBpm).toFixed(4));
+}
+
+/**
+ * Applies BPM-dependent 'Dilla-style' Shuffle Swing push/pull to a MIDI clip or note array.
+ */
+export function applyShuffleSwingToMidiClip(
+  clip: AbletonMidiClip,
+  shuffleSwing: number,
+  bpm?: number
+): AbletonMidiClip;
+export function applyShuffleSwingToMidiClip(
+  notes: MidiNoteEvent[],
+  shuffleSwing: number,
+  bpm?: number
+): MidiNoteEvent[];
+export function applyShuffleSwingToMidiClip(
+  clipOrNotes: AbletonMidiClip | MidiNoteEvent[],
+  shuffleSwing: number,
+  bpm = 134
+): AbletonMidiClip | MidiNoteEvent[] {
+  const clampedShuffle = Math.max(
+    -100,
+    Math.min(100, Number.isFinite(shuffleSwing) ? shuffleSwing : 0)
+  );
+
+  const transformNotes = (notes: MidiNoteEvent[]): MidiNoteEvent[] => {
+    if (Math.abs(clampedShuffle) < 0.001) {
+      return notes.map((n) => ({ ...n }));
+    }
+    return notes.map((note) => {
+      const refTime = note.quantizedTime !== undefined ? note.quantizedTime : note.time;
+      const pushPullOffset = computeDillaShuffleOffsetBeats(refTime, clampedShuffle, bpm);
+      if (Math.abs(pushPullOffset) < 0.0001) {
+        return { ...note };
+      }
+      return {
+        ...note,
+        time: Number(Math.max(0, note.time + pushPullOffset).toFixed(4)),
+      };
+    });
+  };
+
+  if (Array.isArray(clipOrNotes)) {
+    return transformNotes(clipOrNotes);
+  }
+  return {
+    ...clipOrNotes,
+    notes: transformNotes(clipOrNotes.notes),
+  };
+}
+
+export const applyDillaShuffleSwing = applyShuffleSwingToMidiClip;
+
+/**
  * TASK 2: THE TECHNO LAYER GENERATOR (TechnoHeuristicEngine)
  */
 export class TechnoHeuristicEngine {
+  static applySwingToMidiClip = applySwingToMidiClip;
+  static applySixteenthNoteSwing = applySixteenthNoteSwing;
+  static applyShuffleSwingToMidiClip = applyShuffleSwingToMidiClip;
+  static applyDillaShuffleSwing = applyDillaShuffleSwing;
+  static computeDillaShuffleOffsetBeats = computeDillaShuffleOffsetBeats;
+
   /**
    * Generates a multi-bar (16 to 128 bars) humanized MIDI note array for the target archetype.
    */
@@ -2712,12 +3038,15 @@ export class TechnoHeuristicEngine {
     humanization: HumanizationConfig,
     customOneBarPattern?: { time: number; duration: number; pitch: number; velocity: number }[],
     seed = 1,
-    totalBars = 16
+    totalBars = 16,
+    bpm = 134
   ): MidiNoteEvent[] {
     const notes: MidiNoteEvent[] = [];
     const subRoot = rootKeyToMidiBase(rootKey, 1); // e.g., F1 = 29
     const maxShift = humanization.microTimingMaxShiftBeats;
     const velVar = humanization.velocityVariancePct;
+    const swingStrength = humanization.swingStrength ?? 0;
+    const shuffleSwing = humanization.shuffleSwing ?? 0;
     const variantId = Math.abs(seed) % 4;
 
     if (customOneBarPattern && customOneBarPattern.length > 0) {
@@ -2747,7 +3076,10 @@ export class TechnoHeuristicEngine {
           });
         });
       }
-      return notes;
+      const afterSwing = swingStrength > 0 ? applySwingToMidiClip(notes, swingStrength) : notes;
+      return Math.abs(shuffleSwing) > 0
+        ? applyShuffleSwingToMidiClip(afterSwing, shuffleSwing, bpm)
+        : afterSwing;
     }
 
     if (archetype === 'rumble') {
@@ -3080,7 +3412,10 @@ export class TechnoHeuristicEngine {
       }
     }
 
-    return notes;
+    const afterSwing = swingStrength > 0 ? applySwingToMidiClip(notes, swingStrength) : notes;
+    return Math.abs(shuffleSwing) > 0
+      ? applyShuffleSwingToMidiClip(afterSwing, shuffleSwing, bpm)
+      : afterSwing;
   }
 
   /**
@@ -3488,13 +3823,21 @@ export class TechnoHeuristicEngine {
     const chainDoc = new DOMParser().parseFromString(chainXml, 'application/xml');
     deviceChain.insertBefore(xmlDoc.importNode(chainDoc.documentElement, true), deviceChain.firstChild);
 
+    const tempoNode =
+      xmlDoc.querySelector('MasterTrack Tempo Manual') ||
+      xmlDoc.querySelector('Tempo > Manual') ||
+      xmlDoc.querySelector('Tempo');
+    const parsedTempo = parseFloat(tempoNode?.getAttribute('Value') || tempoNode?.textContent || '134');
+    const effectiveBpm = Number.isFinite(parsedTempo) && parsedTempo >= 40 ? parsedTempo : 134;
+
     const midiArray = TechnoHeuristicEngine.generateHumanizedMidiArray(
       archetype,
       rootKey,
       humanization,
       customOneBarPattern,
       effectiveSeed,
-      totalBars
+      totalBars,
+      effectiveBpm
     );
     injectMidiClipXmlNode(xmlDoc, targetTrack, meta.clipName, 0, totalBeats, midiArray, 4.0);
 
@@ -3514,13 +3857,25 @@ export class TechnoHeuristicEngine {
     humanization: HumanizationConfig,
     seed: number,
     trackVelocityCurves?: Record<string, VelocityCurveConfig>,
-    totalBars = 16
+    totalBars = 16,
+    bpmOverride?: number
   ): string {
     const parser = new DOMParser();
     const sanitizedXml = currentXml.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
     const xmlDoc = parser.parseFromString(sanitizedXml, 'application/xml');
     const trackNodes = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack'));
     const totalBeats = totalBars * 4;
+    const tempoNode =
+      xmlDoc.querySelector('MasterTrack Tempo Manual') ||
+      xmlDoc.querySelector('Tempo > Manual') ||
+      xmlDoc.querySelector('Tempo');
+    const xmlTempo = parseFloat(tempoNode?.getAttribute('Value') || tempoNode?.textContent || '134');
+    const effectiveBpm =
+      typeof bpmOverride === 'number' && bpmOverride >= 40
+        ? bpmOverride
+        : Number.isFinite(xmlTempo) && xmlTempo >= 40
+        ? xmlTempo
+        : 134;
 
     trackNodes.forEach((trackEl, tIdx) => {
       const rawEffName =
@@ -3565,13 +3920,27 @@ export class TechnoHeuristicEngine {
         noteEls.forEach((nEl, nIdx) => {
           const currentTime = parseFloat(nEl.getAttribute('Time') || '0');
           const currentVel = parseFloat(nEl.getAttribute('Velocity') || '100');
-          const quantizedTime = Math.round(currentTime * 8) / 8;
+          const quantizedTime = Math.round(currentTime * 4) / 4;
           const isDownbeat = Math.abs(quantizedTime % 1) < 0.001;
           const maxShift = humanization.microTimingMaxShiftBeats;
           const shift = isDownbeat
             ? 0
             : Math.max(-maxShift, Math.min(maxShift, gaussianRandom(0.002, maxShift * 0.65, trackSeed + nIdx)));
-          nEl.setAttribute('Time', Math.max(0, quantizedTime + shift).toFixed(3));
+          const zeroBased16th = Math.round(quantizedTime / 0.25);
+          const isEven16th = (zeroBased16th + 1) % 2 === 0;
+          const swingOffset =
+            isEven16th && (humanization.swingStrength ?? 0) > 0
+              ? ((humanization.swingStrength ?? 0) / 100) * MAX_SIXTEENTH_SWING_SHIFT_BEATS
+              : 0;
+          const shuffleOffset = computeDillaShuffleOffsetBeats(
+            quantizedTime,
+            humanization.shuffleSwing ?? 0,
+            effectiveBpm
+          );
+          nEl.setAttribute(
+            'Time',
+            Math.max(0, quantizedTime + shift + swingOffset + shuffleOffset).toFixed(3)
+          );
 
           const normPos =
             activeCurve.scopeMode === 'arrangement_16bar'
@@ -3596,7 +3965,8 @@ export class TechnoHeuristicEngine {
           humanization,
           undefined,
           trackSeed,
-          totalBars
+          totalBars,
+          effectiveBpm
         );
         const curvedNotes = applyTrackVelocityCurveToNotes(
           baseNotes,

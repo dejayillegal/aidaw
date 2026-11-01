@@ -1,5 +1,7 @@
 import {
   AbletonProjectState,
+  BatchWavExportItemResult,
+  BatchWavExportProgress,
   HumanizationConfig,
   MasterBusConfig,
   MasterExportPreset,
@@ -374,6 +376,7 @@ export class ProjectQueueService {
     record: QueuedProjectRecord;
     alsGzipBytes?: Uint8Array;
     wavArrayBuffer?: ArrayBuffer;
+    wavBlob?: Blob;
   }> {
     const rec = this.items.get(queueId);
     if (!rec) {
@@ -438,6 +441,7 @@ export class ProjectQueueService {
       rec.exportedWavFilename = `${baseName}_${exportPreset.sampleRate / 1000}k_${
         exportPreset.bitDepth
       }b.wav`;
+      rec.exportedWavBlob = exportResult.blob;
 
       this.transitionState(rec, 'exported');
       await this.persistRecordToIdb(rec);
@@ -447,6 +451,7 @@ export class ProjectQueueService {
         record: this.getItem(queueId)!,
         alsGzipBytes,
         wavArrayBuffer: exportResult.wavArrayBuffer,
+        wavBlob: exportResult.blob,
       };
     } catch (err) {
       if (rec.cancelRequested || controller.signal.aborted) {
@@ -462,6 +467,81 @@ export class ProjectQueueService {
     } finally {
       this.abortControllers.delete(queueId);
     }
+  }
+
+  /**
+   * Sequentially exports WAV files for all selected project files in the queue.
+   * Iterates one by one through the selected queueIds, rendering & verifying each project's
+   * WAV output while emitting progress callbacks.
+   */
+  public async batchExportSelectedProjectsToWav(
+    selectedQueueIds: string[],
+    humanization: HumanizationConfig,
+    masterBus: MasterBusConfig,
+    exportPreset: MasterExportPreset,
+    onProgress?: (progress: BatchWavExportProgress) => void
+  ): Promise<BatchWavExportItemResult[]> {
+    const validRecords = selectedQueueIds
+      .map((id) => this.items.get(id))
+      .filter(
+        (rec): rec is QueuedProjectRecord =>
+          Boolean(rec && !rec.isMidiExport && rec.workingProjectState && !rec.cancelRequested)
+      );
+
+    const results: BatchWavExportItemResult[] = [];
+    const totalSelected = validRecords.length;
+    if (totalSelected === 0) return results;
+
+    for (let i = 0; i < totalSelected; i++) {
+      const target = validRecords[i];
+      if (target.cancelRequested) continue;
+
+      onProgress?.({
+        currentIndex: i + 1,
+        totalSelected,
+        currentQueueId: target.queueId,
+        currentFilename: target.originalFilename,
+        completedCount: i,
+        percentage: Math.round((i / totalSelected) * 100),
+      });
+
+      if (target.state === 'cancelled' || target.state === 'failed') {
+        this.retryQueueItem(target.queueId);
+      }
+
+      const exportRes = await this.applyAndExportQueueItem(
+        target.queueId,
+        humanization,
+        masterBus,
+        exportPreset
+      );
+
+      if (exportRes.wavArrayBuffer && exportRes.record.exportedWavFilename) {
+        const wavBlob =
+          exportRes.wavBlob ||
+          new Blob([exportRes.wavArrayBuffer], { type: 'audio/wav' });
+        results.push({
+          queueId: target.queueId,
+          originalFilename: target.originalFilename,
+          exportedWavFilename: exportRes.record.exportedWavFilename,
+          wavBlob,
+          wavArrayBuffer: exportRes.wavArrayBuffer,
+          verification: exportRes.record.exportVerification,
+          record: exportRes.record,
+        });
+      }
+
+      onProgress?.({
+        currentIndex: i + 1,
+        totalSelected,
+        currentQueueId: target.queueId,
+        currentFilename: target.originalFilename,
+        completedCount: i + 1,
+        percentage: Math.round(((i + 1) / totalSelected) * 100),
+      });
+    }
+
+    return results;
   }
 
   /**
@@ -549,18 +629,20 @@ export class ProjectQueueService {
     midiFileName: string,
     blob: Blob,
     byteSize: number,
-    projectState: AbletonProjectState
+    projectState: AbletonProjectState,
+    includeHumanization = true
   ): QueuedProjectRecord {
     const queueId = `midi_export_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = new Date().toISOString();
     const record: QueuedProjectRecord = {
       queueId,
-      originalFilename: `${trackName} - ${clipName} (.mid)`,
+      originalFilename: `${trackName} - ${clipName} (${includeHumanization ? 'Humanized' : 'Quantized'} .mid)`,
       binaryChecksumSha256: `midi_${Date.now()}`,
       workingProjectRevision: projectState.projectRevision || 1,
       importedLiveVersion: 'Ableton Live 12.0 MIDI Standard',
       state: 'exported',
       isMidiExport: true,
+      midiIncludeHumanization: includeHumanization,
       exportedMidiFilename: midiFileName,
       exportedMidiBlob: blob,
       exportArtifactRef: {

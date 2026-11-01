@@ -1,18 +1,18 @@
 {
-  "appId": "com.soundcraft.daw",
-  "appName": "AbletonALS Studio",
+  "appId": "com.parametricals.technodaw",
+  "appName": "Parametric ALS Techno DAW",
   "webDir": "dist",
-  "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https"
   },
-  "ios": {
-    "contentInset": "automatic",
-    "allowsLinkPreview": false,
-    "scrollEnabled": true
-  },
-  "android": {
-    "backgroundColor": "#0B0D10",
-    "allowMixedContent": true
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "backgroundColor": "#090a0d"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#090a0d"
+    }
   }
 }

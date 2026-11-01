@@ -12,12 +12,14 @@ import {
   PolyrhythmConfig,
   SpectralDuckingConfig,
   TechnoArchetype,
+  TimelineBarRangeSelection,
   TimelineEditMode,
   TrackMixerParams,
   TransportConfig,
   VelocityCurveConfig,
   VoicingSpreadStyle,
 } from '../types/ableton';
+import { RangeClipGeneratorMode } from '../engine/compositionIntelligenceEngine';
 import { StudioEditingTool, StudioEditorToolbar, SpectrumOverlayMode } from './StudioEditorToolbar';
 import { WorkspaceTabId } from './StudioWorkspaceTabs';
 import { TimelineCanvas } from './TimelineCanvas';
@@ -59,6 +61,7 @@ export interface SoundCraftWorkstationProps {
   masterPeakDb: number;
   isPlaying: boolean;
   isExportingWav: boolean;
+  wavExportProgress?: number;
   activeTotalBars: number;
   activeStrategyId: CompositionStrategyId;
   activeFormId: MacroArrangementFormId;
@@ -69,7 +72,7 @@ export interface SoundCraftWorkstationProps {
   onChangeEditMode: (mode: TimelineEditMode) => void;
   onChangeActiveTool: (tool: StudioEditingTool) => void;
   onChangeSpectrumMode: (mode: SpectrumOverlayMode) => void;
-  onChangeArrangementLength: (bars: 16 | 32 | 64 | 128) => void;
+  onChangeArrangementLength: (bars: number) => void;
   onDropMemoryLocationAtPlayhead: () => void;
   onSeekBeat: (beat: number) => void;
   onToggleNoteInTrack: (trackId: string, beat: number, pitch: number, duration?: number) => void;
@@ -131,7 +134,22 @@ export interface SoundCraftWorkstationProps {
   onChangeBottomTab: (tab: 'devices' | 'composer' | 'pads' | 'spectrum') => void;
   onOpenReferenceTrackModal?: () => void;
   onOpenHumanizationHeatmap?: () => void;
-  onExportClipToMidi?: (trackId: string, clipId: string) => void;
+  includeMidiHumanization?: boolean;
+  onToggleIncludeMidiHumanization?: (include: boolean) => void;
+  onExportClipToMidi?: (trackId: string, clipId: string, includeHumanization?: boolean) => void;
+  barRangeSelection?: TimelineBarRangeSelection;
+  onChangeBarRangeSelection?: (range: TimelineBarRangeSelection) => void;
+  onGenerateClipInRange?: (
+    trackId: string,
+    startBar: number,
+    endBar: number,
+    mode: RangeClipGeneratorMode
+  ) => void;
+  onSplitClipAtBeat?: (trackId: string, beat: number) => void;
+  onDuplicateClipOnTrack?: (trackId: string, clipId?: string) => void;
+  onConsolidateClipsInRange?: (trackId: string, startBar: number, endBar: number) => void;
+  onDeleteClipsInRange?: (trackId: string, startBar: number, endBar: number) => void;
+  onAddUserTrackFromRole?: (roleCode: string) => void;
 }
 
 export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
@@ -155,6 +173,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   masterPeakDb,
   isPlaying,
   isExportingWav,
+  wavExportProgress = 0,
   activeTotalBars,
   activeStrategyId,
   activeFormId,
@@ -204,7 +223,17 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   onChangeBottomTab,
   onOpenReferenceTrackModal,
   onOpenHumanizationHeatmap,
+  includeMidiHumanization,
+  onToggleIncludeMidiHumanization,
   onExportClipToMidi,
+  barRangeSelection,
+  onChangeBarRangeSelection,
+  onGenerateClipInRange,
+  onSplitClipAtBeat,
+  onDuplicateClipOnTrack,
+  onConsolidateClipsInRange,
+  onDeleteClipsInRange,
+  onAddUserTrackFromRole,
 }) => {
   const [leftDockWidth, setLeftDockWidth] = useState<number>(224);
   const [bottomDockHeight, setBottomDockHeight] = useState<number>(256);
@@ -516,7 +545,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onExportClipToMidi(t.id, t.clips[0].id);
+                          onExportClipToMidi(t.id, t.clips[0].id, includeMidiHumanization);
                         }}
                         className="w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20"
                         title="Export Clip as .MID to Queue"
@@ -586,10 +615,31 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               type="button"
               onClick={() => onExportLosslessWav(24)}
               disabled={isExportingWav}
-              className="w-full py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded flex items-center justify-center gap-1 font-bold transition-colors disabled:opacity-50"
+              className="w-full py-1 px-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded flex flex-col items-center justify-center gap-1 font-bold transition-colors disabled:opacity-90 relative overflow-hidden"
             >
-              <Disc className="w-3 h-3" />
-              Export 24-Bit WAV
+              <div className="flex items-center justify-center gap-1 z-10">
+                <Disc className={`w-3 h-3 ${isExportingWav ? 'animate-spin' : ''}`} />
+                <span>
+                  {isExportingWav
+                    ? `Rendering WAV... ${Math.max(0, Math.min(100, Math.round(wavExportProgress)))}%`
+                    : 'Export 24-Bit WAV'}
+                </span>
+              </div>
+              {isExportingWav && (
+                <div
+                  role="progressbar"
+                  aria-label="WAV Export Progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.max(0, Math.min(100, Math.round(wavExportProgress)))}
+                  className="w-full h-1.5 bg-[#090C11] rounded-full overflow-hidden border border-emerald-500/30 z-10"
+                >
+                  <div
+                    className="h-full bg-emerald-400 transition-all duration-150"
+                    style={{ width: `${Math.max(0, Math.min(100, Math.round(wavExportProgress)))}%` }}
+                  />
+                </div>
+              )}
             </button>
             <button
               type="button"
@@ -643,8 +693,18 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               onDropMemoryLocationAtPlayhead={onDropMemoryLocationAtPlayhead}
               onOpenCompingAndTransientModal={onOpenCompingModal}
               onOpenHumanizationHeatmap={onOpenHumanizationHeatmap}
+              includeMidiHumanization={includeMidiHumanization}
+              onToggleIncludeMidiHumanization={onToggleIncludeMidiHumanization}
               onExportClipToMidi={onExportClipToMidi}
               onApplyNoteEditModeOperation={onApplyNoteEditModeOperation}
+              barRangeSelection={barRangeSelection}
+              onChangeBarRangeSelection={onChangeBarRangeSelection}
+              onGenerateClipInRange={onGenerateClipInRange}
+              onSplitClipAtBeat={onSplitClipAtBeat}
+              onDuplicateClipOnTrack={onDuplicateClipOnTrack}
+              onConsolidateClipsInRange={onConsolidateClipsInRange}
+              onDeleteClipsInRange={onDeleteClipsInRange}
+              onAddUserTrackFromRole={onAddUserTrackFromRole}
               spectrumOverlayMode={spectrumOverlayMode}
               isPlaying={isPlaying}
             />

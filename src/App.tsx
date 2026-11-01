@@ -14,6 +14,7 @@ import {
   QueuedProjectRecord,
   SpectralDuckingConfig,
   TechnoArchetype,
+  TimelineBarRangeSelection,
   TimelineEditMode,
   TrackMixerParams,
   TransportConfig,
@@ -34,6 +35,7 @@ import {
   injectMidiClipXmlNode,
   parseAbletonXmlDom,
   STARTER_TEMPLATES,
+  syncTrackClipsToXml,
   TechnoHeuristicEngine,
 } from './engine/alsXmlEngine';
 import {
@@ -43,9 +45,16 @@ import {
   applyMidiQuantizeStrength,
   composeProjectConditionedLayerNotes,
   COMPOSITION_STRATEGIES,
+  consolidateTrackClipsInRange,
+  createUserTrackFromRole,
+  decomposeNotesIntoSectionClips,
+  duplicateTrackClip,
+  generateClipForBarRange,
   generateContextualAutomationPoints,
   generateSectionArrangementPlan,
   MACRO_ARRANGEMENT_FORMS,
+  RangeClipGeneratorMode,
+  splitTrackClipAtBeat,
   validateAlsProjectCadence,
 } from './engine/compositionIntelligenceEngine';
 import { renderArrangementToWavBlob, synthEngine } from './engine/webAudioSynth';
@@ -133,6 +142,8 @@ type DesktopBottomTab = 'composer' | 'devices' | 'mix_console' | 'pads' | 'spect
 
 const DEFAULT_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.015,
+  swingStrength: 0,
+  shuffleSwing: 0,
   velocityVariancePct: 0.08,
   ghostVelocityMin: 20,
   ghostVelocityMax: 45,
@@ -286,6 +297,7 @@ export default function App() {
   const [selectedTrackId, setSelectedTrackId] = useState<string>('1');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isExportingWav, setIsExportingWav] = useState<boolean>(false);
+  const [wavExportProgress, setWavExportProgress] = useState<number>(0);
   const [playheadBeat, setPlayheadBeat] = useState<number>(0);
   const [modulatedCutoffHz, setModulatedCutoffHz] = useState<number>(145.0);
   const [masterPeakDb, setMasterPeakDb] = useState<number>(-60);
@@ -507,8 +519,10 @@ export default function App() {
     );
   }, [project, humanization, transport, masterBus]);
 
+  const [includeMidiHumanization, setIncludeMidiHumanization] = useState<boolean>(true);
+
   const handleExportClipToMidi = useCallback(
-    async (trackId: string, clipId?: string) => {
+    async (trackId: string, clipId?: string, includeHumanizationOverride?: boolean) => {
       const targetTrack = project.tracks.find((t) => t.id === trackId);
       if (!targetTrack) return;
       const targetClip =
@@ -516,11 +530,21 @@ export default function App() {
         targetTrack.clips[0];
       if (!targetClip) return;
 
+      const useHumanization =
+        typeof includeHumanizationOverride === 'boolean'
+          ? includeHumanizationOverride
+          : includeMidiHumanization;
+
       const { fileName, blob } = exportClipToMidiFile(
         targetClip,
         targetTrack,
         project.tempo || 134,
-        480
+        480,
+        {
+          includeHumanization: useHumanization,
+          humanization,
+          seed: jitterSeed,
+        }
       );
       downloadMidiFile(blob, fileName);
       projectQueueService.enqueueMidiClip(
@@ -529,13 +553,16 @@ export default function App() {
         fileName,
         blob,
         blob.size,
-        project
+        project,
+        useHumanization
       );
       setStatusMessage(
-        `Exported MIDI Clip "${fileName}" (${targetClip.notes.length} humanized notes) to Browser & Project Queue.`
+        `Exported MIDI Clip "${fileName}" (${targetClip.notes.length} ${
+          useHumanization ? 'micro-timed humanized' : 'quantized grid'
+        } notes) to Browser & Project Queue.`
       );
     },
-    [project]
+    [project, includeMidiHumanization, humanization, jitterSeed]
   );
 
   useEffect(() => {
@@ -1267,24 +1294,24 @@ export default function App() {
     setStatusMessage(summary);
   };
 
-  // Handler: Configurable Arrangement Duration (16, 32, 64, 128 Bars)
-  const handleChangeArrangementLength = (bars: 16 | 32 | 64 | 128) => {
+  // Handler: Configurable Arrangement Duration (4, 8, 16, 32, 64, 128, 256, 512 Bars)
+  const handleChangeArrangementLength = (bars: number) => {
+    const safeBars = Math.max(4, Math.min(1024, Math.round(bars)));
     setTransport((prev) => ({
       ...prev,
-      arrangementLengthBars: bars,
+      arrangementLengthBars: safeBars,
     }));
 
     setProject((prev) => {
-      const targetBeats = bars * 4;
+      const targetBeats = safeBars * 4;
       let workingXml = prev.rawXmlModified;
 
       const updatedTracks = prev.tracks.map((track) => {
-        const clip = track.clips[0];
-        if (!clip) return track;
+        const allExistingNotes = track.clips.flatMap((c) => c.notes);
+        let nextNotes = [...allExistingNotes];
 
-        let nextNotes = [...clip.notes];
         if (nextNotes.length > 0) {
-          const currentMaxBeat = Math.max(64, ...nextNotes.map((n) => n.quantizedTime + 0.25));
+          const currentMaxBeat = Math.max(16, ...nextNotes.map((n) => n.quantizedTime + 0.25));
           const sourceCycleBeats = Math.min(64, Math.max(16, Math.ceil(currentMaxBeat / 16) * 16));
           const baseCycleNotes = nextNotes.filter((n) => n.quantizedTime < sourceCycleBeats);
 
@@ -1309,24 +1336,22 @@ export default function App() {
           }
         }
 
-        workingXml = syncTrackNotesToXml(
-          workingXml,
+        const decomposedClips = decomposeNotesIntoSectionClips(
           track.name,
           track.archetype,
-          clip.name,
           nextNotes,
-          targetBeats,
-          clip.loopEndBeats
+          safeBars
         );
+        workingXml = syncTrackClipsToXml(workingXml, track.id, decomposedClips);
 
         return {
           ...track,
-          clips: [{ ...clip, length: targetBeats, notes: nextNotes }],
+          clips: decomposedClips,
           automationPoints: generateContextualAutomationPoints(
             track.archetype,
             activeFormId,
             compositionSeed,
-            bars
+            safeBars
           ),
         };
       });
@@ -1334,7 +1359,7 @@ export default function App() {
       return enrichProjectWithAnalysis(
         {
           ...prev,
-          arrangementLengthBars: bars,
+          arrangementLengthBars: safeBars,
           tracks: updatedTracks,
           rawXmlModified: workingXml,
         },
@@ -1343,7 +1368,7 @@ export default function App() {
     });
 
     setStatusMessage(
-      `Scaled Arrangement Timeline & XML Clips to ${bars} Bars (${bars * 4} Beats) with section-aligned automation.`
+      `Scaled Arrangement Timeline & Multi-Clips to ${safeBars} Bars (${safeBars * 4} Beats) with section-aligned automation.`
     );
   };
 
@@ -1483,7 +1508,9 @@ export default function App() {
       project.rootKey,
       nextConfig,
       jitterSeed,
-      curveLookup
+      curveLookup,
+      undefined,
+      project.tempo
     );
     const rawUpdatedState = parseAbletonXmlDom(
       updatedXml,
@@ -1504,7 +1531,9 @@ export default function App() {
       project.rootKey,
       humanization,
       nextSeed,
-      curveLookup
+      curveLookup,
+      undefined,
+      project.tempo
     );
     const rawUpdatedState = parseAbletonXmlDom(
       updatedXml,
@@ -1591,6 +1620,7 @@ export default function App() {
   };
 
   const handleUpdateTrackMixer = (trackId: string, partial: Partial<TrackMixerParams>) => {
+    synthEngine.updateTrackMixerLive(trackId, partial);
     setProject((prev) => ({
       ...prev,
       tracks: prev.tracks.map((t) =>
@@ -1813,6 +1843,10 @@ export default function App() {
   };
 
   const handleToggleMute = (trackId: string) => {
+    const target = project.tracks.find((t) => t.id === trackId);
+    if (target) {
+      synthEngine.updateTrackMixerLive(trackId, undefined, { muted: !target.muted });
+    }
     setProject((prev) => ({
       ...prev,
       tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, muted: !t.muted } : t)),
@@ -1820,6 +1854,10 @@ export default function App() {
   };
 
   const handleToggleSolo = (trackId: string) => {
+    const target = project.tracks.find((t) => t.id === trackId);
+    if (target) {
+      synthEngine.updateTrackMixerLive(trackId, undefined, { soloed: !target.soloed });
+    }
     setProject((prev) => ({
       ...prev,
       tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, soloed: !t.soloed } : t)),
@@ -1834,10 +1872,32 @@ export default function App() {
   ) => {
     setProject((prev) => {
       let workingXml = prev.rawXmlModified;
-      const totalBeats = (prev.arrangementLengthBars || 16) * 4;
       const updatedTracks = prev.tracks.map((track) => {
-        if (track.id !== trackId || track.clips.length === 0) return track;
-        const clip = track.clips[0];
+        if (track.id !== trackId) return track;
+
+        // Find the clip covering stepBeat, or create a 4-bar clip at that bar if none covers stepBeat
+        let targetClipIdx = track.clips.findIndex(
+          (c) => stepBeat >= c.startTime - 0.05 && stepBeat < c.startTime + Math.max(0.25, c.length) + 0.05
+        );
+        let nextClips = [...track.clips];
+        if (targetClipIdx < 0) {
+          const barIndex = Math.floor(stepBeat / 4);
+          const clipStart = barIndex * 4;
+          const newClip = {
+            id: `clip_${track.id}_${barIndex + 1}_${Date.now()}`,
+            name: `${track.name}_Bar_${barIndex + 1}`,
+            startTime: clipStart,
+            endTime: clipStart + 16,
+            length: 16,
+            notes: [] as typeof track.clips[0]['notes'],
+            revision: 1,
+          };
+          nextClips.push(newClip);
+          nextClips.sort((a, b) => a.startTime - b.startTime);
+          targetClipIdx = nextClips.findIndex((c) => c.id === newClip.id);
+        }
+
+        const clip = nextClips[targetClipIdx];
         const existingIdx = clip.notes.findIndex(
           (n) => Math.abs(n.quantizedTime - stepBeat) < stepDuration * 0.45 && n.pitch === pitch
         );
@@ -1856,23 +1916,200 @@ export default function App() {
           });
           nextNotes.sort((a, b) => a.time - b.time);
         }
-        workingXml = syncTrackNotesToXml(
-          workingXml,
-          track.name,
-          track.archetype,
-          clip.name,
-          nextNotes,
-          totalBeats,
-          clip.loopEndBeats
-        );
+
+        nextClips[targetClipIdx] = { ...clip, notes: nextNotes };
+        workingXml = syncTrackClipsToXml(workingXml, track.id, nextClips);
         return {
           ...track,
-          clips: [{ ...clip, notes: nextNotes }],
+          clips: nextClips,
         };
       });
       return { ...prev, tracks: updatedTracks, rawXmlModified: workingXml };
     });
   };
+
+  const [barRangeSelection, setBarRangeSelection] = useState<TimelineBarRangeSelection>({
+    startBar: 33,
+    endBar: 41,
+    startBeat: 128,
+    endBeat: 160,
+  });
+
+  const handleGenerateClipInRange = useCallback(
+    (trackId: string, startBar: number, endBar: number, mode: RangeClipGeneratorMode) => {
+      handleExecuteProjectCommand(
+        `Generate ${mode.toUpperCase()} Clip (Bars ${startBar}–${endBar - 1})`,
+        'clip_edit',
+        (draft) => {
+          const targetTrack = draft.tracks.find((t) => t.id === trackId);
+          if (!targetTrack) return draft;
+          const { updatedClips, summary } = generateClipForBarRange({
+            track: targetTrack,
+            startBar,
+            endBar,
+            mode,
+            rootKey: draft.rootKey,
+            scale: draft.scale,
+            swingStrength: humanization.swingStrength ?? 14,
+            tempo: draft.tempo,
+            seed: Date.now(),
+          });
+
+          const neededBars = Math.max(draft.arrangementLengthBars || 16, endBar - 1);
+          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, updatedClips);
+          setStatusMessage(summary);
+
+          return enrichProjectWithAnalysis(
+            {
+              ...draft,
+              arrangementLengthBars: neededBars,
+              rawXmlModified: updatedXml,
+              tracks: draft.tracks.map((t) =>
+                t.id === trackId ? { ...t, clips: updatedClips } : t
+              ),
+            },
+            activeFormId
+          );
+        }
+      );
+    },
+    [handleExecuteProjectCommand, humanization.swingStrength, activeFormId]
+  );
+
+  const handleSplitClipAtBeat = useCallback(
+    (trackId: string, splitBeat: number) => {
+      handleExecuteProjectCommand(
+        `Split Clip at Bar ${Math.floor(splitBeat / 4) + 1}`,
+        'clip_edit',
+        (draft) => {
+          const targetTrack = draft.tracks.find((t) => t.id === trackId);
+          if (!targetTrack) return draft;
+          const { clips: nextClips, splitOccurred } = splitTrackClipAtBeat(
+            targetTrack.clips,
+            splitBeat
+          );
+          if (!splitOccurred) {
+            setStatusMessage('No clip boundary spanned the target split bar.');
+            return draft;
+          }
+          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
+          setStatusMessage(
+            `Split clip on "${targetTrack.name}" at Bar ${Math.floor(splitBeat / 4) + 1} (${nextClips.length} clips on track).`
+          );
+          return {
+            ...draft,
+            rawXmlModified: updatedXml,
+            tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
+          };
+        }
+      );
+    },
+    [handleExecuteProjectCommand]
+  );
+
+  const handleDuplicateClipOnTrack = useCallback(
+    (trackId: string, clipId?: string) => {
+      handleExecuteProjectCommand('Duplicate Clip', 'clip_edit', (draft) => {
+        const targetTrack = draft.tracks.find((t) => t.id === trackId);
+        if (!targetTrack || targetTrack.clips.length === 0) return draft;
+        const targetClipId = clipId || targetTrack.clips[targetTrack.clips.length - 1].id;
+        const { clips: nextClips, duplicatedClip } = duplicateTrackClip(
+          targetTrack.clips,
+          targetClipId
+        );
+        if (!duplicatedClip) return draft;
+        const neededBars = Math.max(
+          draft.arrangementLengthBars || 16,
+          Math.ceil((duplicatedClip.startTime + duplicatedClip.length) / 4)
+        );
+        const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
+        setStatusMessage(
+          `Duplicated clip "${duplicatedClip.name}" to Bar ${Math.floor(duplicatedClip.startTime / 4) + 1}.`
+        );
+        return {
+          ...draft,
+          arrangementLengthBars: neededBars,
+          rawXmlModified: updatedXml,
+          tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
+        };
+      });
+    },
+    [handleExecuteProjectCommand]
+  );
+
+  const handleConsolidateClipsInRange = useCallback(
+    (trackId: string, startBar: number, endBar: number) => {
+      handleExecuteProjectCommand(
+        `Consolidate Clips (Bars ${startBar}–${endBar - 1})`,
+        'clip_edit',
+        (draft) => {
+          const targetTrack = draft.tracks.find((t) => t.id === trackId);
+          if (!targetTrack) return draft;
+          const nextClips = consolidateTrackClipsInRange(
+            targetTrack.clips,
+            (startBar - 1) * 4,
+            (endBar - 1) * 4,
+            targetTrack.name
+          );
+          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
+          setStatusMessage(
+            `Consolidated Bars ${startBar}–${endBar - 1} into a single contiguous MIDI clip on "${targetTrack.name}".`
+          );
+          return {
+            ...draft,
+            rawXmlModified: updatedXml,
+            tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
+          };
+        }
+      );
+    },
+    [handleExecuteProjectCommand]
+  );
+
+  const handleDeleteClipsInRange = useCallback(
+    (trackId: string, startBar: number, endBar: number) => {
+      handleExecuteProjectCommand(
+        `Delete Clip Range (Bars ${startBar}–${endBar - 1})`,
+        'clip_edit',
+        (draft) => {
+          const targetTrack = draft.tracks.find((t) => t.id === trackId);
+          if (!targetTrack) return draft;
+          const startBeat = (startBar - 1) * 4;
+          const endBeat = (endBar - 1) * 4;
+          const nextClips = targetTrack.clips.filter(
+            (c) => c.startTime + c.length <= startBeat + 0.01 || c.startTime >= endBeat - 0.01
+          );
+          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
+          setStatusMessage(
+            `Deleted clip content in Bars ${startBar}–${endBar - 1} on "${targetTrack.name}".`
+          );
+          return {
+            ...draft,
+            rawXmlModified: updatedXml,
+            tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
+          };
+        }
+      );
+    },
+    [handleExecuteProjectCommand]
+  );
+
+  const handleAddUserTrackFromRole = useCallback(
+    (roleCode: string) => {
+      handleExecuteProjectCommand(`Add Track (${roleCode})`, 'mixer', (draft) => {
+        const newTrack = createUserTrackFromRole(roleCode, draft.tracks.length);
+        setSelectedTrackId(newTrack.id);
+        setStatusMessage(
+          `Added new Underground Techno Track "${newTrack.name}" (${roleCode}) — select a Bar Range and click + Gen Chord / Bass / Drum Clip.`
+        );
+        return {
+          ...draft,
+          tracks: [...draft.tracks, newTrack],
+        };
+      });
+    },
+    [handleExecuteProjectCommand]
+  );
 
   const handleUpdateTempo = (newBpm: number) => {
     const clamped = Math.max(90, Math.min(180, newBpm));
@@ -1918,6 +2155,7 @@ export default function App() {
     const totalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
     try {
       setIsExportingWav(true);
+      setWavExportProgress(0);
       setStatusMessage(
         `Rendering complete ${totalBars}-bar arrangement (44.1kHz / ${bitDepth}-bit Lossless Stereo WAV with Sidechain, Reverb, 3/16 Delay & Master Glue)...`
       );
@@ -1926,7 +2164,13 @@ export default function App() {
         humanization,
         masterBus,
         totalBars,
-        bitDepth
+        bitDepth,
+        (progressPct) => {
+          setWavExportProgress(progressPct);
+          setStatusMessage(
+            `Rendering complete ${totalBars}-bar arrangement to ${bitDepth}-bit Lossless Stereo WAV (${progressPct}%)...`
+          );
+        }
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2197,6 +2441,7 @@ export default function App() {
             masterPeakDb={masterPeakDb}
             isPlaying={isPlaying}
             isExportingWav={isExportingWav}
+            wavExportProgress={wavExportProgress}
             activeTotalBars={activeTotalBars}
             activeStrategyId={activeStrategyId}
             activeFormId={activeFormId}
@@ -2249,7 +2494,17 @@ export default function App() {
             onChangeBottomTab={setBottomEditorTab}
             onOpenReferenceTrackModal={() => setIsReferenceModalOpen(true)}
             onOpenHumanizationHeatmap={() => setIsHeatmapModalOpen(true)}
+            includeMidiHumanization={includeMidiHumanization}
+            onToggleIncludeMidiHumanization={setIncludeMidiHumanization}
             onExportClipToMidi={handleExportClipToMidi}
+            barRangeSelection={barRangeSelection}
+            onChangeBarRangeSelection={setBarRangeSelection}
+            onGenerateClipInRange={handleGenerateClipInRange}
+            onSplitClipAtBeat={handleSplitClipAtBeat}
+            onDuplicateClipOnTrack={handleDuplicateClipOnTrack}
+            onConsolidateClipsInRange={handleConsolidateClipsInRange}
+            onDeleteClipsInRange={handleDeleteClipsInRange}
+            onAddUserTrackFromRole={handleAddUserTrackFromRole}
           />
         )}
 
@@ -2368,6 +2623,8 @@ export default function App() {
         editMode={editMode}
         activeTool={activeEditingTool}
         isPlaying={isPlaying}
+        isExportingWav={isExportingWav}
+        wavExportProgress={wavExportProgress}
         statusMessage={statusMessage}
         alsValid={!!project.alsValidation?.isValid}
         canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}

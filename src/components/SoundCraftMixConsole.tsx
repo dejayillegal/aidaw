@@ -27,6 +27,7 @@ import {
   toggleChannelInsertBypass,
 } from '../engine/channelStripEngine';
 import { getDefaultVcaGroups } from '../engine/alsXmlEngine';
+import { synthEngine } from '../engine/webAudioSynth';
 
 interface SoundCraftMixConsoleProps {
   project: AbletonProjectState;
@@ -73,8 +74,10 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
   const vcaGroups: VcaGroupState[] = project.vcaGroups || getDefaultVcaGroups();
 
   const handleTrackVolumeChange = (trackId: string, volumeDb: number) => {
+    const roundedVol = Number(volumeDb.toFixed(1));
+    synthEngine.updateTrackMixerLive(trackId, { volumeDb: roundedVol });
     onUpdateProjectWithUndo(
-      `Set Track Fader (${volumeDb.toFixed(1)} dB)`,
+      `Set Track Fader (${roundedVol.toFixed(1)} dB)`,
       'mixer',
       (draft) => {
         draft.tracks = draft.tracks.map((t) =>
@@ -93,7 +96,7 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
                     filterCutoffHz: 800,
                     filterResonance: 0.3,
                   }),
-                  volumeDb: Number(volumeDb.toFixed(1)),
+                  volumeDb: roundedVol,
                 },
               }
             : t
@@ -104,6 +107,7 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
   };
 
   const handleTrackPanChange = (trackId: string, pan: number) => {
+    synthEngine.updateTrackMixerLive(trackId, { pan });
     onUpdateProjectWithUndo(`Set Track Pan (${pan.toFixed(2)})`, 'mixer', (draft) => {
       draft.tracks = draft.tracks.map((t) =>
         t.id === trackId && t.mixer ? { ...t, mixer: { ...t.mixer, pan } } : t
@@ -117,6 +121,7 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
     sendKey: 'reverbSend' | 'delaySend',
     val: number
   ) => {
+    synthEngine.updateTrackMixerLive(trackId, { [sendKey]: val });
     onUpdateProjectWithUndo(`Adjust ${sendKey}`, 'mixer', (draft) => {
       draft.tracks = draft.tracks.map((t) =>
         t.id === trackId && t.mixer ? { ...t, mixer: { ...t.mixer, [sendKey]: val } } : t
@@ -126,6 +131,12 @@ export const SoundCraftMixConsole: React.FC<SoundCraftMixConsoleProps> = ({
   };
 
   const handleTrackMuteSolo = (trackId: string, field: 'muted' | 'soloed') => {
+    const currentTrack = project.tracks.find((t) => t.id === trackId);
+    if (currentTrack) {
+      synthEngine.updateTrackMixerLive(trackId, undefined, {
+        [field]: !currentTrack[field],
+      });
+    }
     onUpdateProjectWithUndo(`Toggle Track ${field}`, 'mixer', (draft) => {
       draft.tracks = draft.tracks.map((t) =>
         t.id === trackId ? { ...t, [field]: !t[field] } : t

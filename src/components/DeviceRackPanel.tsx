@@ -946,7 +946,7 @@ export const DeviceRackPanel: React.FC<DeviceRackPanelProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
             <div className="p-2 bg-[#141923] border border-[#232B39] rounded">
               <div className="flex items-center justify-between text-[10px] font-mono tabular-nums mb-1">
                 <span className="text-slate-400 truncate">16TH SHIFT</span>
@@ -963,6 +963,57 @@ export const DeviceRackPanel: React.FC<DeviceRackPanelProps> = ({
                 onWheel={handleWheelPrevent}
                 onChange={(e) =>
                   onUpdateHumanization({ microTimingMaxShiftBeats: parseFloat(e.target.value) })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+
+            <div className="p-2 bg-[#141923] border border-[#232B39] rounded">
+              <div className="flex items-center justify-between text-[10px] font-mono tabular-nums mb-1">
+                <span className="text-slate-400 truncate" title="16th-Note Swing Strength">
+                  Swing Strength
+                </span>
+                <span className="text-emerald-400 font-semibold">
+                  {Math.round(humanization.swingStrength ?? 0)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Swing Strength"
+                min={0}
+                max={100}
+                step={1}
+                value={humanization.swingStrength ?? 0}
+                onWheel={handleWheelPrevent}
+                onChange={(e) =>
+                  onUpdateHumanization({ swingStrength: parseInt(e.target.value, 10) })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+
+            <div className="p-2 bg-[#141923] border border-[#232B39] rounded">
+              <div className="flex items-center justify-between text-[10px] font-mono tabular-nums mb-1">
+                <span
+                  className="text-slate-400 truncate"
+                  title="Dilla-style BPM-dependent 16th-note push/pull pocket groove"
+                >
+                  Shuffle Swing
+                </span>
+                <span className="text-fuchsia-400 font-semibold">
+                  {Math.round(humanization.shuffleSwing ?? 0)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Shuffle Swing"
+                min={-100}
+                max={100}
+                step={1}
+                value={humanization.shuffleSwing ?? 0}
+                onWheel={handleWheelPrevent}
+                onChange={(e) =>
+                  onUpdateHumanization({ shuffleSwing: parseInt(e.target.value, 10) })
                 }
                 className="w-full studio-slider"
               />

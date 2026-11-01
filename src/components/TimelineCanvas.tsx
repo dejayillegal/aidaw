@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AbletonMidiClip,
   AbletonProjectState,
   AbletonTrack,
   AutomationPoint,
@@ -8,12 +9,19 @@ import {
   MidiNoteEvent,
   NoteGridDivision,
   SpectrumOverlayMode,
+  TimelineBarRangeSelection,
   TimelineEditMode,
   TrackMixerParams,
   TransportConfig,
 } from '../types/ableton';
 import { gridDivisionToStepBeats, midiNoteToName } from '../engine/alsXmlEngine';
+import {
+  INSTRUMENT_ROLE_TAXONOMY,
+  RangeClipGeneratorMode,
+} from '../engine/compositionIntelligenceEngine';
 import { evaluateAutomationAtBeat, synthEngine } from '../engine/webAudioSynth';
+import { exportClipToMidiFile, downloadMidiFile } from '../engine/midiFileExporter';
+import { projectQueueService } from '../services/projectQueueService';
 import { spotPositionToBeat } from '../services/commandBus';
 import { SelectedTrackAnalysisStrip } from './SelectedTrackAnalysisStrip';
 import {
@@ -28,6 +36,98 @@ import {
   ZoomIn,
 } from 'lucide-react';
 
+export interface MidiGridPlayheadSyncMetrics {
+  syncedBeat: number;
+  windowStartBeat: number;
+  windowEndBeat: number;
+  visibleBeats: number;
+  keyColWidth: number;
+  gridWidth: number;
+  pixelsPerBeat: number;
+  pixelsPerSixteenth: number;
+  playheadPixelX: number;
+  stepStartPixelX: number;
+  stepEndPixelX: number;
+  activeStepIndex: number;
+  totalGridSteps: number;
+  sixteenthIndexInBar: number;
+  isInsideWindow: boolean;
+}
+
+/**
+ * Maps a live synthEngine beat position to exact pixel-based MIDI grid coordinates
+ * within the Piano Roll viewport (accounting for the left piano key column, zoom bars,
+ * follow-playhead windowing, and active quantization grid division).
+ */
+export function mapBeatToMidiGridCoordinates(
+  beat: number,
+  options: {
+    canvasWidth: number;
+    keyColWidth?: number;
+    zoomBars?: number;
+    totalBars?: number;
+    pianoScrollBar?: number;
+    followPlayhead?: boolean;
+    gridDivision?: NoteGridDivision;
+  }
+): MidiGridPlayheadSyncMetrics {
+  const safeBeat = Number.isFinite(beat) ? Math.max(0, beat) : 0;
+  const keyColWidth = options.keyColWidth ?? 58;
+  const effectiveCanvasWidth = options.canvasWidth > keyColWidth ? options.canvasWidth : 800;
+  const gridWidth = Math.max(1, effectiveCanvasWidth - keyColWidth);
+  const zoomBars = options.zoomBars ?? 2;
+  const totalBars = options.totalBars ?? 16;
+  const pianoScrollBar = options.pianoScrollBar ?? 0;
+  const followPlayhead = options.followPlayhead ?? true;
+  const gridDivision = options.gridDivision ?? '1/16';
+
+  const visibleBeats = Math.max(1, zoomBars * 4);
+  const maxPianoStartBar = Math.max(0, totalBars - zoomBars);
+  const effectivePianoBar = followPlayhead
+    ? Math.min(maxPianoStartBar, Math.floor(safeBeat / visibleBeats) * zoomBars)
+    : Math.min(maxPianoStartBar, pianoScrollBar);
+
+  const windowStartBeat = effectivePianoBar * 4;
+  const windowEndBeat = windowStartBeat + visibleBeats;
+  const isInsideWindow = safeBeat >= windowStartBeat && safeBeat <= windowEndBeat;
+
+  const stepBeats = gridDivisionToStepBeats(gridDivision);
+  const totalGridSteps = Math.max(1, Math.round(visibleBeats / stepBeats));
+  const pixelsPerBeat = gridWidth / visibleBeats;
+  const pixelsPerSixteenth = pixelsPerBeat * 0.25;
+
+  const relBeatUnclamped = safeBeat - windowStartBeat;
+  const relBeatClamped = Math.max(0, Math.min(visibleBeats, relBeatUnclamped));
+  const playheadPixelX = keyColWidth + relBeatClamped * pixelsPerBeat;
+
+  const rawStepIndex = Math.floor(relBeatClamped / stepBeats + 1e-6);
+  const activeStepIndex = Math.max(0, Math.min(totalGridSteps - 1, rawStepIndex));
+  const stepWidthPx = gridWidth / totalGridSteps;
+  const stepStartPixelX = keyColWidth + activeStepIndex * stepWidthPx;
+  const stepEndPixelX = stepStartPixelX + stepWidthPx;
+
+  const beatInBar = ((safeBeat % 4) + 4) % 4;
+  const sixteenthIndexInBar = Math.min(16, Math.floor(beatInBar / 0.25 + 1e-6) + 1);
+
+  return {
+    syncedBeat: safeBeat,
+    windowStartBeat,
+    windowEndBeat,
+    visibleBeats,
+    keyColWidth,
+    gridWidth,
+    pixelsPerBeat,
+    pixelsPerSixteenth,
+    playheadPixelX,
+    stepStartPixelX,
+    stepEndPixelX,
+    activeStepIndex,
+    totalGridSteps,
+    sixteenthIndexInBar,
+    isInsideWindow,
+  };
+}
+
 interface TimelineCanvasProps {
   project: AbletonProjectState;
   selectedTrackId: string;
@@ -40,7 +140,7 @@ interface TimelineCanvasProps {
   spectrumOverlayMode?: SpectrumOverlayMode;
   isPlaying?: boolean;
   onUpdateTransport: (partial: Partial<TransportConfig>) => void;
-  onChangeArrangementLength?: (bars: 16 | 32 | 64 | 128) => void;
+  onChangeArrangementLength?: (bars: number) => void;
   onUpdateMasterBus?: (partial: Partial<MasterBusConfig>) => void;
   onSeekBeat: (beat: number) => void;
   onToggleNoteInTrack: (trackId: string, stepBeat: number, pitch: number, stepDuration?: number) => void;
@@ -53,7 +153,9 @@ interface TimelineCanvasProps {
   onDropMemoryLocationAtPlayhead?: () => void;
   onOpenCompingAndTransientModal?: () => void;
   onOpenHumanizationHeatmap?: () => void;
-  onExportClipToMidi?: (trackId: string, clipId: string) => void;
+  includeMidiHumanization?: boolean;
+  onToggleIncludeMidiHumanization?: (include: boolean) => void;
+  onExportClipToMidi?: (trackId: string, clipId: string, includeHumanization?: boolean) => void;
   onApplyNoteEditModeOperation?: (
     trackId: string,
     noteId: string,
@@ -61,6 +163,19 @@ interface TimelineCanvasProps {
     editMode: TimelineEditMode,
     gridStepBeats: number
   ) => void;
+  barRangeSelection?: TimelineBarRangeSelection;
+  onChangeBarRangeSelection?: (range: TimelineBarRangeSelection) => void;
+  onGenerateClipInRange?: (
+    trackId: string,
+    startBar: number,
+    endBar: number,
+    mode: RangeClipGeneratorMode
+  ) => void;
+  onSplitClipAtBeat?: (trackId: string, beat: number) => void;
+  onDuplicateClipOnTrack?: (trackId: string, clipId?: string) => void;
+  onConsolidateClipsInRange?: (trackId: string, startBar: number, endBar: number) => void;
+  onDeleteClipsInRange?: (trackId: string, startBar: number, endBar: number) => void;
+  onAddUserTrackFromRole?: (roleCode: string) => void;
 }
 
 export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
@@ -88,8 +203,18 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   onDropMemoryLocationAtPlayhead,
   onOpenCompingAndTransientModal,
   onOpenHumanizationHeatmap,
+  includeMidiHumanization,
+  onToggleIncludeMidiHumanization,
   onExportClipToMidi,
   onApplyNoteEditModeOperation,
+  barRangeSelection,
+  onChangeBarRangeSelection,
+  onGenerateClipInRange,
+  onSplitClipAtBeat,
+  onDuplicateClipOnTrack,
+  onConsolidateClipsInRange,
+  onDeleteClipsInRange,
+  onAddUserTrackFromRole,
 }) => {
   const arrangementCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pianoRollCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -97,7 +222,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const [zoomBars, setZoomBars] = useState<1 | 2 | 4>(2);
   const [pianoScrollBar, setPianoScrollBar] = useState<number>(0);
   const [pianoGridDivision, setPianoGridDivision] = useState<NoteGridDivision>('1/16');
-  const [arrangementZoom, setArrangementZoom] = useState<1 | 2 | 4 | 8>(1);
+  const [arrangementZoom, setArrangementZoom] = useState<number>(1);
   const [arrangementScrollBar, setArrangementScrollBar] = useState<number>(0);
   const [showReturnLanes, setShowReturnLanes] = useState<boolean>(false);
   const [showTrackHeadersMobile, setShowTrackHeadersMobile] = useState<boolean>(true);
@@ -105,27 +230,99 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const [spotBar, setSpotBar] = useState<number>(1);
   const [spotBeat, setSpotBeat] = useState<number>(1);
   const [spotSixteenth, setSpotSixteenth] = useState<number>(1);
+  const [pianoRollWidthPx, setPianoRollWidthPx] = useState<number>(800);
+  const [localIncludeHumanization, setLocalIncludeHumanization] = useState<boolean>(true);
+  const [localRangeStartBar, setLocalRangeStartBar] = useState<number>(
+    barRangeSelection?.startBar ?? 33
+  );
+  const [localRangeEndBar, setLocalRangeEndBar] = useState<number>(
+    barRangeSelection?.endBar ?? 41
+  );
+  const [newTrackRoleCode, setNewTrackRoleCode] = useState<string>('E2');
+
+  const effectiveRangeStartBar = barRangeSelection?.startBar ?? localRangeStartBar;
+  const effectiveRangeEndBar = barRangeSelection?.endBar ?? localRangeEndBar;
+
+  const updateBarRange = (nextStartBar: number, nextEndBar: number) => {
+    const lo = Math.max(1, Math.min(nextStartBar, nextEndBar));
+    const hi = Math.max(lo + 1, Math.max(nextStartBar, nextEndBar));
+    setLocalRangeStartBar(lo);
+    setLocalRangeEndBar(hi);
+    onChangeBarRangeSelection?.({
+      startBar: lo,
+      endBar: hi,
+      startBeat: (lo - 1) * 4,
+      endBeat: (hi - 1) * 4,
+      trackId: selectedTrackId,
+    });
+  };
+
+  const effectiveIncludeHumanization =
+    includeMidiHumanization !== undefined ? includeMidiHumanization : localIncludeHumanization;
+
+  const handleToggleIncludeHumanization = (nextValue: boolean) => {
+    setLocalIncludeHumanization(nextValue);
+    onToggleIncludeMidiHumanization?.(nextValue);
+  };
+  const [engineSyncedBeat, setEngineSyncedBeat] = useState<number>(() =>
+    synthEngine.getCurrentBeat()
+  );
+
+  // Synchronize with synthEngine high-precision audio clock during playback or seek
+  useEffect(() => {
+    setEngineSyncedBeat(synthEngine.getCurrentBeat());
+    if (!isPlaying && !synthEngine.getIsPlaying()) return;
+    let rafId: number | null = null;
+    const syncTick = () => {
+      setEngineSyncedBeat(synthEngine.getCurrentBeat());
+      if (isPlaying || synthEngine.getIsPlaying()) {
+        rafId = requestAnimationFrame(syncTick);
+      }
+    };
+    rafId = requestAnimationFrame(syncTick);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [isPlaying, playheadBeat]);
+
+  const currentEngineBeat = synthEngine.getCurrentBeat();
+  const syncedPlayheadBeat = synthEngine.getIsPlaying()
+    ? currentEngineBeat
+    : playheadBeat > 0
+    ? playheadBeat
+    : currentEngineBeat > 0
+    ? currentEngineBeat
+    : engineSyncedBeat;
 
   const selectedTrack: AbletonTrack | undefined =
     project.tracks.find((t) => t.id === selectedTrackId) || project.tracks[0];
 
   const rawBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-  const totalBars: 16 | 32 | 64 | 128 =
-    rawBars === 32 || rawBars === 64 || rawBars === 128 ? rawBars : 16;
+  const totalBars: number = Math.max(4, Math.min(1024, Math.round(rawBars)));
   const totalBeats = totalBars * 4;
 
-  // Compute visible bar window in the Arrangement View based on real-time zoom & scroll
-  const visibleArrBars = Math.max(4, Math.floor(totalBars / arrangementZoom));
+  // Compute visible bar window in the Arrangement View based on continuous zoom & scroll
+  const visibleArrBars = Math.max(1, Math.min(totalBars, Math.round(totalBars / Math.max(0.25, arrangementZoom))));
   const maxScrollBar = Math.max(0, totalBars - visibleArrBars);
   const effectiveScrollBar = transport.followPlayhead && arrangementZoom > 1
     ? Math.min(
         maxScrollBar,
-        Math.floor(Math.floor(playheadBeat / 4) / visibleArrBars) * visibleArrBars
+        Math.floor(Math.floor(syncedPlayheadBeat / 4) / visibleArrBars) * visibleArrBars
       )
     : Math.min(maxScrollBar, arrangementScrollBar);
   const arrStartBeat = effectiveScrollBar * 4;
   const arrVisibleBeats = visibleArrBars * 4;
   const arrEndBeat = arrStartBeat + arrVisibleBeats;
+
+  const midiGridSync = mapBeatToMidiGridCoordinates(syncedPlayheadBeat, {
+    canvasWidth: pianoRollWidthPx,
+    keyColWidth: 58,
+    zoomBars,
+    totalBars,
+    pianoScrollBar,
+    followPlayhead: transport.followPlayhead,
+    gridDivision: pianoGridDivision,
+  });
 
   const headerHeight = 32;
   const laneHeight = 72;
@@ -286,14 +483,36 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       ctx.lineTo(width, y + laneHeight);
       ctx.stroke();
 
-      // Render Track Clips (dimmed with 0.35 opacity when solo-muted)
-      track.clips.forEach((clip) => {
-        const clipStart = Math.max(arrStartBeat, clip.startTime);
-        const clipEnd = Math.min(arrEndBeat, clip.startTime + Math.max(clip.length, totalBeats));
+      // Render Selected Bar-Range Highlight on Selected Track
+      if (isSelected) {
+        const rangeStartBeat = (effectiveRangeStartBar - 1) * 4;
+        const rangeEndBeat = (effectiveRangeEndBar - 1) * 4;
+        const visRangeStart = Math.max(arrStartBeat, rangeStartBeat);
+        const visRangeEnd = Math.min(arrEndBeat, rangeEndBeat);
+        if (visRangeEnd > visRangeStart) {
+          const rx = ((visRangeStart - arrStartBeat) / arrVisibleBeats) * width;
+          const rw = ((visRangeEnd - visRangeStart) / arrVisibleBeats) * width;
+          ctx.save();
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.10)';
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.fillRect(rx, y + 1, rw, laneHeight - 2);
+          ctx.strokeRect(rx, y + 1, rw, laneHeight - 2);
+          ctx.restore();
+        }
+      }
+
+      // Render Track Clips at their exact true startTime and length (Fixed Bug P0-002!)
+      track.clips.forEach((clip: AbletonMidiClip) => {
+        const trueClipStart = clip.startTime;
+        const trueClipEnd = clip.startTime + Math.max(0.25, clip.length);
+        const clipStart = Math.max(arrStartBeat, trueClipStart);
+        const clipEnd = Math.min(arrEndBeat, trueClipEnd);
         if (clipEnd <= clipStart) return;
 
         const clipX = ((clipStart - arrStartBeat) / arrVisibleBeats) * width;
-        const clipW = ((clipEnd - clipStart) / arrVisibleBeats) * width;
+        const clipW = Math.max(4, ((clipEnd - clipStart) / arrVisibleBeats) * width);
 
         ctx.save();
         if (isSoloMuted) {
@@ -304,15 +523,15 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           ? 'rgba(100, 116, 139, 0.12)'
           : track.soloed
           ? `${track.hexColor}35`
-          : `${track.hexColor}20`;
+          : `${track.hexColor}22`;
         ctx.strokeStyle = track.muted
           ? '#475569'
           : track.soloed
           ? '#F59E0B'
           : track.hexColor;
         ctx.lineWidth = isSelected ? 1.5 : 1;
-        ctx.fillRect(clipX + 1, y + 3, clipW - 2, laneHeight - 6);
-        ctx.strokeRect(clipX + 1, y + 3, clipW - 2, laneHeight - 6);
+        ctx.fillRect(clipX + 1, y + 3, Math.max(2, clipW - 2), laneHeight - 6);
+        ctx.strokeRect(clipX + 1, y + 3, Math.max(2, clipW - 2), laneHeight - 6);
 
         // Draw True Polymeter Loop Boundary Markers inside clip if clip.loopEndBeats is non-standard
         if (clip.loopEndBeats && clip.loopEndBeats > 0 && clip.loopEndBeats !== 16 && clip.loopEndBeats !== 64) {
@@ -320,8 +539,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           ctx.strokeStyle = 'rgba(251, 191, 36, 0.45)';
           ctx.setLineDash([2, 2]);
           for (
-            let loopB = clip.loopEndBeats;
-            loopB < totalBeats;
+            let loopB = trueClipStart + clip.loopEndBeats;
+            loopB < trueClipEnd;
             loopB += clip.loopEndBeats
           ) {
             if (loopB >= arrStartBeat && loopB <= arrEndBeat) {
@@ -341,24 +560,25 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           : track.soloed
           ? '#F59E0B'
           : `${track.hexColor}48`;
-        ctx.fillRect(clipX + 1, y + 3, clipW - 2, 12);
+        ctx.fillRect(clipX + 1, y + 3, Math.max(2, clipW - 2), 12);
 
-        ctx.fillStyle = track.soloed ? '#0A0D12' : '#F8FAFC';
-        ctx.font = '500 9.5px "JetBrains Mono", monospace';
-        const scBadge =
-          track.mixer?.sidechainDepth > 0.05
-            ? ` · SC ${Math.round(track.mixer.sidechainDepth * 100)}%`
-            : '';
-        const duckBadge = track.spectralDucking?.enabled ? ' · EQ8-DUCK' : '';
-        const polyBadge =
-          clip.loopEndBeats && clip.isPolymeter ? ` · POLY ${clip.loopEndBeats}b` : '';
-        const soloBadge = track.soloed ? ' · [SOLO]' : isSoloMuted ? ' · [MUTED]' : '';
-        const label = `${clip.name} (${clip.notes.length}n${scBadge}${duckBadge}${polyBadge}${soloBadge})`;
-        ctx.fillText(label, clipX + 5, y + 12);
+        if (clipW >= 28) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(clipX + 2, y + 2, Math.max(2, clipW - 4), 14);
+          ctx.clip();
+          ctx.fillStyle = track.soloed ? '#0A0D12' : '#F8FAFC';
+          ctx.font = '500 9.5px "JetBrains Mono", monospace';
+          const clipBars = Math.round((Math.max(0.25, clip.length) / 4) * 10) / 10;
+          const label = `${clip.name} (${clipBars}B · ${clip.notes.length}n)`;
+          ctx.fillText(label, clipX + 5, y + 12);
+          ctx.restore();
+        }
 
-        // Mini MIDI note ticks inside visible arrangement window
+        // Mini MIDI note ticks strictly inside clip's [trueClipStart, trueClipEnd) and visible window
         ctx.fillStyle = track.muted ? '#64748B' : track.soloed ? '#FCD34D' : track.hexColor;
         clip.notes.forEach((note) => {
+          if (note.time < trueClipStart - 0.05 || note.time >= trueClipEnd + 0.05) return;
           if (note.time < arrStartBeat || note.time > arrEndBeat) return;
           const nx = ((note.time - arrStartBeat) / arrVisibleBeats) * width;
           const nw = Math.max(1.5, (note.duration / arrVisibleBeats) * width);
@@ -589,8 +809,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     }
 
     // Draw Live Playhead if inside visible window
-    if (playheadBeat >= arrStartBeat && playheadBeat <= arrEndBeat) {
-      const playheadX = ((playheadBeat - arrStartBeat) / arrVisibleBeats) * width;
+    if (syncedPlayheadBeat >= arrStartBeat && syncedPlayheadBeat <= arrEndBeat) {
+      const playheadX = ((syncedPlayheadBeat - arrStartBeat) / arrVisibleBeats) * width;
       ctx.strokeStyle = '#F59E0B';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -610,6 +830,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     project,
     selectedTrack,
     playheadBeat,
+    syncedPlayheadBeat,
     humanization,
     transport,
     masterBus,
@@ -625,6 +846,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     showReturnLanes,
     spectrumOverlayMode,
     isPlaying,
+    effectiveRangeStartBar,
+    effectiveRangeEndBar,
   ]);
 
   // Draw Lower Microscopic Ghost-Note Piano Roll & Velocity Lane
@@ -636,33 +859,54 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const width = rect.width > 0 ? rect.width : canvas.width || 800;
+    const height = rect.height > 0 ? rect.height : canvas.height || 240;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    const width = rect.width;
-    const height = rect.height;
+    if (rect.width > 0 && Math.abs(rect.width - pianoRollWidthPx) > 1) {
+      setPianoRollWidthPx(rect.width);
+    }
+
     const keyColWidth = 58;
     const velLaneHeight = 54;
     const rollHeight = height - velLaneHeight;
-    const visibleBeats = zoomBars * 4;
-    const maxPianoStartBar = Math.max(0, totalBars - zoomBars);
-    const effectivePianoBar = transport.followPlayhead
-      ? Math.min(maxPianoStartBar, Math.floor(playheadBeat / visibleBeats) * zoomBars)
-      : Math.min(maxPianoStartBar, pianoScrollBar);
-
-    const windowStartBeat = effectivePianoBar * 4;
-    const windowEndBeat = windowStartBeat + visibleBeats;
+    const syncCoords = mapBeatToMidiGridCoordinates(syncedPlayheadBeat, {
+      canvasWidth: width,
+      keyColWidth,
+      zoomBars,
+      totalBars,
+      pianoScrollBar,
+      followPlayhead: transport.followPlayhead,
+      gridDivision: pianoGridDivision,
+    });
+    const {
+      visibleBeats,
+      windowStartBeat,
+      windowEndBeat,
+      gridWidth,
+      totalGridSteps,
+      playheadPixelX,
+      stepStartPixelX,
+      stepEndPixelX,
+      activeStepIndex,
+      isInsideWindow,
+    } = syncCoords;
 
     ctx.fillStyle = '#0B0D11';
     ctx.fillRect(0, 0, width, height);
 
-    const clip = selectedTrack.clips[0];
-    const visibleNotes = clip
-      ? clip.notes.filter((n) => n.time >= windowStartBeat - 0.1 && n.time < windowEndBeat + 0.1)
-      : [];
+    const allClipsNotes = selectedTrack.clips.flatMap((c) =>
+      c.notes.filter(
+        (n) => n.time >= c.startTime - 0.05 && n.time < c.startTime + Math.max(0.25, c.length) + 0.05
+      )
+    );
+    const visibleNotes = allClipsNotes.filter(
+      (n) => n.time >= windowStartBeat - 0.1 && n.time < windowEndBeat + 0.1
+    );
 
-    const allTrackPitches = clip ? clip.notes.map((n) => n.pitch) : [36];
+    const allTrackPitches = allClipsNotes.length > 0 ? allClipsNotes.map((n) => n.pitch) : [36];
     const uniquePitches = Array.from(new Set(allTrackPitches)).sort((a, b) => b - a);
     const centerPitch = uniquePitches[0] || 36;
     const pitchRows: number[] = [];
@@ -671,9 +915,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     }
 
     const rowHeight = rollHeight / pitchRows.length;
-    const gridWidth = width - keyColWidth;
     const stepBeats = gridDivisionToStepBeats(pianoGridDivision);
-    const totalGridSteps = Math.round(visibleBeats / stepBeats);
 
     // 1. Draw Horizontal Pitch Rows & Piano Key Labels
     pitchRows.forEach((pitch, rIdx) => {
@@ -811,13 +1053,24 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         ctx.stroke();
       }
 
-      ctx.fillStyle = note.isGhost ? 'rgba(56, 189, 248, 0.42)' : selectedTrack.hexColor;
-      ctx.strokeStyle = note.isSlide
+      const isPlayheadCrossingNote =
+        isInsideWindow &&
+        syncedPlayheadBeat >= note.time &&
+        syncedPlayheadBeat <= note.time + note.duration;
+
+      ctx.fillStyle = isPlayheadCrossingNote
+        ? '#F59E0B'
+        : note.isGhost
+        ? 'rgba(56, 189, 248, 0.42)'
+        : selectedTrack.hexColor;
+      ctx.strokeStyle = isPlayheadCrossingNote
+        ? '#FEF08A'
+        : note.isSlide
         ? '#FACC15'
         : note.isGhost
         ? '#38BDF8'
         : '#F8FAFC';
-      ctx.lineWidth = note.isSlide ? 1.8 : 1;
+      ctx.lineWidth = isPlayheadCrossingNote ? 2 : note.isSlide ? 1.8 : 1;
       ctx.fillRect(actualX, y, noteW, h);
       ctx.strokeRect(actualX, y, noteW, h);
 
@@ -830,19 +1083,42 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
       const stalkHeight = (note.velocity / 127) * (velLaneHeight - 12);
       const stalkY = height - 4 - stalkHeight;
-      ctx.fillStyle = note.isGhost ? '#38BDF8' : selectedTrack.hexColor;
+      ctx.fillStyle = isPlayheadCrossingNote
+        ? '#F59E0B'
+        : note.isGhost
+        ? '#38BDF8'
+        : selectedTrack.hexColor;
       ctx.fillRect(actualX, stalkY, Math.max(4, Math.min(10, noteW * 0.45)), stalkHeight);
     });
 
-    // 5. Draw Live Playhead inside Piano Roll
-    const relPlayhead = Math.max(0, Math.min(visibleBeats, playheadBeat - windowStartBeat));
-    const playheadX = keyColWidth + (relPlayhead / visibleBeats) * gridWidth;
+    // 5. Draw Active Synchronized MIDI Grid Step Highlight & Live Playhead inside Piano Roll
+    if (isInsideWindow) {
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.09)';
+      ctx.fillRect(stepStartPixelX, 0, Math.max(2, stepEndPixelX - stepStartPixelX), rollHeight);
+    }
+
     ctx.strokeStyle = '#F59E0B';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX, height);
+    ctx.moveTo(playheadPixelX, 0);
+    ctx.lineTo(playheadPixelX, height);
     ctx.stroke();
+
+    ctx.fillStyle = '#F59E0B';
+    ctx.beginPath();
+    ctx.moveTo(playheadPixelX - 5, 0);
+    ctx.lineTo(playheadPixelX + 5, 0);
+    ctx.lineTo(playheadPixelX, 8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.font = '600 8.5px "JetBrains Mono", monospace';
+    const syncLabel = `${syncedPlayheadBeat.toFixed(2)}B · S${activeStepIndex + 1} · ${Math.round(playheadPixelX)}px`;
+    const labelX = Math.min(Math.max(keyColWidth + 4, playheadPixelX + 6), Math.max(keyColWidth + 4, width - 115));
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(labelX - 2, 12, 108, 12);
+    ctx.fillStyle = '#FBBF24';
+    ctx.fillText(syncLabel, labelX, 21);
   }, [
     selectedTrack,
     zoomBars,
@@ -850,8 +1126,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     totalBars,
     pianoGridDivision,
     playheadBeat,
+    syncedPlayheadBeat,
     humanization,
     transport.followPlayhead,
+    pianoRollWidthPx,
+    isPlaying,
   ]);
 
   const processArrangementPointer = (
@@ -1019,14 +1298,15 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       return;
     }
 
-    const clip = selectedTrack.clips[0];
-    const allPitches = clip ? clip.notes.map((n) => n.pitch) : [36];
+    const allClipsNotes = selectedTrack.clips.flatMap((c) => c.notes);
+    const allPitches = allClipsNotes.length > 0 ? allClipsNotes.map((n) => n.pitch) : [36];
     const uniquePitches = Array.from(new Set(allPitches)).sort((a, b) => b - a);
     const centerPitch = uniquePitches[0] || 36;
     const pitchRows: number[] = [];
     for (let p = centerPitch + 3; p >= centerPitch - 3; p--) {
       pitchRows.push(p);
     }
+    const clip = selectedTrack.clips[0];
 
     const rowIdx = Math.floor((y / rollHeight) * pitchRows.length);
     const pitch = pitchRows[Math.max(0, Math.min(pitchRows.length - 1, rowIdx))];
@@ -1095,11 +1375,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             </span>
           )}
 
-          {/* Configurable Track Arrangement Duration (16, 32, 64, 128 Bars) */}
+          {/* Configurable Track Arrangement Duration (8, 16, 32, 64, 128, 256 Bars) */}
           {onChangeArrangementLength && (
             <div className="flex items-center bg-[#0B0D11] border border-[#252D3D] rounded p-0.5 text-[10px]">
               <span className="px-1.5 text-slate-400">LENGTH:</span>
-              {([16, 32, 64, 128] as const).map((bars) => (
+              {([8, 16, 32, 64, 128, 256] as const).map((bars) => (
                 <button
                   key={bars}
                   type="button"
@@ -1118,27 +1398,28 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           )}
         </div>
 
-        {/* Right Toolbar: Real-Time Zoom, Return Lanes, Loop & Automation */}
+        {/* Right Toolbar: Continuous Real-Time Zoom, Return Lanes, Loop & Automation */}
         <div className="flex flex-wrap items-center gap-1.5 font-mono">
-          {/* Real-Time Arrangement Zoom In / Out (1x, 2x, 4x, 8x) */}
+          {/* Continuous Arrangement Zoom (Fit / 1x, 2x, 4x, 8x, 16x + Continuous Slider) */}
           <div className="flex items-center bg-[#0B0D11] border border-[#252D3D] rounded p-0.5 text-[10px]">
             <ZoomIn className="w-3 h-3 text-amber-400 mx-1" />
-            {([1, 2, 4, 8] as const).map((z) => (
+            {([1, 2, 4, 8, 16] as const).map((z) => (
               <button
                 key={z}
                 type="button"
+                data-testid={`timeline-zoom-${z}x-btn`}
                 onClick={() => {
                   setArrangementZoom(z);
                   if (z === 1) setArrangementScrollBar(0);
                 }}
                 className={`px-1.5 py-0.5 rounded transition-colors ${
-                  arrangementZoom === z
+                  Math.abs(arrangementZoom - z) < 0.1
                     ? 'bg-sky-500/25 text-sky-300 font-semibold'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title={`Zoom arrangement timeline ${z}x (${Math.max(4, Math.floor(totalBars / z))} visible bars)`}
+                title={`Zoom arrangement timeline ${z}x (${Math.max(1, Math.floor(totalBars / z))} visible bars)`}
               >
-                {z}x
+                {z === 1 ? 'FIT' : `${z}x`}
               </button>
             ))}
           </div>
@@ -1152,7 +1433,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                 type="range"
                 min={0}
                 max={maxScrollBar}
-                step={2}
+                step={1}
                 value={effectiveScrollBar}
                 onChange={(e) => setArrangementScrollBar(parseInt(e.target.value, 10))}
                 className="w-16 studio-slider"
@@ -1383,6 +1664,255 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             >
               + Drop Marker
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Timeline Overview Navigator (Full-Song Minimap) + Bar-Range Clip Generator & Editor Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-1 bg-[#0A0D13] border-b border-[#1E2634] text-[10px] font-mono">
+        {/* Full-Song Overview Navigator Minimap */}
+        <div
+          data-testid="timeline-overview-minimap"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const norm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+            const clickedBar = Math.floor(norm * totalBars);
+            setArrangementScrollBar(
+              Math.max(0, Math.min(maxScrollBar, clickedBar - Math.floor(visibleArrBars / 2)))
+            );
+          }}
+          className="relative h-5 w-44 sm:w-64 bg-[#07090D] border border-[#252E3F] rounded overflow-hidden cursor-pointer shrink-0"
+          title="Full-Song Arrangement Overview Minimap (Click to pan viewport across entire project)"
+        >
+          {project.tracks.map((trk, tIdx) => {
+            const rowH = Math.max(1.5, 18 / Math.max(1, project.tracks.length));
+            return trk.clips.map((c) => {
+              const leftPct = Math.max(0, Math.min(100, (c.startTime / Math.max(1, totalBeats)) * 100));
+              const widthPct = Math.max(
+                0.8,
+                Math.min(100 - leftPct, (Math.max(0.25, c.length) / Math.max(1, totalBeats)) * 100)
+              );
+              return (
+                <div
+                  key={`${trk.id}_${c.id}`}
+                  style={{
+                    left: `${leftPct}%`,
+                    width: `${widthPct}%`,
+                    top: `${1 + tIdx * rowH}px`,
+                    height: `${Math.max(1, rowH - 0.5)}px`,
+                    backgroundColor: trk.hexColor,
+                  }}
+                  className="absolute opacity-75 rounded-[1px]"
+                />
+              );
+            });
+          })}
+          {/* Active Viewport Box */}
+          <div
+            style={{
+              left: `${(effectiveScrollBar / Math.max(1, totalBars)) * 100}%`,
+              width: `${Math.min(100, (visibleArrBars / Math.max(1, totalBars)) * 100)}%`,
+            }}
+            className="absolute inset-y-0 border border-amber-400 bg-amber-400/10 pointer-events-none"
+          />
+        </div>
+
+        {/* Bar-Range Selection & Multi-Clip Creation / Generation Controls */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1 bg-[#111621] border border-sky-500/35 rounded px-1.5 py-0.5">
+            <span className="text-sky-300 font-semibold">BAR RANGE:</span>
+            <input
+              type="number"
+              data-testid="bar-range-start-input"
+              min={1}
+              max={totalBars}
+              value={effectiveRangeStartBar}
+              onChange={(e) =>
+                updateBarRange(Math.max(1, Number(e.target.value)), effectiveRangeEndBar)
+              }
+              className="w-11 bg-[#090B0F] border border-[#283246] rounded px-1 text-center text-amber-300 font-bold"
+              title="Range Start Bar (1-indexed inclusive)"
+            />
+            <span className="text-slate-400">to</span>
+            <input
+              type="number"
+              data-testid="bar-range-end-input"
+              min={effectiveRangeStartBar + 1}
+              max={totalBars + 64}
+              value={effectiveRangeEndBar}
+              onChange={(e) =>
+                updateBarRange(
+                  effectiveRangeStartBar,
+                  Math.max(effectiveRangeStartBar + 1, Number(e.target.value))
+                )
+              }
+              className="w-11 bg-[#090B0F] border border-[#283246] rounded px-1 text-center text-amber-300 font-bold"
+              title="Range End Bar (1-indexed exclusive, e.g. 33 to 41 = 8 bars)"
+            />
+            <span className="text-slate-400">
+              ({Math.max(1, effectiveRangeEndBar - effectiveRangeStartBar)}B)
+            </span>
+          </div>
+
+          {selectedTrack && onGenerateClipInRange && (
+            <>
+              <button
+                type="button"
+                data-testid="range-create-empty-clip-btn"
+                onClick={() => {
+                  onGenerateClipInRange(
+                    selectedTrack.id,
+                    effectiveRangeStartBar,
+                    effectiveRangeEndBar,
+                    'empty'
+                  );
+                  setPianoScrollBar(Math.max(0, effectiveRangeStartBar - 1));
+                }}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-semibold"
+                title="Create empty MIDI clip across selected bar range"
+              >
+                + Empty Clip
+              </button>
+              <button
+                type="button"
+                data-testid="range-generate-chord-clip-btn"
+                onClick={() => {
+                  onGenerateClipInRange(
+                    selectedTrack.id,
+                    effectiveRangeStartBar,
+                    effectiveRangeEndBar,
+                    'chord'
+                  );
+                  setPianoScrollBar(Math.max(0, effectiveRangeStartBar - 1));
+                }}
+                className="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/45 text-purple-200 font-semibold"
+                title="Generate Dub/Detroit/Hypnotic MIDI Chord Clip strictly inside selected bar range"
+              >
+                + Gen Chord Clip
+              </button>
+              <button
+                type="button"
+                data-testid="range-generate-bass-clip-btn"
+                onClick={() => {
+                  onGenerateClipInRange(
+                    selectedTrack.id,
+                    effectiveRangeStartBar,
+                    effectiveRangeEndBar,
+                    'bass'
+                  );
+                  setPianoScrollBar(Math.max(0, effectiveRangeStartBar - 1));
+                }}
+                className="px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/45 text-orange-200 font-semibold"
+                title="Generate Syncopated Techno Bassline Clip strictly inside selected bar range"
+              >
+                + Gen Bass
+              </button>
+              <button
+                type="button"
+                data-testid="range-generate-drum-clip-btn"
+                onClick={() => {
+                  onGenerateClipInRange(
+                    selectedTrack.id,
+                    effectiveRangeStartBar,
+                    effectiveRangeEndBar,
+                    selectedTrack.archetype === 'percussion' ? 'percussion' : 'drum'
+                  );
+                  setPianoScrollBar(Math.max(0, effectiveRangeStartBar - 1));
+                }}
+                className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/45 text-amber-200 font-semibold"
+                title="Generate Drum/Percussion Phrase Clip strictly inside selected bar range"
+              >
+                + Gen Drum/Perc
+              </button>
+            </>
+          )}
+
+          {selectedTrack && onSplitClipAtBeat && (
+            <button
+              type="button"
+              data-testid="range-split-clip-btn"
+              onClick={() =>
+                onSplitClipAtBeat(
+                  selectedTrack.id,
+                  playheadBeat > 0 ? Math.round(playheadBeat / 4) * 4 : (effectiveRangeStartBar - 1) * 4
+                )
+              }
+              className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-300"
+              title="Split clip at current bar/playhead"
+            >
+              Split
+            </button>
+          )}
+
+          {selectedTrack && onDuplicateClipOnTrack && (
+            <button
+              type="button"
+              data-testid="range-duplicate-clip-btn"
+              onClick={() => onDuplicateClipOnTrack(selectedTrack.id)}
+              className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-300"
+              title="Duplicate active clip to next bar span"
+            >
+              Duplicate
+            </button>
+          )}
+
+          {selectedTrack && onConsolidateClipsInRange && (
+            <button
+              type="button"
+              data-testid="range-consolidate-clip-btn"
+              onClick={() =>
+                onConsolidateClipsInRange(
+                  selectedTrack.id,
+                  effectiveRangeStartBar,
+                  effectiveRangeEndBar
+                )
+              }
+              className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-300"
+              title="Consolidate clips across selected bar range into a single clip"
+            >
+              Consolidate
+            </button>
+          )}
+
+          {selectedTrack && onDeleteClipsInRange && (
+            <button
+              type="button"
+              data-testid="range-delete-clip-btn"
+              onClick={() =>
+                onDeleteClipsInRange(selectedTrack.id, effectiveRangeStartBar, effectiveRangeEndBar)
+              }
+              className="px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300"
+              title="Delete clip content inside selected bar range"
+            >
+              Del Range
+            </button>
+          )}
+
+          {onAddUserTrackFromRole && (
+            <div className="flex items-center gap-1 bg-[#111621] border border-emerald-500/35 rounded px-1.5 py-0.5">
+              <select
+                data-testid="add-track-role-select"
+                value={newTrackRoleCode}
+                onChange={(e) => setNewTrackRoleCode(e.target.value)}
+                className="bg-[#090B0F] text-emerald-300 text-[10px] rounded px-1 py-0.2 border border-[#252E3F]"
+                title="Select Underground Techno Instrument Role (Groups A-H)"
+              >
+                {INSTRUMENT_ROLE_TAXONOMY.map((r) => (
+                  <option key={r.roleCode} value={r.roleCode}>
+                    [{r.roleCode}] {r.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                data-testid="add-user-track-btn"
+                onClick={() => onAddUserTrackFromRole(newTrackRoleCode)}
+                className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold"
+                title="Add new track with selected Group A-H instrument role"
+              >
+                + Track
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1653,6 +2183,13 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           <span className="hidden xl:inline text-amber-400">
             Click grid to add/remove MIDI notes
           </span>
+          <span
+            data-testid="playhead-midi-grid-sync"
+            className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/35 text-amber-300 text-[10px] font-semibold"
+            title="Live synthEngine beat mapped to pixel-based MIDI grid coordinates"
+          >
+            SYNC {midiGridSync.syncedBeat.toFixed(2)}B → {Math.round(midiGridSync.playheadPixelX)}px (Step {midiGridSync.activeStepIndex + 1}/{midiGridSync.totalGridSteps})
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 font-mono">
@@ -1669,15 +2206,42 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           )}
 
           {onExportClipToMidi && selectedTrack && selectedTrack.clips[0] && (
-            <button
-              type="button"
-              onClick={() => onExportClipToMidi(selectedTrack.id, selectedTrack.clips[0].id)}
-              className="px-2 py-0.5 text-[10px] rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold flex items-center gap-1 transition-colors"
-              title="Export active MIDI clip as .mid file to Project Queue & Browser Download"
-            >
-              <Download className="w-3 h-3" />
-              <span>Export Clip (.MID)</span>
-            </button>
+            <div className="flex items-center gap-1.5 bg-[#0B0D11] border border-emerald-500/35 rounded px-1.5 py-0.5">
+              <label
+                className="flex items-center gap-1 text-[10px] text-slate-300 cursor-pointer select-none"
+                title="Toggle between exporting micro-timed humanized MIDI output (ON) or quantized grid MIDI (OFF)"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="export-midi-include-humanization-toggle"
+                  aria-label="Include Humanization"
+                  checked={effectiveIncludeHumanization}
+                  onChange={(e) => handleToggleIncludeHumanization(e.target.checked)}
+                  className="w-3 h-3 rounded border-emerald-500/50 bg-zinc-900 text-emerald-500 focus:ring-0 cursor-pointer"
+                />
+                <span>Include Humanization</span>
+              </label>
+              <button
+                type="button"
+                data-testid="export-clip-to-midi-btn"
+                onClick={() =>
+                  onExportClipToMidi(
+                    selectedTrack.id,
+                    selectedTrack.clips[0].id,
+                    effectiveIncludeHumanization
+                  )
+                }
+                className="px-2 py-0.5 text-[10px] rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold flex items-center gap-1 transition-colors"
+                title={`Export active MIDI clip as ${
+                  effectiveIncludeHumanization ? 'micro-timed humanized' : 'quantized grid'
+                } .mid file`}
+              >
+                <Download className="w-3 h-3" />
+                <span>
+                  Export Clip (.MID · {effectiveIncludeHumanization ? 'Humanized' : 'Quantized'})
+                </span>
+              </button>
+            </div>
           )}
 
           {/* Note Grid Division Selector (1/4, 1/8, 1/16, 1/32) */}

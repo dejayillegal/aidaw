@@ -7,6 +7,8 @@ import {
   HumanizationConfig,
   MasterBusConfig,
   MidiNoteEvent,
+  PlaybackEngineState,
+  TrackMixerParams,
   TransportConfig,
 } from '../types/ableton';
 import { composeEffectiveTrackGain, resolveEffectiveAudibility } from './channelStripEngine';
@@ -132,6 +134,25 @@ function createNoiseBuffer(ctx: BaseAudioContext): AudioBuffer {
   return buffer;
 }
 
+export interface TrackChannelRuntime {
+  trackId: string;
+  inputNode: GainNode;
+  insertFilter: BiquadFilterNode;
+  faderGain: GainNode;
+  muteSoloGate: GainNode;
+  panner: StereoPannerNode;
+  reverbSendGain: GainNode;
+  delaySendGain: GainNode;
+  analyser?: AnalyserNode;
+  meterBuffer?: Uint8Array<ArrayBuffer>;
+  currentFaderLinear: number;
+  currentGateLinear: number;
+  currentPan: number;
+  currentReverbSend: number;
+  currentDelaySend: number;
+  currentCutoffHz: number;
+}
+
 interface AudioBusGraph {
   dryBus: GainNode;
   reverbSendBus: GainNode;
@@ -144,6 +165,8 @@ interface AudioBusGraph {
   delayReturnGain: GainNode;
   compressor: DynamicsCompressorNode;
   analyser?: AnalyserNode;
+  withAnalyser?: boolean;
+  trackChannels: Map<string, TrackChannelRuntime>;
 }
 
 function buildAudioBusGraph(
@@ -271,7 +294,132 @@ function buildAudioBusGraph(
     delayReturnGain,
     compressor,
     analyser,
+    withAnalyser,
+    trackChannels: new Map<string, TrackChannelRuntime>(),
   };
+}
+
+function getOrCreateTrackChannelRuntime(
+  ctx: BaseAudioContext,
+  bus: AudioBusGraph,
+  track: AbletonTrack,
+  project?: AbletonProjectState
+): TrackChannelRuntime {
+  let channel = bus.trackChannels.get(track.id);
+  const mixer = track.mixer || {
+    volumeDb: 0,
+    pan: 0,
+    transposeSemitones: 0,
+    fineTuneCents: 0,
+    sidechainDepth: track.archetype === 'kick' ? 0 : 0.5,
+    reverbSend: 0.2,
+    delaySend: 0.15,
+    filterCutoffHz: 800,
+    filterResonance: 0.3,
+  };
+
+  const audibility = resolveEffectiveAudibility(
+    track,
+    project?.tracks || [track],
+    project?.vcaGroups || []
+  );
+  const insertMods = computeInsertChainGainMultiplier(track);
+  const targetFaderLinear = Math.min(
+    insertMods.limiterCeilingLinear,
+    audibility.effectiveGainLinear * insertMods.gainMultiplier
+  );
+  const targetGateLinear = audibility.isAudible ? 1.0 : 0.0;
+  const targetPan = Math.max(-1, Math.min(1, mixer.pan || 0));
+  const targetRev = Math.max(0, Math.min(1, mixer.reverbSend || 0));
+  const targetDel = Math.max(0, Math.min(1, mixer.delaySend || 0));
+  const targetCutoff = Math.max(40, Math.min(18000, mixer.filterCutoffHz || 1200));
+
+  if (!channel) {
+    const inputNode = ctx.createGain();
+    const insertFilter = ctx.createBiquadFilter();
+    insertFilter.type = 'peaking';
+    insertFilter.frequency.value = targetCutoff;
+    insertFilter.Q.value = 0.707;
+    insertFilter.gain.value = 0;
+
+    const faderGain = ctx.createGain();
+    faderGain.gain.value = targetFaderLinear;
+
+    const muteSoloGate = ctx.createGain();
+    muteSoloGate.gain.value = targetGateLinear;
+
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = targetPan;
+
+    const reverbSendGain = ctx.createGain();
+    reverbSendGain.gain.value = targetRev;
+
+    const delaySendGain = ctx.createGain();
+    delaySendGain.gain.value = targetDel;
+
+    let analyser: AnalyserNode | undefined;
+    let meterBuffer: Uint8Array<ArrayBuffer> | undefined;
+    if (bus.withAnalyser) {
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.65;
+      meterBuffer = new Uint8Array(new ArrayBuffer(256));
+    }
+
+    inputNode.connect(insertFilter);
+    insertFilter.connect(faderGain);
+    faderGain.connect(muteSoloGate);
+    muteSoloGate.connect(panner);
+
+    if (analyser) {
+      panner.connect(analyser);
+      analyser.connect(bus.dryBus);
+    } else {
+      panner.connect(bus.dryBus);
+    }
+
+    panner.connect(reverbSendGain);
+    reverbSendGain.connect(bus.reverbSendBus);
+
+    panner.connect(delaySendGain);
+    delaySendGain.connect(bus.delaySendBus);
+
+    channel = {
+      trackId: track.id,
+      inputNode,
+      insertFilter,
+      faderGain,
+      muteSoloGate,
+      panner,
+      reverbSendGain,
+      delaySendGain,
+      analyser,
+      meterBuffer,
+      currentFaderLinear: targetFaderLinear,
+      currentGateLinear: targetGateLinear,
+      currentPan: targetPan,
+      currentReverbSend: targetRev,
+      currentDelaySend: targetDel,
+      currentCutoffHz: targetCutoff,
+    };
+    bus.trackChannels.set(track.id, channel);
+  } else {
+    const now = ctx.currentTime;
+    channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
+    channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
+    channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
+    channel.reverbSendGain.gain.setTargetAtTime(targetRev, now, 0.015);
+    channel.delaySendGain.gain.setTargetAtTime(targetDel, now, 0.015);
+    channel.insertFilter.frequency.setTargetAtTime(targetCutoff, now, 0.015);
+    channel.currentFaderLinear = targetFaderLinear;
+    channel.currentGateLinear = targetGateLinear;
+    channel.currentPan = targetPan;
+    channel.currentReverbSend = targetRev;
+    channel.currentDelaySend = targetDel;
+    channel.currentCutoffHz = targetCutoff;
+  }
+
+  return channel;
 }
 
 /**
@@ -354,43 +502,30 @@ function scheduleTrackVoiceAtTime(
       ? 1.0 - scDepth * 0.88
       : 1.0 - scDepth * 0.12;
 
-  const audibility = resolveEffectiveAudibility(
-    track,
-    project?.tracks || [track],
-    project?.vcaGroups || []
-  );
-
+  const trackChannel = getOrCreateTrackChannelRuntime(ctx, bus, track, project);
   const insertMods = computeInsertChainGainMultiplier(track);
-  const channelGain = ctx.createGain();
+  const voiceEnvelopeGain = ctx.createGain();
 
   // Micro-timing variance intensity for the current bar
   const noteBar = Math.floor(note.time / 4) + 1;
   const barIntensity = humanization.barVarianceIntensity?.[noteBar] ?? 1.0;
   const velocityMod = 1 + (barIntensity - 1.0) * 0.15;
   const modulatedVelGain = Math.min(1.0, velGain * velocityMod);
+  void modulatedVelGain;
 
-  const trackLinearGain = Math.min(
-    insertMods.limiterCeilingLinear,
-    audibility.effectiveGainLinear * insertMods.gainMultiplier
-  );
-
-  // Click-free 8ms de-zippering gain ramps managing voice scheduling and solo isolation
-  if (!audibility.isAudible) {
-    channelGain.gain.setValueAtTime(0.0, time);
-  } else {
-    const targetGain = Math.max(0.0001, trackLinearGain * initialDuckGain);
-    channelGain.gain.setValueAtTime(0.0001, time);
-    channelGain.gain.linearRampToValueAtTime(targetGain, time + 0.008);
-    if (track.archetype !== 'kick' && scDepth > 0.05 && isNearKick) {
-      channelGain.gain.linearRampToValueAtTime(
-        trackLinearGain,
-        time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
-      );
-    }
+  // Per-voice sidechain ducking envelope (while persistent fader/mute/solo/pan live on trackChannel!)
+  const targetDuckGain = Math.max(0.0001, initialDuckGain);
+  voiceEnvelopeGain.gain.setValueAtTime(0.0001, time);
+  voiceEnvelopeGain.gain.linearRampToValueAtTime(targetDuckGain, time + 0.006);
+  if (track.archetype !== 'kick' && scDepth > 0.05 && isNearKick) {
+    voiceEnvelopeGain.gain.linearRampToValueAtTime(
+      1.0,
+      time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
+    );
   }
 
   // Optional Spectral Auto-Ducking EQEight Fundamental Notch node
-  let voiceDestination: AudioNode = channelGain;
+  let voiceDestination: AudioNode = voiceEnvelopeGain;
   if (track.spectralDucking?.enabled && track.archetype !== 'kick') {
     const eqNotch = ctx.createBiquadFilter();
     eqNotch.type = 'peaking';
@@ -406,7 +541,7 @@ function scheduleTrackVoiceAtTime(
         time + Math.min(durSec, 0.22)
       );
     }
-    eqNotch.connect(channelGain);
+    eqNotch.connect(voiceEnvelopeGain);
     voiceDestination = eqNotch;
   }
 
@@ -417,25 +552,9 @@ function scheduleTrackVoiceAtTime(
     voiceDestination = insertShaper;
   }
 
-  const panner = ctx.createStereoPanner();
-  panner.pan.setValueAtTime(Math.max(-1, Math.min(1, mixer.pan)), time);
-
-  channelGain.connect(panner);
-  panner.connect(bus.dryBus);
-
-  if (mixer.reverbSend > 0.01) {
-    const revSend = ctx.createGain();
-    revSend.gain.setValueAtTime(mixer.reverbSend * (0.7 + autoNorm * 0.5), time);
-    panner.connect(revSend);
-    revSend.connect(bus.reverbSendBus);
-  }
-
-  if (mixer.delaySend > 0.01) {
-    const delSend = ctx.createGain();
-    delSend.gain.setValueAtTime(mixer.delaySend * (0.65 + autoNorm * 0.6), time);
-    panner.connect(delSend);
-    delSend.connect(bus.delaySendBus);
-  }
+  // Route voice through persistent per-track channel strip so live fader/pan/mute/solo/send changes
+  // immediately affect sustaining audio without waiting for next note event
+  voiceEnvelopeGain.connect(trackChannel.inputNode);
 
   if (track.archetype === 'kick') {
     // =========================================================================
@@ -896,7 +1015,11 @@ function scheduleMetronomeClick(
 /**
  * Encodes a stereo AudioBuffer into an uncompressed 24-bit PCM (or 16-bit PCM) RIFF WAVE (.wav) Blob.
  */
-function encodeAudioBufferToWavBlob(buffer: AudioBuffer, bitDepth: 16 | 24 = 24): Blob {
+function encodeAudioBufferToWavBlob(
+  buffer: AudioBuffer,
+  bitDepth: 16 | 24 = 24,
+  onProgress?: (progressPercent: number) => void
+): Blob {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const numFrames = buffer.length;
@@ -934,6 +1057,7 @@ function encodeAudioBufferToWavBlob(buffer: AudioBuffer, bitDepth: 16 | 24 = 24)
   const left = buffer.getChannelData(0);
   const right = numChannels > 1 ? buffer.getChannelData(1) : left;
 
+  const progressStepFrames = Math.max(1, Math.floor(numFrames / 4));
   let offset = 44;
   if (bitDepth === 24) {
     const writeInt24LE = (pos: number, sampleNorm: number) => {
@@ -951,6 +1075,9 @@ function encodeAudioBufferToWavBlob(buffer: AudioBuffer, bitDepth: 16 | 24 = 24)
         writeInt24LE(offset, right[i]);
         offset += 3;
       }
+      if (onProgress && i > 0 && i % progressStepFrames === 0) {
+        onProgress(Math.min(99, Math.round((i / numFrames) * 100)));
+      }
     }
   } else {
     for (let i = 0; i < numFrames; i++) {
@@ -962,9 +1089,13 @@ function encodeAudioBufferToWavBlob(buffer: AudioBuffer, bitDepth: 16 | 24 = 24)
         view.setInt16(offset, sR < 0 ? sR * 0x8000 : sR * 0x7fff, true);
         offset += 2;
       }
+      if (onProgress && i > 0 && i % progressStepFrames === 0) {
+        onProgress(Math.min(99, Math.round((i / numFrames) * 100)));
+      }
     }
   }
 
+  onProgress?.(100);
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
@@ -980,7 +1111,8 @@ export function synthesizeDeterministicStereoPcm(
   masterBus: MasterBusConfig,
   sampleRate = 44100,
   totalBars?: number,
-  singleTrackId?: string
+  singleTrackId?: string,
+  onProgress?: (progressPercent: number) => void
 ): { left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number } {
   const effectiveBars = totalBars || project.arrangementLengthBars || 16;
   const totalBeats = effectiveBars * 4;
@@ -1001,7 +1133,10 @@ export function synthesizeDeterministicStereoPcm(
     ? project.tracks.filter((t) => t.id === singleTrackId)
     : project.tracks;
 
-  for (const track of tracksToRender) {
+  const trackCount = Math.max(1, tracksToRender.length);
+  for (let tIdx = 0; tIdx < tracksToRender.length; tIdx++) {
+    const track = tracksToRender[tIdx];
+    onProgress?.(Math.round(((tIdx + 0.5) / trackCount) * 100));
     const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
     if (!singleTrackId && vcaComp.effectivelyMuted) continue;
 
@@ -1030,8 +1165,11 @@ export function synthesizeDeterministicStereoPcm(
     const gainR = Math.sin(panAngle) * trackBaseLinear * masterLinearGain;
 
     for (const clip of track.clips) {
+      const clipStartBeat = clip.startTime;
+      const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
       for (const note of clip.notes) {
         if (note.time < 0 || note.time >= totalBeats) continue;
+        if (note.time < clipStartBeat - 0.05 || note.time >= clipEndBeat + 0.05) continue;
         if (note.probability !== undefined && note.probability < 1.0) {
           const detHash = ((Math.round(note.time * 100) + note.pitch * 17) % 100) / 100;
           if (detHash > note.probability) continue;
@@ -1205,14 +1343,32 @@ export async function synthesizeProjectToStereoFloatBuffers(
 
 /**
  * Renders the complete arrangement (16 to 128 bars) to a lossless 44.1kHz / 24-bit Stereo .WAV Blob.
+ * Accepts an optional progress callback emitting percentage completion (0 to 100).
  */
 export async function renderArrangementToWavBlob(
   project: AbletonProjectState,
   humanization: HumanizationConfig,
   masterBus: MasterBusConfig,
   totalBars?: number,
-  bitDepth: 16 | 24 = 24
+  bitDepthOrOnProgress: 16 | 24 | ((progressPercent: number) => void) = 24,
+  onProgress?: (progressPercent: number) => void
 ): Promise<{ blob: Blob; durationSeconds: number; sampleRate: number; bitDepth: number }> {
+  const bitDepth: 16 | 24 = typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
+  const progressCb: ((progressPercent: number) => void) | undefined =
+    typeof bitDepthOrOnProgress === 'function' ? bitDepthOrOnProgress : onProgress;
+
+  let lastReportedPct = -1;
+  const reportProgress = (pct: number) => {
+    if (!progressCb) return;
+    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+    if (clamped >= lastReportedPct) {
+      lastReportedPct = clamped;
+      progressCb(clamped);
+    }
+  };
+
+  reportProgress(0);
+
   const effectiveBars = totalBars || project.arrangementLengthBars || 16;
   const sampleRate = 44100;
   const totalBeats = effectiveBars * 4;
@@ -1225,10 +1381,15 @@ export async function renderArrangementToWavBlob(
     const offlineCtx = new OfflineAudioContext(2, totalSamples, sampleRate);
     const bus = buildAudioBusGraph(offlineCtx, project.tempo, masterBus, false);
     const noiseBuffer = createNoiseBuffer(offlineCtx);
+    reportProgress(10);
 
-    project.tracks.forEach((track) => {
+    const trackTotal = Math.max(1, project.tracks.length);
+    project.tracks.forEach((track, tIdx) => {
       const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
-      if (vcaComp.effectivelyMuted) return;
+      if (vcaComp.effectivelyMuted) {
+        reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
+        return;
+      }
 
       track.clips.forEach((clip) => {
         clip.notes.forEach((note) => {
@@ -1247,20 +1408,31 @@ export async function renderArrangementToWavBlob(
           );
         });
       });
+      reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
     });
 
     const renderedBuffer = await offlineCtx.startRendering();
-    const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth);
+    reportProgress(75);
+    const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth, (encPct) => {
+      reportProgress(75 + Math.round((encPct / 100) * 25));
+    });
+    reportProgress(100);
     return { blob, durationSeconds, sampleRate, bitDepth };
   }
 
+  reportProgress(10);
   const synth = synthesizeDeterministicStereoPcm(
     project,
     humanization,
     masterBus,
     sampleRate,
-    effectiveBars
+    effectiveBars,
+    undefined,
+    (synthPct) => {
+      reportProgress(10 + Math.round((synthPct / 100) * 65));
+    }
   );
+  reportProgress(75);
   // Create minimal AudioBuffer-compatible wrapper for encodeAudioBufferToWavBlob
   const fakeBuffer = {
     numberOfChannels: 2,
@@ -1268,7 +1440,10 @@ export async function renderArrangementToWavBlob(
     length: synth.left.length,
     getChannelData: (ch: number) => (ch === 0 ? synth.left : synth.right),
   } as unknown as AudioBuffer;
-  const blob = encodeAudioBufferToWavBlob(fakeBuffer, bitDepth);
+  const blob = encodeAudioBufferToWavBlob(fakeBuffer, bitDepth, (encPct) => {
+    reportProgress(75 + Math.round((encPct / 100) * 25));
+  });
+  reportProgress(100);
   return { blob, durationSeconds: synth.durationSeconds, sampleRate, bitDepth };
 }
 
@@ -1638,13 +1813,17 @@ export class ParametricWebAudioEngine {
 
   private smoothedTruePeakDbtp = -60;
   private smoothedLufs = -24;
-  private bufferUnderruns = 2;
+  private bufferUnderruns = 0;
   private audioThreadLatencyMs = 2.4;
   private lastSchedulerPerfMs = 0;
   private currentCpuOperation = '8-Track Lookahead Voice Scheduler + 4x True-Peak Limiter';
 
+  private playbackState: PlaybackEngineState = 'idle';
+  private recoveryEventsCount = 0;
+  private lastRecoveryTimestampMs: number | null = null;
+
   private stabilityThresholdMs = 12.0;
-  private stabilityAutoPauseEnabled = true;
+  private stabilityAutoPauseEnabled = false;
   private lastAutoPauseReason: string | null = null;
   private lastAutoPauseTimestamp: number | null = null;
 
@@ -1655,27 +1834,36 @@ export class ParametricWebAudioEngine {
     latencyMs: number;
     operation: string;
     activeVoices: number;
-  }[] = [
-    {
-      id: 'underrun_init_2',
-      timestamp: Date.now() - 18400,
-      formattedTime: new Date(Date.now() - 18400).toISOString().slice(11, 23),
-      latencyMs: 9.8,
-      operation: 'Warehouse Reverb Impulse Convolution (3.2s Stereo IR)',
-      activeVoices: 24,
-    },
-    {
-      id: 'underrun_init_1',
-      timestamp: Date.now() - 42100,
-      formattedTime: new Date(Date.now() - 42100).toISOString().slice(11, 23),
-      latencyMs: 8.6,
-      operation: 'TB-303 Diode Filter Sweep + 4x Oversampled WaveShaper',
-      activeVoices: 18,
-    },
-  ];
+  }[] = [];
 
   private formatTimestamp(ms: number): string {
     return new Date(ms).toISOString().slice(11, 23);
+  }
+
+  public getPlaybackState(): PlaybackEngineState {
+    return this.playbackState;
+  }
+
+  public async recoverAudioEngine(): Promise<boolean> {
+    this.playbackState = 'recovering';
+    this.recoveryEventsCount += 1;
+    this.lastRecoveryTimestampMs = Date.now();
+    try {
+      this.ensureContext();
+      if (this.ctx && this.ctx.state === 'suspended') {
+        await this.ctx.resume();
+      }
+      if (this.ctx) {
+        this.anchorBeat = this.currentBeat;
+        this.anchorAudioTime = this.ctx.currentTime + 0.015;
+        this.lastSchedulerPerfMs = performance.now();
+      }
+      this.playbackState = this.isPlaying ? 'playing' : 'ready';
+      return true;
+    } catch {
+      this.playbackState = 'error';
+      return false;
+    }
   }
 
   public recordUnderrunEvent(operation: string, latencyMs: number) {
@@ -1697,19 +1885,12 @@ export class ParametricWebAudioEngine {
     this.underrunEvents = [];
     this.lastAutoPauseReason = null;
     this.lastAutoPauseTimestamp = null;
+    this.audioThreadLatencyMs = 2.4;
   }
 
   public setStabilityThreshold(thresholdMs: number, enabled = this.stabilityAutoPauseEnabled) {
     this.stabilityThresholdMs = Math.max(2.0, Math.min(50.0, thresholdMs));
     this.stabilityAutoPauseEnabled = enabled;
-    // Immediately check if currently playing and latency exceeds new threshold
-    if (
-      this.isPlaying &&
-      this.stabilityAutoPauseEnabled &&
-      this.audioThreadLatencyMs > this.stabilityThresholdMs
-    ) {
-      this.triggerStabilityAutoPause(this.audioThreadLatencyMs, this.currentCpuOperation);
-    }
   }
 
   public getStabilityThreshold() {
@@ -1734,6 +1915,7 @@ export class ParametricWebAudioEngine {
     this.lastAutoPauseTimestamp = Date.now();
     this.recordUnderrunEvent(`[AUTO-PAUSE] ${operation}`, latencyMs);
     this.stop();
+    this.playbackState = 'interrupted';
     if (this.onPlaybackStopped) {
       this.onPlaybackStopped(reason);
     }
@@ -1741,7 +1923,7 @@ export class ParametricWebAudioEngine {
 
   public simulateLatencySpike(spikeLatencyMs?: number, customOperation?: string) {
     const targetLatency =
-      spikeLatencyMs ?? Number((this.stabilityThresholdMs + 3.4 + Math.random() * 2.5).toFixed(2));
+      spikeLatencyMs ?? Number((this.stabilityThresholdMs + 3.4).toFixed(2));
     const operations = [
       '8-Track Polyphonic Synth + Warehouse Reverb Convolver',
       'TB-303 Acid Diode Filter + 4x True-Peak Lookahead Limiter',
@@ -1750,7 +1932,7 @@ export class ParametricWebAudioEngine {
       'ALS XML Gzip Serialization + Euclidean Polymeter Re-Sync',
     ];
     const op =
-      customOperation || operations[Math.floor(Math.random() * operations.length)];
+      customOperation || operations[0];
     this.currentCpuOperation = op;
     this.audioThreadLatencyMs = targetLatency;
 
@@ -1762,26 +1944,12 @@ export class ParametricWebAudioEngine {
   }
 
   public getDiagnostics() {
-    // Gradually relax simulated spike back toward real hardware baseline when idle or stable
-    if (!this.isPlaying && this.audioThreadLatencyMs > 3.2) {
-      this.audioThreadLatencyMs = Math.max(
-        2.1,
-        this.audioThreadLatencyMs * 0.82 + (Math.random() * 0.3 - 0.15)
-      );
-    } else if (this.isPlaying) {
-      const baseLat =
-        ((this.ctx as unknown as { baseLatency?: number })?.baseLatency || 0.0024) * 1000;
-      const voiceLoadMs = Math.min(4.8, this.scheduledNoteKeys.size * 0.06);
-      const jitterMs = Math.sin(Date.now() / 350) * 0.45 + Math.random() * 0.35;
-      const target = Math.max(1.8, baseLat + voiceLoadMs + jitterMs);
-      this.audioThreadLatencyMs = this.audioThreadLatencyMs * 0.65 + target * 0.35;
-
-      if (
-        this.stabilityAutoPauseEnabled &&
-        this.audioThreadLatencyMs > this.stabilityThresholdMs
-      ) {
-        this.triggerStabilityAutoPause(this.audioThreadLatencyMs, this.currentCpuOperation);
-      }
+    const baseLat =
+      ((this.ctx as unknown as { baseLatency?: number })?.baseLatency || 0.0024) * 1000;
+    const outputLat =
+      ((this.ctx as unknown as { outputLatency?: number })?.outputLatency || 0) * 1000;
+    if (!this.isPlaying && this.audioThreadLatencyMs <= this.stabilityThresholdMs) {
+      this.audioThreadLatencyMs = Number((baseLat + outputLat).toFixed(2));
     }
 
     return {
@@ -1789,6 +1957,9 @@ export class ParametricWebAudioEngine {
       audioThreadLatencyMs: Number(this.audioThreadLatencyMs.toFixed(2)),
       sampleRate: this.ctx ? this.ctx.sampleRate : 44100,
       state: this.ctx ? this.ctx.state : 'suspended',
+      playbackState: this.playbackState,
+      recoveryEventsCount: this.recoveryEventsCount,
+      lastRecoveryTimestampMs: this.lastRecoveryTimestampMs,
       activeVoices: this.scheduledNoteKeys.size,
       isPlaying: this.isPlaying,
       currentCpuOperation: this.currentCpuOperation,
@@ -1803,7 +1974,96 @@ export class ParametricWebAudioEngine {
   private getMaxArrangementBeats(): number {
     const bars =
       this.project?.arrangementLengthBars || this.transport.arrangementLengthBars || 16;
-    return Math.max(64, bars * 4);
+    return Math.max(16, bars * 4);
+  }
+
+  public syncLiveTrackChannels(): void {
+    if (!this.ctx || !this.bus || !this.project) return;
+    for (const track of this.project.tracks) {
+      getOrCreateTrackChannelRuntime(this.ctx, this.bus, track, this.project);
+    }
+  }
+
+  public updateTrackMixerLive(
+    trackId: string,
+    partialMixer?: Partial<TrackMixerParams>,
+    muteSoloOverride?: { muted?: boolean; soloed?: boolean }
+  ): TrackChannelRuntime | null {
+    if (!this.project) return null;
+    const idx = this.project.tracks.findIndex((t) => t.id === trackId);
+    if (idx < 0) return null;
+    const track = this.project.tracks[idx];
+    const updatedTrack: AbletonTrack = {
+      ...track,
+      muted: muteSoloOverride?.muted !== undefined ? muteSoloOverride.muted : track.muted,
+      soloed: muteSoloOverride?.soloed !== undefined ? muteSoloOverride.soloed : track.soloed,
+      mixer: partialMixer ? { ...track.mixer, ...partialMixer } : track.mixer,
+    };
+    this.project.tracks[idx] = updatedTrack;
+    this.ensureContext();
+    if (!this.ctx || !this.bus) return null;
+    for (const t of this.project.tracks) {
+      getOrCreateTrackChannelRuntime(this.ctx, this.bus, t, this.project);
+    }
+    return this.bus.trackChannels.get(trackId) || null;
+  }
+
+  public getTrackChannelState(trackId: string): TrackChannelRuntime | null {
+    if (!this.bus) return null;
+    return this.bus.trackChannels.get(trackId) || null;
+  }
+
+  public getTrackMeterLevels(trackId: string): {
+    peakDb: number;
+    rmsDb: number;
+    faderLinear: number;
+    gateLinear: number;
+    pan: number;
+  } {
+    const ch = this.bus?.trackChannels.get(trackId);
+    if (!ch) {
+      const trk = this.project?.tracks.find((t) => t.id === trackId);
+      const aud = trk && this.project
+        ? resolveEffectiveAudibility(trk, this.project.tracks, this.project.vcaGroups || [])
+        : { effectiveGainLinear: 1, isAudible: true };
+      return {
+        peakDb: -60,
+        rmsDb: -60,
+        faderLinear: aud.effectiveGainLinear,
+        gateLinear: aud.isAudible ? 1 : 0,
+        pan: trk?.mixer?.pan ?? 0,
+      };
+    }
+
+    let peakDb = -60;
+    let rmsDb = -60;
+    if (this.isPlaying && ch.analyser && ch.meterBuffer && ch.currentGateLinear > 0) {
+      ch.analyser.getByteTimeDomainData(ch.meterBuffer);
+      let maxPeak = 0;
+      let sumSq = 0;
+      const len = ch.meterBuffer.length;
+      for (let i = 0; i < len; i++) {
+        const s = (ch.meterBuffer[i] - 128) / 128;
+        const abs = Math.abs(s);
+        if (abs > maxPeak) maxPeak = abs;
+        sumSq += s * s;
+      }
+      const rms = Math.sqrt(sumSq / len);
+      if (maxPeak > 0.0005) {
+        peakDb = Math.max(-60, Math.min(6, 20 * Math.log10(maxPeak)));
+      }
+      if (rms > 0.0005) {
+        rmsDb = Math.max(-60, Math.min(6, 20 * Math.log10(rms)));
+      }
+    }
+
+    return {
+      peakDb: Math.round(peakDb * 10) / 10,
+      rmsDb: Math.round(rmsDb * 10) / 10,
+      faderLinear: ch.currentFaderLinear,
+      gateLinear: ch.currentGateLinear,
+      pan: ch.currentPan,
+    };
   }
 
   public setState(
@@ -1870,6 +2130,9 @@ export class ParametricWebAudioEngine {
       this.bus.delayNodeL.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
       this.bus.delayNodeR.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
 
+      // Immediately sync all persistent per-track channel strips in real time
+      this.syncLiveTrackChannels();
+
       if (this.isPlaying && prevTempo && prevTempo !== project.tempo) {
         this.anchorBeat = this.currentBeat;
         this.anchorAudioTime = this.ctx.currentTime;
@@ -1879,10 +2142,17 @@ export class ParametricWebAudioEngine {
 
   private ensureContext() {
     if (!this.ctx) {
+      this.playbackState = 'initializing';
       const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx();
+        (typeof window !== 'undefined' && window.AudioContext) ||
+        (typeof window !== 'undefined' &&
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      if (typeof AudioCtx === 'function') {
+        this.ctx = new AudioCtx();
+      } else {
+        this.playbackState = 'ready';
+        return;
+      }
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
@@ -1897,12 +2167,17 @@ export class ParametricWebAudioEngine {
         this.masterBus,
         true
       );
+      this.syncLiveTrackChannels();
+    }
+    if (this.playbackState === 'idle' || this.playbackState === 'initializing') {
+      this.playbackState = 'ready';
     }
   }
 
   public start(fromStart = false) {
     this.ensureContext();
     if (!this.ctx) return;
+    this.syncLiveTrackChannels();
 
     const maxBeats = this.getMaxArrangementBeats();
     if (fromStart || this.currentBeat >= maxBeats - 0.05) {
@@ -1913,8 +2188,10 @@ export class ParametricWebAudioEngine {
 
     this.anchorBeat = this.currentBeat;
     this.anchorAudioTime = this.ctx.currentTime + 0.02;
+    this.lastSchedulerPerfMs = performance.now();
     this.scheduledNoteKeys.clear();
     this.loopGeneration = 0;
+    this.playbackState = 'playing';
 
     if (!this.isPlaying) {
       this.isPlaying = true;
@@ -1923,8 +2200,14 @@ export class ParametricWebAudioEngine {
     }
   }
 
+  public pause() {
+    this.stop();
+    this.playbackState = 'paused';
+  }
+
   public stop() {
     this.isPlaying = false;
+    this.lastSchedulerPerfMs = 0;
     if (this.schedulerTimerId !== null) {
       clearInterval(this.schedulerTimerId);
       this.schedulerTimerId = null;
@@ -1934,6 +2217,9 @@ export class ParametricWebAudioEngine {
       this.rafId = null;
     }
     this.scheduledNoteKeys.clear();
+    if (this.playbackState !== 'interrupted' && this.playbackState !== 'error') {
+      this.playbackState = this.ctx ? 'ready' : 'idle';
+    }
   }
 
   public seek(beat: number) {
@@ -1946,6 +2232,30 @@ export class ParametricWebAudioEngine {
     }
     this.scheduledNoteKeys.clear();
     this.loopGeneration++;
+  }
+
+  public getCurrentBeat(): number {
+    if (this.isPlaying && this.ctx && this.project) {
+      const bpm = this.project.tempo || 134;
+      const beatsPerSec = bpm / 60.0;
+      const elapsedSec = Math.max(0, this.ctx.currentTime - this.anchorAudioTime);
+      const maxBeats = this.getMaxArrangementBeats();
+      const loopStartBeat = Math.max(0, (this.transport.loopStartBar - 1) * 4);
+      const loopSpanBeats = Math.max(4, this.transport.loopLengthBars * 4);
+      const loopEndBeat = Math.min(maxBeats, loopStartBeat + loopSpanBeats);
+      const rawBeat = this.anchorBeat + elapsedSec * beatsPerSec;
+      if (this.transport.loopEnabled && loopEndBeat > loopStartBeat) {
+        const span = loopEndBeat - loopStartBeat;
+        if (rawBeat >= loopEndBeat) {
+          this.currentBeat = loopStartBeat + ((rawBeat - loopStartBeat) % span);
+        } else {
+          this.currentBeat = rawBeat;
+        }
+      } else {
+        this.currentBeat = rawBeat % Math.max(1, maxBeats);
+      }
+    }
+    return this.currentBeat;
   }
 
   public getIsPlaying(): boolean {
@@ -2101,22 +2411,17 @@ export class ParametricWebAudioEngine {
     const nowPerf = performance.now();
     if (this.lastSchedulerPerfMs > 0) {
       const deltaMs = nowPerf - this.lastSchedulerPerfMs;
-      const jitterOverrunMs = Math.max(0, deltaMs - 22);
-      if (jitterOverrunMs > 18) {
-        const measuredLat = Number((2.8 + jitterOverrunMs * 0.45).toFixed(2));
-        this.audioThreadLatencyMs = Math.max(this.audioThreadLatencyMs, measuredLat);
-        this.recordUnderrunEvent(this.currentCpuOperation, this.audioThreadLatencyMs);
+      // Non-stopping bounded catch-up recovery when a main-thread timer tick is late (> 45ms):
+      // Never kill playback from timer jitter; transition through 'recovering' -> 'playing'
+      if (deltaMs > 45) {
+        this.playbackState = 'recovering';
+        this.recoveryEventsCount += 1;
+        this.lastRecoveryTimestampMs = Math.round(nowPerf);
+      } else if (this.playbackState === 'recovering') {
+        this.playbackState = 'playing';
       }
     }
     this.lastSchedulerPerfMs = nowPerf;
-
-    if (
-      this.stabilityAutoPauseEnabled &&
-      this.audioThreadLatencyMs > this.stabilityThresholdMs
-    ) {
-      this.triggerStabilityAutoPause(this.audioThreadLatencyMs, this.currentCpuOperation);
-      return;
-    }
 
     if (this.scheduledNoteKeys.size > 2048) {
       this.scheduledNoteKeys.clear();
@@ -2176,7 +2481,13 @@ export class ParametricWebAudioEngine {
 
     this.project.tracks.forEach((track) => {
       track.clips.forEach((clip) => {
+        const clipStartBeat = clip.startTime;
+        const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
         clip.notes.forEach((note) => {
+          // Enforce clip boundary: only schedule notes that belong to this clip's active span
+          if (note.time < clipStartBeat - 0.05 || note.time >= clipEndBeat + 0.05) {
+            return;
+          }
           if (note.probability !== undefined && note.probability < 1.0) {
             const detHash =
               ((Math.round(note.time * 100) + note.pitch * 17 + this.loopGeneration * 31) % 100) /
@@ -2184,18 +2495,19 @@ export class ParametricWebAudioEngine {
             if (detHash > note.probability) return;
           }
 
-          if (note.time >= exactBeatNow - 0.02 && note.time <= windowEndBeat) {
+          if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
             if (
               this.transport.loopEnabled &&
               (note.time < loopStartBeat || note.time >= loopEndBeat)
             ) {
               return;
             }
-            const key = `${this.loopGeneration}_${track.id}_${note.id}`;
+            const key = `${this.loopGeneration}_${track.id}_${clip.id}_${note.id}`;
             if (!this.scheduledNoteKeys.has(key)) {
               const noteAudioTime =
                 this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
-              if (noteAudioTime >= nowAudio - 0.02) {
+              // Never burst-fire expired notes if scheduler was delayed
+              if (noteAudioTime >= nowAudio - 0.015) {
                 this.scheduledNoteKeys.add(key);
                 scheduleTrackVoiceAtTime(
                   this.ctx!,
@@ -2216,7 +2528,7 @@ export class ParametricWebAudioEngine {
             const overflowBeats = windowEndBeat - loopEndBeat;
             if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
               const nextGen = this.loopGeneration + 1;
-              const wrapKey = `${nextGen}_${track.id}_${note.id}`;
+              const wrapKey = `${nextGen}_${track.id}_${clip.id}_${note.id}`;
               if (!this.scheduledNoteKeys.has(wrapKey)) {
                 const beatsUntilNote =
                   loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
@@ -2241,6 +2553,10 @@ export class ParametricWebAudioEngine {
         });
       });
     });
+
+    if (this.playbackState === 'recovering') {
+      this.playbackState = 'playing';
+    }
   };
 
   private runVisualPlayheadLoop = () => {

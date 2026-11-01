@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
   applySpectralAutoDuckToTrackXml,
@@ -47,6 +48,7 @@ import { HumanizationConfig, MasterBusConfig } from '../types/ableton';
 
 const TEST_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.015,
+  swingStrength: 0,
   velocityVariancePct: 0.08,
   ghostVelocityMin: 20,
   ghostVelocityMax: 45,

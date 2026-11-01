@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import {
   AbletonProjectState,
+  BatchWavExportItemResult,
+  BatchWavExportProgress,
   HumanizationConfig,
   MasterBusConfig,
   MasterExportPreset,
@@ -99,10 +101,23 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
   const [inspectedQueueId, setInspectedQueueId] = useState<string | null>(
     activeQueueId
   );
+  const [selectedQueueIds, setSelectedQueueIds] = useState<string[]>(() =>
+    queueItems.filter((q) => !q.isMidiExport).map((q) => q.queueId)
+  );
   const [isBatchRunning, setIsBatchRunning] = useState<boolean>(false);
+  const [batchWavProgress, setBatchWavProgress] = useState<BatchWavExportProgress | null>(null);
+  const [batchExportedWavs, setBatchExportedWavs] = useState<BatchWavExportItemResult[]>([]);
   const [isSingleExporting, setIsSingleExporting] = useState<boolean>(false);
   const [lastExportReport, setLastExportReport] =
     useState<MasterExportVerificationReport | null>(null);
+
+  const projectQueueItems = queueItems.filter((q) => !q.isMidiExport);
+
+  // Keep selectedQueueIds pruned of deleted items
+  useEffect(() => {
+    const validIds = new Set(queueItems.filter((q) => !q.isMidiExport).map((q) => q.queueId));
+    setSelectedQueueIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [queueItems]);
 
   if (!isOpen) return null;
 
@@ -159,13 +174,80 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
   const handleMultiFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    const newlyAddedIds: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const rec = await projectQueueService.enqueueBrowserFile(files[i]);
+      newlyAddedIds.push(rec.queueId);
       if (i === 0 && !inspectedQueueId) {
         setInspectedQueueId(rec.queueId);
       }
     }
+    setSelectedQueueIds((prev) => Array.from(new Set([...prev, ...newlyAddedIds])));
     e.target.value = '';
+  };
+
+  const handleToggleSelectQueueItem = (queueId: string) => {
+    setSelectedQueueIds((prev) =>
+      prev.includes(queueId) ? prev.filter((id) => id !== queueId) : [...prev, queueId]
+    );
+  };
+
+  const allProjectsSelected =
+    projectQueueItems.length > 0 &&
+    projectQueueItems.every((item) => selectedQueueIds.includes(item.queueId));
+
+  const handleToggleSelectAllProjects = () => {
+    if (allProjectsSelected) {
+      setSelectedQueueIds([]);
+    } else {
+      setSelectedQueueIds(projectQueueItems.map((item) => item.queueId));
+    }
+  };
+
+  const handleBatchExportSelectedWavs = async () => {
+    const targetIds = selectedQueueIds.filter((id) =>
+      projectQueueItems.some((item) => item.queueId === id)
+    );
+    if (targetIds.length === 0) return;
+
+    setIsBatchRunning(true);
+    setBatchExportedWavs([]);
+    setBatchWavProgress({
+      currentIndex: 1,
+      totalSelected: targetIds.length,
+      currentQueueId: targetIds[0],
+      currentFilename:
+        projectQueueItems.find((q) => q.queueId === targetIds[0])?.originalFilename ||
+        'Project',
+      completedCount: 0,
+      percentage: 0,
+    });
+
+    try {
+      const exportedList = await projectQueueService.batchExportSelectedProjectsToWav(
+        targetIds,
+        humanization,
+        masterBus,
+        currentWorkingPreset,
+        (prog) => {
+          setBatchWavProgress({ ...prog });
+        }
+      );
+
+      for (const itemRes of exportedList) {
+        triggerBrowserDownload(itemRes.wavBlob, itemRes.exportedWavFilename);
+        if (itemRes.queueId === activeQueueId && itemRes.record.workingProjectState) {
+          onSyncActiveProjectFromQueue(itemRes.record.workingProjectState);
+        }
+      }
+
+      setBatchExportedWavs(exportedList);
+      if (exportedList.length > 0 && exportedList[exportedList.length - 1].verification) {
+        setLastExportReport(exportedList[exportedList.length - 1].verification!);
+      }
+    } finally {
+      setIsBatchRunning(false);
+    }
   };
 
   const handleBatchCalibrateAll = async () => {
@@ -187,7 +269,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
     try {
       const items = projectQueueService.getAllItems();
       for (const item of items) {
-        if (item.cancelRequested) continue;
+        if (item.cancelRequested || item.isMidiExport) continue;
         if (
           item.state === 'ready' ||
           item.state === 'exported'
@@ -259,6 +341,10 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
     queueItems.find((q) => q.queueId === (inspectedQueueId || activeQueueId)) ||
     queueItems[0];
 
+  const selectedProjectCount = selectedQueueIds.filter((id) =>
+    projectQueueItems.some((item) => item.queueId === id)
+  ).length;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 font-mono">
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
@@ -321,10 +407,22 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
               {/* Left Column: Multi-Project Queue List & Batch Controls */}
               <div className="lg:col-span-5 space-y-3">
                 <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-zinc-200 uppercase">
-                      Queued .ALS Projects ({queueItems.length})
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-zinc-200 uppercase">
+                        Queued Projects ({queueItems.length})
+                      </span>
+                      {projectQueueItems.length > 0 && (
+                        <button
+                          type="button"
+                          data-testid="toggle-select-all-queue-items"
+                          onClick={handleToggleSelectAllProjects}
+                          className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-[10px] text-zinc-200 font-semibold"
+                        >
+                          {allProjectsSelected ? 'Deselect All' : 'Select All'} ({selectedProjectCount}/{projectQueueItems.length})
+                        </button>
+                      )}
+                    </div>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -364,6 +462,59 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                       2. Approve &amp; Export All
                     </button>
                   </div>
+
+                  {/* Sequential Multi-File WAV Batch Export Trigger */}
+                  <button
+                    type="button"
+                    data-testid="batch-export-selected-wavs-btn"
+                    disabled={isBatchRunning || selectedProjectCount === 0}
+                    onClick={handleBatchExportSelectedWavs}
+                    className="w-full px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/15 transition-colors"
+                  >
+                    <FileAudio className="w-3.5 h-3.5" />
+                    <span>
+                      {isBatchRunning && batchWavProgress
+                        ? `Batch Exporting WAV ${batchWavProgress.currentIndex}/${batchWavProgress.totalSelected} (${batchWavProgress.percentage}%)...`
+                        : `Batch Export Selected WAVs (${selectedProjectCount})`}
+                    </span>
+                  </button>
+
+                  {/* Sequential Batch WAV Export Progress & Summary */}
+                  {batchWavProgress && (
+                    <div
+                      data-testid="batch-wav-export-status"
+                      className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 space-y-1.5 text-[10px]"
+                    >
+                      <div className="flex items-center justify-between text-zinc-300">
+                        <span className="font-semibold truncate">
+                          {batchWavProgress.completedCount === batchWavProgress.totalSelected
+                            ? `Sequential Batch WAV Export Complete (${batchWavProgress.completedCount}/${batchWavProgress.totalSelected})`
+                            : `Exporting ${batchWavProgress.currentFilename} (${batchWavProgress.currentIndex}/${batchWavProgress.totalSelected})`}
+                        </span>
+                        <span className="font-bold text-amber-400">
+                          {batchWavProgress.percentage}%
+                        </span>
+                      </div>
+                      <div
+                        role="progressbar"
+                        data-testid="batch-wav-progress-bar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={batchWavProgress.percentage}
+                        className="w-full h-1.5 rounded-full bg-zinc-900 overflow-hidden border border-zinc-800"
+                      >
+                        <div
+                          className="h-full bg-amber-400 transition-all duration-150"
+                          style={{ width: `${batchWavProgress.percentage}%` }}
+                        />
+                      </div>
+                      {batchExportedWavs.length > 0 && (
+                        <div className="text-[9.5px] text-emerald-400 pt-0.5 truncate">
+                          Exported: {batchExportedWavs.map((w) => w.exportedWavFilename).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Queue Items List */}
@@ -371,6 +522,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                   {queueItems.map((item) => {
                     const isInspected = inspectedItem?.queueId === item.queueId;
                     const isActiveWorkstation = activeQueueId === item.queueId;
+                    const isSelectedForBatch = selectedQueueIds.includes(item.queueId);
 
                     return (
                       <div
@@ -383,20 +535,43 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-bold text-zinc-100 truncate">
-                                {item.originalFilename}
-                              </span>
-                              {isActiveWorkstation && (
-                                <span className="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 text-[9px]">
-                                  ACTIVE IN DAW
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            {!item.isMidiExport && (
+                              <input
+                                type="checkbox"
+                                data-testid={`select-queue-item-${item.queueId}`}
+                                aria-label={`Select ${item.originalFilename}`}
+                                checked={isSelectedForBatch}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleSelectQueueItem(item.queueId);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="mt-0.5 w-3.5 h-3.5 rounded accent-amber-500 cursor-pointer shrink-0"
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-bold text-zinc-100 truncate">
+                                  {item.originalFilename}
                                 </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-zinc-400 mt-0.5 flex items-center gap-2">
-                              <span>SHA256: {item.binaryChecksumSha256.slice(0, 10)}…</span>
-                              <span>Rev #{item.workingProjectRevision}</span>
+                                {isActiveWorkstation && (
+                                  <span className="px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 text-[9px]">
+                                    ACTIVE IN DAW
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-zinc-400 mt-0.5 flex items-center gap-2">
+                                <span>SHA256: {item.binaryChecksumSha256.slice(0, 10)}…</span>
+                                <span>Rev #{item.workingProjectRevision}</span>
+                                {item.isMidiExport && (
+                                  <span className="text-emerald-400 font-semibold">
+                                    {item.midiIncludeHumanization === false
+                                      ? 'QUANTIZED GRID'
+                                      : 'HUMANIZED'}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
@@ -427,7 +602,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                           className="mt-2.5 pt-2 border-t border-zinc-800/80 flex items-center justify-between gap-1.5"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {item.isMidiExport && item.exportedMidiBlob ? (
                               <button
                                 type="button"
@@ -468,6 +643,22 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                                 >
                                   Calibrate
                                 </button>
+                                {item.exportedWavFilename && item.exportedWavBlob && (
+                                  <button
+                                    type="button"
+                                    data-testid={`download-queued-wav-${item.queueId}`}
+                                    onClick={() =>
+                                      triggerBrowserDownload(
+                                        item.exportedWavBlob!,
+                                        item.exportedWavFilename!
+                                      )
+                                    }
+                                    className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold flex items-center gap-1"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    WAV
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>

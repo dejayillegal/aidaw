@@ -1,5 +1,6 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
+import fs from 'fs';
 import zlib from 'zlib';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -52,6 +53,31 @@ async function startServer() {
       return res.status(500).json({ error: `Failed to compress XML to .als: ${err.message}` });
     }
   });
+
+  // Direct binary download route for the compiled v1+v2 signed Android Debug APK
+  const serveDebugApk = (_req: express.Request, res: express.Response) => {
+    const candidates = [
+      path.join(__dirname, 'dist', 'parametric-techno-daw-debug.apk'),
+      path.join(__dirname, 'public', 'parametric-techno-daw-debug.apk'),
+      path.join(__dirname, 'android/app/build/outputs/apk/debug/app-debug.apk'),
+    ];
+    const existingPath = candidates.find((p) => fs.existsSync(p));
+    if (!existingPath) {
+      return res.status(404).json({ error: 'APK binary not found' });
+    }
+    const apkBuf = fs.readFileSync(existingPath);
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="parametric-techno-daw-debug.apk"'
+    );
+    res.setHeader('Content-Length', String(apkBuf.length));
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.status(200).send(apkBuf);
+  };
+
+  app.get('/api/download/apk', serveDebugApk);
+  app.get('/parametric-techno-daw-debug.apk', serveDebugApk);
 
   // Downloadable Android / Tablet Standalone Launcher & Capacitor APK Build Spec
   app.get('/api/download/android-installer', (req, res) => {

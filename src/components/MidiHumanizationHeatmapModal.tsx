@@ -156,22 +156,62 @@ export const MidiHumanizationHeatmapModal: React.FC<MidiHumanizationHeatmapModal
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-[10px] text-zinc-400">
-            <span>Base Shift:</span>
-            <input
-              type="range"
-              min={0.002}
-              max={0.03}
-              step={0.001}
-              value={humanization.microTimingMaxShiftBeats}
-              onChange={(e) =>
-                onUpdateHumanization({ microTimingMaxShiftBeats: parseFloat(e.target.value) })
-              }
-              className="w-20 accent-amber-400"
-            />
-            <span className="text-amber-400 font-bold tabular-nums">
-              ±{(humanization.microTimingMaxShiftBeats * 1000).toFixed(0)}mBeat
-            </span>
+          <div className="flex flex-wrap items-center gap-4 text-[10px] text-zinc-400">
+            <div className="flex items-center gap-2">
+              <span>Base Shift:</span>
+              <input
+                type="range"
+                min={0.002}
+                max={0.03}
+                step={0.001}
+                value={humanization.microTimingMaxShiftBeats}
+                onChange={(e) =>
+                  onUpdateHumanization({ microTimingMaxShiftBeats: parseFloat(e.target.value) })
+                }
+                className="w-20 accent-amber-400"
+              />
+              <span className="text-amber-400 font-bold tabular-nums">
+                ±{(humanization.microTimingMaxShiftBeats * 1000).toFixed(0)}mBeat
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span>Swing Strength:</span>
+              <input
+                type="range"
+                aria-label="Swing Strength"
+                min={0}
+                max={100}
+                step={1}
+                value={humanization.swingStrength ?? 0}
+                onChange={(e) =>
+                  onUpdateHumanization({ swingStrength: parseInt(e.target.value, 10) })
+                }
+                className="w-20 accent-emerald-400"
+              />
+              <span className="text-emerald-400 font-bold tabular-nums">
+                {Math.round(humanization.swingStrength ?? 0)}%
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span>Shuffle Swing:</span>
+              <input
+                type="range"
+                aria-label="Shuffle Swing"
+                min={-100}
+                max={100}
+                step={1}
+                value={humanization.shuffleSwing ?? 0}
+                onChange={(e) =>
+                  onUpdateHumanization({ shuffleSwing: parseInt(e.target.value, 10) })
+                }
+                className="w-20 accent-fuchsia-400"
+              />
+              <span className="text-fuchsia-400 font-bold tabular-nums">
+                {Math.round(humanization.shuffleSwing ?? 0)}%
+              </span>
+            </div>
           </div>
         </div>
 

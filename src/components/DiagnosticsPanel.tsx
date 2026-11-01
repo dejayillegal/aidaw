@@ -60,7 +60,21 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onCl
   const [autoPauseEnabled, setAutoPauseEnabled] = useState<boolean>(
     () => synthEngine.getStabilityThreshold().autoPauseEnabled
   );
-  const [history, setHistory] = useState<LatencySample[]>([]);
+  const [history, setHistory] = useState<LatencySample[]>(() => {
+    const initDiag = synthEngine.getDiagnostics();
+    return [
+      {
+        timestamp: Date.now() - 100,
+        latencyMs: initDiag.audioThreadLatencyMs,
+        underruns: initDiag.bufferUnderruns,
+      },
+      {
+        timestamp: Date.now(),
+        latencyMs: initDiag.audioThreadLatencyMs,
+        underruns: initDiag.bufferUnderruns,
+      },
+    ];
+  });
   const [downloadingApk, setDownloadingApk] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
 

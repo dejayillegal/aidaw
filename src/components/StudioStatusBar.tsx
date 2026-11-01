@@ -11,6 +11,8 @@ interface StudioStatusBarProps {
   editMode: TimelineEditMode;
   activeTool: StudioEditingTool;
   isPlaying: boolean;
+  isExportingWav?: boolean;
+  wavExportProgress?: number;
   statusMessage?: string;
   alsValid: boolean;
   canUndo: boolean;
@@ -25,11 +27,15 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
   editMode,
   activeTool,
   isPlaying,
+  isExportingWav = false,
+  wavExportProgress = 0,
   statusMessage,
   alsValid,
   canUndo,
   canRedo,
 }) => {
+  const clampedWavPct = Math.max(0, Math.min(100, Math.round(wavExportProgress)));
+
   return (
     <div className="h-6.5 bg-[#080A0D] border-t border-[#1C222C] px-3 flex items-center justify-between text-[10px] font-mono text-zinc-400 select-none shrink-0 z-30">
       {/* LEFT: ENGINE & AUDIO METRICS */}
@@ -62,9 +68,30 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
         </div>
       </div>
 
-      {/* CENTER: REAL-TIME OPERATION MESSAGE */}
-      <div className="hidden lg:block truncate max-w-md text-zinc-300 text-center px-2">
-        {statusMessage || `${projectName} · Ready`}
+      {/* CENTER: REAL-TIME OPERATION MESSAGE & WAV EXPORT PROGRESS BAR */}
+      <div className="flex items-center gap-2 truncate max-w-lg text-zinc-300 text-center px-2">
+        {isExportingWav && (
+          <div className="flex items-center gap-2 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 shrink-0">
+            <Disc className="w-3 h-3 animate-spin" />
+            <span className="font-bold tabular-nums">WAV RENDER {clampedWavPct}%</span>
+            <div
+              role="progressbar"
+              aria-label="Status Bar WAV Export Progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={clampedWavPct}
+              className="w-24 h-1.5 bg-[#0B0E14] rounded-full overflow-hidden border border-emerald-500/30"
+            >
+              <div
+                className="h-full bg-emerald-400 transition-all duration-150"
+                style={{ width: `${clampedWavPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+        <span className="hidden lg:inline truncate">
+          {statusMessage || `${projectName} · Ready`}
+        </span>
       </div>
 
       {/* RIGHT: TRACK COUNT, PROJECT REVISION & ALS VALIDITY */}
