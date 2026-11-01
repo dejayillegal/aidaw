@@ -1,0 +1,1307 @@
+PARAMETRIC ALS v6.0 — FINAL RECONSTRUCTION & PRODUCTION HARDENING DIRECTIVE
+
+GOOGLE AI STUDIO — MASTER IMPLEMENTATION PROMPT
+
+SOUNDCRAFT-CLASS WORKSTATION · ABLETON LIVE 12 WORKFLOWS · REAL DSP · SAFE ALS · GENERATIVE MUSIC INTELLIGENCE · ANDROID · COMPLETE QA
+
+Repository: https://github.com/dejayillegal/aidaw
+
+Reviewed baseline: 8b001be7783d624c743fac66fa96b71ea366bc4b
+
+Execution mode: Modify the existing source code, run the application, test, diagnose, repair, and verify.
+
+Primary objective: Deliver a visually reconstructed, fully interactive, professionally engineered Parametric ALS workstation while preserving existing functionality.
+
+Status: Previous implementation is incomplete. This directive supersedes earlier implementation plans where they conflict.
+
+⸻
+
+0. ABSOLUTE EXECUTION DIRECTIVE
+
+You are acting as an integrated senior engineering organization:
+
+* Principal DAW Software Architect
+* Principal React and TypeScript Engineer
+* SoundCraft UI/UX Reconstruction Specialist
+* Ableton Live 12 Workflow Specialist
+* Professional Audio DSP Engineer
+* Real-Time Audio Systems Engineer
+* Native ALS Interoperability Engineer
+* AI Music Composition Researcher
+* Android/Kotlin Audio Engineer
+* QA Automation and Performance Architect
+* Security and Reliability Engineer
+* Technical Contrarian and Root-Cause Investigator
+* Product Release Engineering Lead
+
+Your responsibility is implementation, not documentation alone.
+
+The existing application has already received a large architectural update, but the latest review identified incomplete visual reconstruction and important functional defects.
+
+Do not create another isolated prototype.
+
+Do not rewrite the entire project.
+
+Do not replace real existing features with simulated controls.
+
+Do not claim completion merely because new files exist.
+
+Make the actual running application satisfy every acceptance criterion in this document.
+
+Mandatory working principles
+
+1. Inspect the actual repository and verify the current commit before modifying code.
+2. Establish working baselines and preserve all existing capabilities.
+3. Identify root causes before applying changes.
+4. Implement fixes in actual source files.
+5. Use canonical project state and typed reversible operations.
+6. Validate UI actions against genuine audio and project behavior.
+7. Verify ALS changes before export.
+8. Test every critical workflow.
+9. Capture before/after screenshots.
+10. Report results truthfully and explicitly identify remaining limitations.
+
+Do not promise zero defects without evidence.
+
+Target zero known release-blocking defects and measurable reliability.
+
+⸻
+
+1. CURRENT CODEBASE — PRESERVE EXISTING PROGRESS
+
+The latest repository already includes:
+
+* src/App.tsx
+* src/components/TimelineCanvas.tsx
+* src/components/SoundCraftMixConsole.tsx
+* src/components/SelectedTrackAnalysisStrip.tsx
+* src/components/BulkQueueAndExportModal.tsx
+* src/components/StudioCommandPalette.tsx
+* src/components/DeviceRackPanel.tsx
+* src/components/AiComposerIntelligencePanel.tsx
+* src/components/MasterSpectrumAnalyzer.tsx
+* src/engine/webAudioSynth.ts
+* src/engine/channelStripEngine.ts
+* src/engine/masteringEngine.ts
+* src/engine/alsXmlEngine.ts
+* src/engine/compositionIntelligenceEngine.ts
+* src/services/commandBus.ts
+* src/services/projectQueueService.ts
+* src/types/ableton.ts
+* src/__tests__/studioWorkstation.test.ts
+
+These modules are implementation assets.
+
+Do not delete them just to simplify the redesign.
+
+Retain:
+
+* Existing techno composition intelligence
+* Procedural templates
+* Project-aware generation
+* Eight-track starter suite
+* ALS import/export workflows
+* Track and mixer settings
+* Automation
+* MIDI editing
+* Session functionality
+* Device library
+* Humanization
+* Eight macros
+* Sidechain
+* Smart Leveling
+* Bulk project queue
+* Master export presets
+* Command Palette
+* VCA calculations
+* Comping
+* Selected-track waveform analysis
+* Spectrum analyzer
+* PWA support
+* Mobile touch controls
+
+Preserve behavior that is actually verified to work, while repairing incomplete or incorrect implementations.
+
+⸻
+
+2. VERIFIED DEFECTS THAT MUST BE FIXED
+
+The previous code review identified these high-priority issues.
+
+DEFECT P0-001 — OLD DASHBOARD UI STILL EXISTS
+
+Current App.tsx retains:
+
+* min-h-screen root
+* Website-style navigation
+* Workbench/XML/Python/Architecture tabs
+* Large 345px project sidebar
+* Wrapping transport toolbar
+* Fixed 330px lower editing pane
+
+This does not satisfy the SoundCraft visual reconstruction request.
+
+Required solution
+
+Replace the application layout with a constraint-aware 100dvh studio shell.
+
+Create dedicated full-workspace Edit, Mix, Session, Sound Design, AI Composition, and Mastering modes.
+
+The main application must no longer behave like a scrolling web dashboard.
+
+⸻
+
+DEFECT P0-002 — MIX CONSOLE IS TRAPPED INSIDE THE BOTTOM PANEL
+
+The new SoundCraftMixConsole.tsx exists, but desktop rendering still places it under desktopBottomTab === 'mix_console' inside the old lower pane.
+
+The current mixer uses approximately 186px-wide rounded channel cards, while the approved workstation design calls for compact professional console strips.
+
+Required solution
+
+Promote Mix to a first-class full-workspace mode.
+
+Build professional 96–112px-width channel strips with optional expanded display.
+
+Move the current Mix component out of the fixed-height lower pane for its primary mode.
+
+A compact docked mixer may also remain available as an optional secondary view.
+
+⸻
+
+DEFECT P0-003 — MIXER DEVICE INSERTION CAN LOSE ALS XML SYNCHRONIZATION
+
+The current Mix Console invokes insertDeviceIntoChannelStrip() using a track-only overload and applies updatedTrack.
+
+That overload constructs a fallback project without the actual source XML, so the canonical project’s device XML can remain unchanged.
+
+Required solution
+
+Use canonical project-level operations for every:
+
+* Device insertion
+* Device removal
+* Bypass
+* Device reorder
+* Parameter edit
+* Routing edit
+* VCA commit
+
+Implement:
+
+UI Command -> Project Transaction -> Semantic Update -> Version-Aware ALS Patch -> Validation -> State Commit -> Audio Graph Update
+
+Never update mixer device state independently from its persisted project representation.
+
+If an operation cannot be safely exported to ALS, preserve it as a Parametric ALS-native operation and explicitly mark its compatibility.
+
+Reject unsupported native export rather than producing corrupted project files.
+
+⸻
+
+DEFECT P0-004 — AUDIO ENGINE STILL USES PER-NOTE PROCESSING GRAPHS
+
+The current scheduleTrackVoiceAtTime() creates per-note gain, panner, and processing nodes.
+
+computeInsertChainGainMultiplier() approximates effects through gain or saturation multipliers.
+
+This does not constitute an ordered, persistent, professional channel-strip DSP engine.
+
+Required solution
+
+Implement genuine persistent per-track audio buses.
+
+The audio graph must support real ordered DSP processing, faders, automation, panning, send/return routing, sidechain, solo/mute, and selected-track analysis.
+
+Do not simulate compressor, limiter, EQ, or reverb functionality through unrelated gain adjustments.
+
+⸻
+
+DEFECT P0-005 — NATIVE ALS EXPORT STILL MAKES AN UNVERIFIED CLAIM
+
+handleExportNativeAls() reports:
+
+“100% native Ableton Live 11/12 compatible.”
+
+Compressing XML is insufficient to establish this.
+
+Required solution
+
+Remove that claim immediately.
+
+Create a compatibility report including:
+
+* Source Live version
+* Supported modifications
+* Unsupported modifications
+* XML validation
+* Reference integrity
+* Preserved unknown structures
+* Device compatibility
+* Export status
+* Native reopen verification status
+
+Only claim native compatibility for the exact version and operation set actually tested in Ableton.
+
+⸻
+
+DEFECT P1-006 — TRUE PEAK NEEDS REFERENCE VALIDATION
+
+The new mastering engine implements K-weighting and gated loudness calculation, but its true-peak approach uses cubic Hermite interpolation rather than a verified standard reconstruction filter.
+
+Required solution
+
+Validate against trusted ITU-R BS.1770 and EBU measurement references.
+
+Correct true-peak reconstruction and brickwall limiting.
+
+Report achieved loudness and true peak after encoding.
+
+Do not silently claim successful mastering if the actual output misses the target.
+
+⸻
+
+DEFECT P1-007 — THREE REQUESTED FEATURES ARE STILL MISSING OR INCOMPLETE
+
+Implement:
+
+1. Multi-clip MIDI Velocity Randomizer
+2. Strict real-time Solo Isolation
+3. Selected-track Live Eight-Band FFT Spectrum
+
+These must connect to actual music/audio state.
+
+⸻
+
+DEFECT P1-008 — AUTOMATED QUALITY GATES ARE INCOMPLETE
+
+The repository includes a Vitest test file but lacks a complete configured test workflow, browser E2E suite, visual comparison evidence, native ALS reopen verification, and Android device qualification.
+
+Required solution
+
+Build the complete testing and release pipeline.
+
+Do not treat TypeScript compilation as sufficient proof of correctness.
+
+⸻
+
+3. PRIORITY ZERO — COMPLETE SOUNDCRAFT UI RECONSTRUCTION
+
+THIS IS THE PRIMARY V6.0 DELIVERABLE.
+
+Reference screenshots:
+
+* https://github.com/storytold/soundcraft/blob/main/docs/images/edit.png
+* https://github.com/storytold/soundcraft/blob/main/docs/images/mix.png
+* https://github.com/storytold/soundcraft/blob/main/docs/images/midi.png
+* https://github.com/storytold/soundcraft/blob/main/docs/images/automation.png
+
+Use the actual screenshots as layout references.
+
+Preserve original Parametric ALS branding and independently designed visuals.
+
+3.1 New Studio Application Shell
+
+Implement:
+
+* StudioShell
+* StudioMenuBar
+* StudioTransportBar
+* StudioWorkspaceTabs
+* StudioEditorToolbar
+* StudioDockLayout
+* StudioStatusBar
+
+Desktop hierarchy
+
+Top Menu Bar → Transport → Workspace Tabs → Editor Tools → Full Editing Workspace → Optional Lower Editor → Status Bar.
+
+No page-level vertical scrolling.
+
+Use 100dvh with proper safe-area handling.
+
+Use independent scrolling for timeline, browser, docks, mixer and detail editors.
+
+3.2 Application Menu
+
+Provide:
+
+File | Edit | View | Track | Clip | MIDI | Audio | Effects | Tools | Window | Help
+
+Connect each enabled menu command to a real project action.
+
+Move XML Inspector, Python exporter, and architecture diagnostics under Tools/Window.
+
+Preserve their functionality.
+
+3.3 Precision Transport
+
+Implement compact:
+
+* Return to Zero
+* Rewind
+* Stop
+* Play
+* Record
+* Loop
+* Bar/Beat/Tick
+* BPM
+* Time Signature
+* Metronome
+* Quantization
+* Snap
+* Automation Arm
+* CPU/Audio Status
+* Peak Output
+* Save State
+
+Use real audio engine values.
+
+Do not display fake CPU metrics or audio readiness.
+
+Transport must persist across workspace switching.
+
+3.4 Workspaces
+
+Top-level modes:
+
+* EDIT
+* MIX
+* SESSION
+* SOUND DESIGN
+* AI COMPOSER
+* MASTERING
+
+Changing workspace must not reset the project, audio engine, selection, or playhead.
+
+⸻
+
+4. REBUILD THE EDIT WINDOW
+
+The Edit Window must become the application’s default landing workspace.
+
+Left Track Tree
+
+Initial width: approximately 200–220px.
+
+Provide:
+
+* Track color
+* Track number
+* Track type
+* Track name
+* Group hierarchy
+* Fold/Unfold
+* Mute
+* Solo
+* Record Arm
+* Monitor
+* VCA assignment
+* Drag reorder
+
+Use actual project tracks.
+
+Track Headers and Timeline
+
+Maintain exact vertical alignment between track headers and arrangement lanes.
+
+Support:
+
+* Compact 48px rows
+* Expanded automation rows
+* Variable track heights
+* Shared vertical scroll
+* Shared selection
+* Accurate playhead
+* Beat/bar rulers
+* Memory locations
+* Tempo markers
+* Loop region
+* Clip regions
+* Waveform/MIDI visualization
+
+Use a single canonical beat-to-pixel conversion.
+
+Clip interactions
+
+Implement actual:
+
+* Select
+* Multi-select
+* Move
+* Resize
+* Duplicate
+* Split
+* Loop
+* Drag
+* Delete
+* Copy/Paste
+* Undo/Redo
+
+Do not interpret every pointer action as seek/scrub.
+
+The current TimelineCanvas pointer handling still mixes track selection, seeking, automation and live-pad triggering.
+
+Replace it with a deterministic pointer interaction state machine.
+
+Editing tools
+
+* Smart
+* Selector
+* Grabber
+* Trim
+* Pencil
+* Zoom
+* Scrubber
+
+Editing modes
+
+* Shuffle
+* Slip
+* Spot
+* Grid
+
+Ensure these modes have distinct correct behaviors at the clip-editing level.
+
+MIDI note editing must use separate semantics where appropriate.
+
+Automation Lanes
+
+Add:
+
+* Parameter selection
+* Editable breakpoints
+* Dragging
+* Curve editing
+* Multiple lanes
+* Read/Write states
+* Generated AI overlays
+* Preview/Apply
+* Undo/Redo
+
+Automation must actually change target DSP parameters.
+
+⸻
+
+5. COMPLETE FULL-WORKSPACE MIX CONSOLE
+
+Refactor SoundCraftMixConsole.tsx.
+
+Visual structure
+
+Use real professional vertical strips.
+
+Normal strip width: 96–112px.
+
+Compact and Expanded modes.
+
+A strip contains:
+
+1. Track identity
+2. Input routing
+3. Ten ordered inserts
+4. Send A/B
+5. Output routing
+6. Pan
+7. Mute/Solo/Arm
+8. Stereo peak/RMS meter
+9. Vertical volume fader
+10. Numeric dB readout
+11. VCA assignment
+
+Use fixed vertical section alignment across all strips.
+
+No oversized rounded cards.
+
+No unnecessary explanatory paragraphs inside the mixer.
+
+Real controls
+
+Faders must modify actual track gain.
+
+Pan must modify stereo output.
+
+Sends must modify real return routing.
+
+Bypass must change actual effect processing.
+
+Insert reorder must change processing order.
+
+Meters must reflect real audio.
+
+Support:
+
+* Mouse
+* Touch
+* Keyboard
+* Fine control
+* Double-click reset
+* Numeric parameter entry
+
+VCA
+
+Provide:
+
+* Drums
+* Low End
+* Synths
+* Atmosphere
+
+VCA control must be non-destructive.
+
+Separate track base gain, automation, VCA gain and effective audio gain.
+
+Do not double-apply VCA values.
+
+Returns and Master
+
+Show Return A, Return B and Master as distinct strips.
+
+Pinned Master on suitable desktop layouts.
+
+⸻
+
+6. REAL PERSISTENT CHANNEL-STRIP DSP GRAPH
+
+Rebuild the audio graph around persistent track buses.
+
+Target routing
+
+Instrument/Audio Source
+→ Track Input
+→ Ordered Insert Processors
+→ Track Pan
+→ Track Fader
+→ Solo/Mute Gate
+→ Track Output Routing
+→ Master
+
+Support pre/post-fader sends without bypassing mute/solo semantics unintentionally.
+
+Return buses must have explicit solo-safe behavior.
+
+Sidechain triggers must have explicitly modeled audio and control routing.
+
+DSP requirements
+
+For every supported insert:
+
+* Real effect-specific processing
+* Real parameters
+* Ordered signal flow
+* Bypass
+* Automation
+* Real-time playback
+* Offline rendering
+* Save/Reload
+* Disposal
+
+Supported effects must not be approximated by unrelated gain multipliers.
+
+If only a subset is implemented, expose only that subset as executable browser DSP.
+
+Preserve unsupported native Ableton devices as source data without falsely pretending to render them.
+
+Runtime safety
+
+* No unbounded AudioNode creation.
+* No stale audio graph references.
+* No duplicate effect connections.
+* No orphaned analyzers.
+* No audio engine reinitialization on workspace switch.
+* Click-free gain changes.
+* Proper AudioContext lifecycle.
+* Worker/RAF/timer cleanup.
+
+⸻
+
+7. FIX ALL MIXER AND ALS PROJECT SYNCHRONIZATION
+
+All modifications must pass through the canonical project transaction layer.
+
+Required service contracts
+
+* insertDeviceIntoProject()
+* removeDeviceFromProject()
+* reorderDeviceInProject()
+* setDeviceBypass()
+* setDeviceParameter()
+* setTrackFader()
+* setTrackPan()
+* setTrackSends()
+* setVcaGroupGain()
+* applyVelocityRandomization()
+* applyAutomationEdit()
+
+A successful command must return:
+
+* Updated semantic project
+* XML patch result or explicit native-only/unsupported status
+* Validation results
+* Undo metadata
+* Updated project revision
+
+Keep original XML snapshots.
+
+Never silently overwrite user-created EQ Eight or Compressor nodes.
+
+Never invent native device chains without verified version-specific templates.
+
+Undo must restore the actual prior project state.
+
+If XML validation fails, roll back the entire operation.
+
+⸻
+
+8. MULTI-CLIP MIDI VELOCITY RANDOMIZER
+
+Implement inside AI Composer and expose through the Command Palette.
+
+Controls
+
+* Min Velocity: 1–127
+* Max Velocity: 1–127
+* Blend: 0–100%
+* Accent Lock
+* Downbeat Lock
+* Seed
+* Preview
+* Apply
+* Reset
+* Undo/Redo
+
+Scope
+
+Support:
+
+* Selected notes
+* Selected MIDI clip
+* Multiple selected clips
+* All clips on selected track
+* Active take
+
+Never assume clips[0].
+
+Musical behavior
+
+Use deterministic seeded random generation.
+
+Preserve note pitch, time, duration, probability, expression and identity.
+
+Protect accent/downbeat notes according to musical context.
+
+Avoid excessive randomization that destroys groove.
+
+Preview
+
+Show:
+
+* Original velocities
+* Proposed velocities
+* Histogram
+* Changed notes
+* Protected notes
+* A/B audition where supported
+
+Commit as a single project transaction.
+
+Patch targeted native XML velocity attributes without rebuilding unrelated clip structures.
+
+Validate re-import and Undo/Redo.
+
+⸻
+
+9. STRICT SOLO ISOLATION
+
+Implement a central resolveEffectiveAudibility() service.
+
+Consider:
+
+* Track mute
+* Track solo
+* Multiple solos
+* Group mute/solo
+* VCA mute/solo
+* Return routing
+* Solo-safe buses
+* Live pads
+* Session clips
+* Already-playing voices
+* Offline render
+
+Persistent track output gates must apply click-free gain ramps when solo changes.
+
+Do not rely only on skipping future scheduled MIDI notes.
+
+Visuals
+
+Soloed tracks:
+
+* Amber SOLO badge
+* Visible selected-lane emphasis
+
+Other tracks:
+
+* Reduced contrast
+* SOLO-MUTED indicator
+* Still readable and selectable
+
+Tests
+
+Solo during sustained notes.
+
+Solo with delay/reverb tails.
+
+Multiple soloed tracks.
+
+Unsolo all.
+
+Solo group.
+
+Solo VCA.
+
+Solo in Session.
+
+Solo during offline WAV export.
+
+Test actual audio output.
+
+⸻
+
+10. LIVE SELECTED-TRACK EIGHT-BAND SPECTRUM
+
+Implement an actual per-track audio analysis path.
+
+Do not use the master FFT as a substitute.
+
+Eight bands:
+
+* 20–60 Hz
+* 60–140 Hz
+* 140–320 Hz
+* 320–800 Hz
+* 800–2000 Hz
+* 2000–5000 Hz
+* 5000–10000 Hz
+* 10000–20000 Hz
+
+Use proper sample-rate-aware FFT mapping.
+
+Provide:
+
+* Pre/Post Fader selection
+* Current band level
+* Peak hold
+* Decay
+* Pause/Freeze
+* No-data state
+
+Display modes
+
+Compact Lane HUD: Small right-aligned, non-obstructive meters on the selected track.
+
+Expanded Analysis: Full spectrum visualization in the analysis strip or inspector.
+
+Never overlay enormous spectral columns over clip content.
+
+Avoid React rerenders at FFT frequency.
+
+Use persistent analyzers and typed-array reuse.
+
+Release analyzer resources on track/project disposal.
+
+⸻
+
+11. MIDI, DEVICE, AND AUTOMATION LOWER EDITORS
+
+Create a properly resizable lower editing dock.
+
+Views:
+
+* MIDI Piano Roll
+* Velocity/Probability
+* Clip Editor
+* Device Chain
+* Automation
+* Clip Envelopes
+
+Piano Roll
+
+Implement real:
+
+* Note drawing
+* Selection
+* Drag
+* Resize
+* Duplicate
+* Delete
+* Quantize
+* Transpose
+* Scale display
+* Velocity editing
+* Multiple clip lengths
+* Horizontal/vertical zoom
+
+Device Chain
+
+Compact horizontal device panels.
+
+Every supported parameter must connect to real DSP or project operations.
+
+Keep eight macros and Anti-Slop Humanization controls.
+
+Automation
+
+Use parameter-aware envelopes with actual playback behavior.
+
+Verify automation in offline render.
+
+⸻
+
+12. PROJECT-AWARE AI COMPOSER — PRESERVE AND IMPROVE
+
+Preserve compositionIntelligenceEngine.ts.
+
+Maintain the current underground techno generation capabilities.
+
+When selecting templates or imported ALS projects:
+
+* Analyze source musical characteristics.
+* Preserve existing project material.
+* Generate fresh context-aware proposals.
+* Produce distinct rhythms and harmony.
+* Generate evolving arrangements.
+* Add appropriate instruments.
+* Add real effects.
+* Add meaningful automation.
+* Respect locked tracks.
+* Reject excessive duplicate patterns.
+* Preserve deterministic seed replay.
+
+Do not reduce the AI Composer to a decorative panel.
+
+Use a compact dock layout.
+
+Show four main layers and current project-aware analysis.
+
+Keep all generated MIDI editable.
+
+⸻
+
+13. MASTERING & BULK EXPORT CORRECTIONS
+
+Preserve the new mastering and queue services.
+
+Mastering
+
+Correct and verify:
+
+* Integrated LUFS
+* True peak
+* Sample peak
+* Crest factor
+* Target loudness
+* True-peak ceiling
+* Gain staging
+* Limiting
+* Dither
+* 16-bit PCM
+* 24-bit PCM
+* 32-bit float
+* 44.1/48/96 kHz
+
+Test with reference signals.
+
+Ensure that fallback rendering does not silently discard required DSP, automation, effects or tails.
+
+Where equivalent rendering is unavailable, report the limitation rather than issuing a misleading mastered export.
+
+Queue
+
+Preserve IndexedDB-backed queue persistence.
+
+Support:
+
+* Multiple project imports
+* Project switching
+* Isolation
+* Cancellation
+* Retry
+* Analysis
+* Calibration proposals
+* User approval
+* Batch export
+* Failure recovery
+
+A processing error in one project must not corrupt other queued projects.
+
+⸻
+
+14. ANDROID, TABLET, FOLDABLE & DESKTOP UI
+
+The new Studio Shell must work across screen sizes.
+
+Desktop
+
+1366×768 to ultrawide.
+
+Use professional full Edit/Mix workspaces.
+
+Tablet
+
+768×1024 and 1024×768.
+
+Support split-pane editing and full-screen mixer.
+
+Mobile
+
+390×844 and nearby dimensions.
+
+Provide dedicated views:
+
+* Edit
+* Mix
+* Session
+* Pads
+* AI
+* Devices
+
+Do not scale down the desktop console into tiny unusable strips.
+
+Foldables
+
+Preserve project, playhead, panel selection and audio state through window changes.
+
+Touch
+
+* Correct pointer capture
+* Pinch zoom
+* Two-finger scroll
+* Long press
+* Fader drag
+* Accessible hit targets
+* Safe-area handling
+
+Verify actual Android builds separately from responsive browser screenshots.
+
+A Capacitor configuration file alone is not a validated Android release.
+
+⸻
+
+15. MANDATORY TEST AUTOMATION
+
+The newly added Vitest file is a starting point.
+
+Complete the project test infrastructure.
+
+Package scripts
+
+Verify and provide working scripts for:
+
+* Type checking
+* Unit testing
+* Integration testing
+* Test coverage
+* Production build
+* Browser E2E testing
+
+Use existing npm run lint and npm run build where appropriate.
+
+Do not rely on unconfigured lint_applet or compile_applet commands.
+
+Critical test categories
+
+Studio UI
+
+* Menu commands
+* Workspace transitions
+* Dock persistence
+* Split-pane resizing
+* Timeline geometry
+* Clip dragging
+* MIDI editing
+* Mixer layout
+
+DSP
+
+* Fader gain
+* Panning
+* Effects
+* Bypass
+* Insert ordering
+* Sends
+* Returns
+* Sidechain
+* Solo/mute
+* Automation
+* Realtime/offline consistency
+
+ALS
+
+* Original XML preservation
+* Device insertion
+* Bypass
+* Reorder
+* Automation patch
+* Velocity patch
+* Reference integrity
+* Unknown-node preservation
+* Native reopen validation
+
+Mastering
+
+* LUFS measurement
+* True peak
+* WAV headers
+* 16/24/32-bit conversion
+* 44.1/48/96 kHz output
+* Dither
+* Target conflicts
+
+AI Composer
+
+* Project-conditioned generation
+* Seed reproducibility
+* Pattern diversity
+* Locked-track preservation
+* Non-destructive application
+* Velocity randomization
+
+Performance
+
+* Long playback
+* Repeated project switching
+* Repeated exports
+* Heavy automation
+* Audio graph creation/disposal
+* Memory stability
+* Tablet touch interaction
+
+⸻
+
+16. SCREENSHOT-BASED VISUAL ACCEPTANCE
+
+The visual redesign must be evaluated against actual SoundCraft references.
+
+Capture:
+
+* Before screenshots
+* After screenshots
+* Edit Window
+* Mix Window
+* Session
+* Piano Roll
+* Device Chain
+* Automation
+* AI Composer
+* Project Queue
+* Export dialog
+
+Viewport sizes:
+
+* 1366×768
+* 1440×900
+* 1920×1080
+* 2560×1440
+* 390×844
+* 768×1024
+* 1024×768
+
+Validate:
+
+* Compact toolbar geometry
+* Track header/lane alignment
+* Mixer strip density
+* Timeline grid
+* Waveform/clip rendering
+* Panel proportions
+* No unintended scrolling
+* No clipped controls
+* Dock behavior
+* Responsive layout
+* Readability
+* Keyboard accessibility
+
+Do not report a successful SoundCraft UI redesign without visually inspecting the rendered application.
+
+⸻
+
+17. PERFORMANCE AND RESOURCE ACCEPTANCE
+
+Establish measured device-specific budgets.
+
+Targets for supported desktop environments:
+
+* Smooth 60fps timeline interaction under ordinary projects.
+* No audio dropouts during normal editing and playback.
+* No sustained UI-thread stalls caused by unnecessary audio analysis.
+* No unbounded memory growth across repeated workflows.
+* No orphaned audio graphs, workers, timers or animation frames.
+
+Android performance targets must be calibrated against tested device capabilities.
+
+Prioritize audio reliability over analyzer frame rate.
+
+Never claim sample-accurate real-time behavior merely because a JavaScript lookahead timer exists.
+
+⸻
+
+18. PRODUCTION RELEASE GATES
+
+G0 — Verified Baseline
+
+Existing functionality inventoried and tested.
+
+G1 — Studio Shell
+
+Old dashboard removed; professional shell implemented.
+
+G2 — Edit Window
+
+SoundCraft-inspired multitrack editing fully integrated.
+
+G3 — Mix Console
+
+Full-workspace compact professional mixer operational.
+
+G4 — Audio Graph
+
+Persistent channels, real effects and mixer behavior validated.
+
+G5 — ALS Safety
+
+Canonical edits synchronized, verified, and export-safe.
+
+G6 — Velocity / Solo / FFT
+
+Three new features completely functional and tested.
+
+G7 — Mastering / Queue
+
+Loudness, true-peak and queue workflows validated.
+
+G8 — AI Composer
+
+Project-aware generation and existing workflows preserved.
+
+G9 — Desktop / Tablet / Android
+
+Responsive and native platform capabilities verified.
+
+G10 — Release Qualification
+
+Build, automated tests, screenshots, audio measurements, memory tests and compatibility evidence complete.
+
+No gate is completed solely because a component file exists.
+
+⸻
+
+19. REQUIRED FINAL OUTPUT FROM GOOGLE AI STUDIO
+
+After modifying the repository, provide a factual implementation report containing:
+
+1. Original commit and working branch.
+2. Files created.
+3. Files modified.
+4. Root causes repaired.
+5. Actual screenshots.
+6. Functional test results.
+7. TypeScript/build results.
+8. DSP test results.
+9. ALS validation results.
+10. Mastering measurement results.
+11. Mobile/Android verification status.
+12. Performance and memory findings.
+13. Known limitations.
+14. Failed/unverified tests.
+15. Exact remaining tasks.
+16. Final release-gate status.
+
+Provide a feature matrix:
+
+Feature	Implementation	Test evidence	Status
+Studio Shell	Actual source files	Screenshot/E2E	Pass/Fail
+Edit Window	Actual source files	Interaction tests	Pass/Fail
+Mix Console	Actual source files	Audio/visual tests	Pass/Fail
+Audio Graph	Actual source files	DSP tests	Pass/Fail
+ALS Compiler	Actual source files	Integrity/native tests	Pass/Fail
+Velocity Randomizer	Actual source files	MIDI/XML tests	Pass/Fail
+Solo Isolation	Actual source files	Audio tests	Pass/Fail
+Eight-Band FFT	Actual source files	Signal tests	Pass/Fail
+Mastering	Actual source files	Meter reference tests	Pass/Fail
+AI Composer	Actual source files	Musical regression tests	Pass/Fail
+Android	Actual source/build	Device tests	Pass/Fail
+
+Use actual results. Never fabricate passing tests or unavailable build artifacts.
+
+⸻
+
+20. FINAL ZERO-COMPROMISE EXECUTION COMMAND
+
+THE PREVIOUS UPDATE ADDED USEFUL MODULES BUT DID NOT FINISH THE MAIN WORKSTATION TRANSFORMATION.
+
+DO NOT REPEAT THAT MISTAKE.
+
+Do not leave the old min-h-screen dashboard in place.
+
+Do not keep the primary Mix Console confined to a 330px lower panel.
+
+Do not use oversized 186px mixer cards in the full console.
+
+Do not create pseudo-effects based only on gain multipliers.
+
+Do not let the mixer state disagree with exported ALS XML.
+
+Do not claim 100% Ableton Live compatibility without native verification.
+
+Do not claim measured true peak without reference validation.
+
+Do not implement fake selected-track spectrum visualization.
+
+Do not leave the velocity randomizer unimplemented.
+
+Do not treat solo as simply skipping future notes.
+
+Do not remove existing AI composition capabilities.
+
+Do not substitute documentation for source-code changes.
+
+Do not claim Android completion from responsive CSS.
+
+Do not claim zero bugs from TypeScript compilation.
+
+Required execution order
+
+FIRST: Repair the Studio Shell and Edit Window.
+
+SECOND: Create the full-workspace SoundCraft Mix Console.
+
+THIRD: Implement real persistent track DSP buses and canonical device operations.
+
+FOURTH: Repair ALS state/XML synchronization and native export validation.
+
+FIFTH: Complete Velocity Randomizer, Strict Solo and Eight-Band FFT.
+
+SIXTH: Integrate Piano Roll, Device Chain, Automation, AI Composer and project tools into the new workspaces.
+
+SEVENTH: Validate mastering, queue, responsive layouts and Android integration.
+
+EIGHTH: Execute full visual, audio, interoperability and regression tests.
+
+Acceptance standard
+
+The final product must satisfy three independent requirements:
+
+Visual: A genuine SoundCraft-class professional DAW workspace.
+
+Functional: Every supported editing and audio control works on real project/audio state.
+
+Safe: Original projects, native XML structures, audio exports and saved revisions are preserved and validated.
+
+The task is not finished until actual code, running behavior and test evidence establish these results.
+
+IMPLEMENT THE COMPLETE V6.0 REMEDIATION IN THE EXISTING REPOSITORY.
+
+DO NOT RETURN ANOTHER PLAN IN PLACE OF IMPLEMENTATION.
+
+END OF MASTER PROMPT v6.0.

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Parametric ALS DAW</string>
+    <string name="title_activity_main">Parametric ALS DAW</string>
+    <string name="package_name">com.parametricals.technodaw</string>
+    <string name="custom_url_scheme">com.parametricals.technodaw</string>
+</resources>

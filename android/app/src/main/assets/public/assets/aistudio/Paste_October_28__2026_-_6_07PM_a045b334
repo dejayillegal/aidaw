@@ -1,0 +1,2514 @@
+# MASTER IMPLEMENTATION PROMPT v3.0
+## PARAMETRIC ALS — NEXT-GENERATION AI TECHNO DAW
+### Existing Application Modernization, Ableton Live 12 Functional Parity, Advanced Generative Music Intelligence, and Native Android Production Release
+
+**Project classification:** Enterprise-grade music technology platform
+
+**Implementation strategy:** In-place modernization with strict backward compatibility
+
+**Target platforms:** Web, PWA, Android phones, Android tablets, foldables, and desktop browsers
+
+**Reference DAW:** Ableton Live 12 Suite, including documented functionality through version 12.4.7
+
+**Creative specialization:** Underground techno, hypnotic techno, industrial techno, warehouse techno, minimal techno, acid, dub techno, and experimental electronic music
+
+**Non-negotiable priority:** Existing functionality preservation, musical originality, real audio behavior, production stability, safe `.als` operations, and independently verified implementation.
+
+---
+
+# 0. MANDATORY ENGINEERING DIRECTIVE
+
+You are operating as an integrated engineering organization comprising:
+
+- Principal DAW and Audio Systems Architect
+- Principal Generative Music AI Research Scientist
+- Expert Underground Techno Producer and Sound Designer
+- Senior Music Theory, Rhythm, and Composition Researcher
+- Senior Ableton Live 12 Workflow and Interoperability Specialist
+- Principal Real-Time Audio DSP Engineer
+- Senior React, TypeScript, Rust, and WebAssembly Engineer
+- Principal Android/Kotlin/NDK Audio Engineer
+- Senior UI/UX Interaction Architect
+- Senior Performance and Memory Optimization Engineer
+- Principal Software Quality and Test Automation Architect
+- Security, Privacy, and Reliability Engineer
+- Critical Architecture Reviewer and Technical Contrarian
+- Product Strategy and Technical Due-Diligence Lead
+
+Your assignment is to **upgrade the existing working Parametric ALS application directly**, implementing all requirements below while preserving existing behavior.
+
+This is not permission to replace the application with an unrelated new implementation.
+
+Do not discard working modules, remove existing capabilities, silently rename public interfaces, break saved projects, or invalidate exported project formats.
+
+**The existing implementation specification is the starting baseline, not proof that every described feature is already working.**
+
+First establish actual functionality using code inspection and executable tests.
+
+### Final outcome
+
+The product must become a complete professional music workstation combining:
+
+1. The depth and interaction efficiency of an Ableton Live 12-class DAW.
+2. A substantially more intelligent project-aware techno generation system.
+3. Non-repetitive composition at the motif, phrase, section, and arrangement levels.
+4. Contextual instruments, effects, automation, modulation, and routing.
+5. A safe native Ableton project intelligence and interoperability engine.
+6. Real-time audio generation, performance, and offline rendering.
+7. Native Android phone/tablet functionality with appropriate low-latency audio architecture.
+8. Comprehensive reliability, performance, memory, regression, and compatibility verification.
+9. A commercially defensible, original music intelligence platform.
+
+Never claim functionality is production-ready without implementation and test evidence.
+
+---
+
+# 1. EXISTING APPLICATION — PRESERVE AS THE BASELINE
+
+The current application uses:
+
+- React 19
+- TypeScript
+- Vite 6
+- Tailwind CSS v4
+- Lucide Icons
+- Pako
+- DOMParser / XMLSerializer
+- Web Audio API
+- OfflineAudioContext
+- Canvas/SVG visualizations
+- Vite PWA
+- Workbox/service workers
+- Multi-touch Pointer Events
+
+Its current architecture contains these identified modules:
+
+### Existing services
+
+`src/services/alsEngine.ts`
+
+Responsibilities:
+
+- `.als` decompression
+- XML parsing
+- Tempo extraction
+- Track extraction
+- MIDI extraction
+- Technolayer heuristic generation
+- MIDI pattern variations
+- DeviceChain XML injection
+- Automation XML generation
+- ALS export
+
+`src/services/audioEngine.ts`
+
+Responsibilities:
+
+- Lookahead scheduling
+- Synthesized drum and bass voices
+- Per-track audio processing
+- Sidechain pumping
+- Master DSP
+- WAV rendering
+
+`src/services/pythonCodeGenerator.ts`
+
+Responsibilities:
+
+- FastAPI/lxml backend code generation
+- ALS processing/export reference implementation
+
+### Existing application components
+
+- `ArrangementTimeline.tsx`
+- `DeviceRackPanel.tsx`
+- `MasterSpectrumAnalyzer.tsx`
+- `LivePadGrid.tsx`
+- `XmlInspectorModal.tsx`
+- `PWAInstallButton.tsx`
+- `OfflineIndicator.tsx`
+
+### Existing domain models
+
+`src/types/als.ts`
+
+Including:
+
+- AlsProject
+- AlsTrack
+- AlsClip
+- MidiNoteEvent
+- Track DSP properties
+- Clip variations
+- Project tempo and loop properties
+- Raw and modified XML representations
+
+### Existing user-facing systems
+
+Preserve and improve:
+
+- Existing template selector
+- Existing `.als` uploader
+- `02. TECHNO LAYER GENERATOR`
+- Four underground techno layers
+- Anti-Slop Humanization
+- Eight-Macro Performance Rack
+- Arrangement View
+- Session View
+- MIDI Piano Roll
+- Device Rack Inspector
+- Master Spectrum Analyzer
+- Multi-touch Performance Grid
+- XML Diff Inspector
+- Python Exporter
+- PWA installability
+- Offline capabilities
+- WAV export
+- ALS export
+
+All existing user workflows must remain functional after modernization.
+
+---
+
+# 2. ZERO-REGRESSION UPGRADE FRAMEWORK
+
+## 2.1 Before modifying anything
+
+Perform a complete repository audit.
+
+Inspect actual source files, package versions, state ownership, audio scheduling, event listeners, Web Audio node lifecycle, XML transformations, persistence, and tests.
+
+Run the existing application.
+
+Capture baseline screenshots for all existing screens.
+
+Capture functional baseline behavior for:
+
+- Template selection
+- `.als` import
+- Layer regeneration
+- Play/Stop
+- Tempo adjustment
+- Humanization
+- Macro changes
+- Arrangement operations
+- Session clip launching
+- Audio playback
+- Effects
+- WAV export
+- ALS export
+- PWA offline behavior
+
+Create immutable baseline artifacts.
+
+### Required files
+
+`docs/audit/BASELINE_FUNCTIONALITY.md`
+
+`docs/audit/EXISTING_API_CONTRACTS.md`
+
+`docs/audit/REGRESSION_RISK_MATRIX.md`
+
+`docs/audit/KNOWN_FAILURES.md`
+
+`docs/audit/BASELINE_AUDIO_REFERENCES.md`
+
+`docs/audit/FEATURE_PARITY_MATRIX.md`
+
+`docs/audit/IMPLEMENTATION_PLAN.md`
+
+## 2.2 Preservation policy
+
+For every modification:
+
+1. Identify dependent modules.
+2. Identify the behavior being improved.
+3. Determine the root cause of the deficiency.
+4. Add a failing regression test where appropriate.
+5. Make the smallest architecturally sound change.
+6. Verify existing behavior.
+7. Run new tests.
+8. Measure performance impact.
+9. Confirm saved project compatibility.
+10. Document any intentional behavioral changes.
+
+Avoid rewriting entire subsystems solely to adopt new frameworks.
+
+## 2.3 Safe migration
+
+Introduce versioned project schemas and migrations.
+
+Preserve:
+
+- Old saved projects
+- Existing project identifiers
+- Track/clip references
+- Existing macro mappings
+- User settings
+- Local sample references
+- Generated seed metadata where available
+- Previously created automation
+- Existing project history where available
+
+Where data formats change, implement reversible or recoverable migrations.
+
+Keep a project snapshot before migration.
+
+Implement feature flags for major engine changes.
+
+Use regression gates and staged rollout.
+
+Do not silently introduce data-loss migrations.
+
+---
+
+# 3. CRITICAL ROOT-CAUSE ANALYSIS OF THE EXISTING DESIGN
+
+The following architectural assumptions must be challenged.
+
+## Assumption A — Randomization creates originality
+
+**Incorrect.**
+
+A seeded PRNG that changes a few note positions, velocities, or pitches may produce different MIDI data while generating essentially the same music.
+
+### Required correction
+
+Implement hierarchical musical generation with motif development, phrase variation, harmonic context, rhythmic structure, arrangement progression, and timbral evolution.
+
+## Assumption B — Four variations provide sufficient musical depth
+
+**Incorrect.**
+
+Four one-bar variations are inadequate for an advanced composition engine.
+
+### Required correction
+
+Support variable-duration phrases, motif families, independently evolving variations, and multi-section composition.
+
+## Assumption C — Every underground techno track uses the same structural template
+
+**Incorrect.**
+
+A constant intro-build-breakdown-drop-outro structure produces predictable arrangements.
+
+### Required correction
+
+Develop a structural composition planner capable of selecting or inventing musically coherent macroforms based on the project.
+
+## Assumption D — More random notes mean more creativity
+
+**Incorrect.**
+
+Unconstrained randomness often reduces groove, intent, and musical identity.
+
+### Required correction
+
+Use constrained novelty with coherent repetition, musical memory, controlled surprise, and phrase-level development.
+
+## Assumption E — A changed MIDI pattern is enough
+
+**Incorrect.**
+
+High-level music generation must coordinate notes, envelopes, sound design, effects, routing, spatial movement, and arrangement energy.
+
+### Required correction
+
+Generate a complete production plan, not just MIDI.
+
+## Assumption F — Gzip/XML export guarantees Ableton compatibility
+
+**Incorrect.**
+
+Native compatibility depends on valid version-specific device, automation, routing, and project structures.
+
+### Required correction
+
+Keep the existing Pako parser as a compatibility baseline while developing a loss-preserving, validated compiler with native fixture verification.
+
+## Assumption G — Browser Web Audio equals native Android low-latency audio
+
+**Incorrect.**
+
+Android devices differ in WebView performance, output latency, memory limits, and audio focus behavior.
+
+### Required correction
+
+Introduce a native Android audio path when browser-based playback cannot meet validated performance targets.
+
+## Assumption H — Estimated RMS can be labeled LUFS
+
+**Incorrect.**
+
+Replace approximate loudness labeling with a standards-based loudness measurement implementation, distinguishing LUFS from RMS and dBFS.
+
+## Assumption I — A 25 ms JavaScript scheduler is automatically sample-accurate
+
+**Incorrect.**
+
+Main-thread timers can be delayed by garbage collection, UI activity, and lifecycle changes.
+
+### Required correction
+
+Separate lookahead event preparation from actual audio-clock scheduling and audio-thread DSP.
+
+## Assumption J — Zero bugs and zero memory leaks can be promised
+
+**Not a verifiable absolute guarantee.**
+
+Implement aggressive defect prevention, leak detection, long-running stability tests, measurable performance budgets, and release-blocking severity policies instead.
+
+The engineering objective is zero known critical defects in released supported workflows, with supporting test evidence.
+
+---
+
+# 4. MOST CRITICAL FEATURE — 02. TECHNO LAYER GENERATOR 3.0
+
+**THIS IS THE HIGHEST-PRIORITY PRODUCT DIFFERENTIATOR.**
+
+The current layer generator must be replaced or substantially upgraded from a fixed heuristic generator into a **Project-Conditioned Generative Music Intelligence Engine**.
+
+The existing four-layer UI must remain intact and recognizable.
+
+Its underlying generation intelligence must be completely modernized.
+
+## 4.1 Mandatory behavior after every template or ALS selection
+
+Whenever the user selects:
+
+- Berghain 04:00 AM
+- Tresor Industrial Vault
+- Detroit Warehouse 1994
+- Any future template
+- Any imported `.als` project
+- Any saved Parametric ALS project
+
+the following sequence must execute:
+
+1. Load the selected source.
+2. Validate and preserve original data.
+3. Analyze the source musical structure.
+4. Extract available musical features.
+5. Determine musical identity.
+6. Analyze rhythm, harmony, groove, and energy.
+7. Identify existing layer roles.
+8. Identify musical gaps and conflicts.
+9. Determine suitable complementary techno layers.
+10. Construct a new context-aware generation plan.
+11. Generate distinct layer material.
+12. Analyze intra-layer and inter-layer repetition.
+13. Analyze compatibility with the selected project.
+14. Generate contextual sound-design and effects plans.
+15. Generate appropriate automation and modulation.
+16. Validate routing and sidechains.
+17. Produce the generated arrangement preview.
+18. Present musical reasoning and confidence.
+19. Allow selective regeneration and application.
+20. Update audible playback and editable MIDI/project state.
+
+### Important distinction
+
+Selection of a template must generate a fresh coherent musical identity by default.
+
+Selecting the same template again may create new musical material.
+
+Selecting an existing project must preserve its original material unless the user explicitly approves modifications.
+
+Automatically generate **new proposed layers**, not silently overwrite the imported track structure.
+
+## 4.2 Generation identity
+
+Every generation must create an explicit identity record including:
+
+- Project fingerprint
+- Generation ID
+- Primary seed
+- Layer-specific seeds
+- Phrase/section seeds
+- Template identity
+- Composition mode
+- BPM
+- Key/scale
+- Rhythmic characteristics
+- Harmonic characteristics
+- Energy profile
+- Density profile
+- Novelty metrics
+- Applied constraints
+- Generator version
+
+Do not use `humanization.seed + trackIndex` as the sole basis for composition.
+
+Separate composition seeds from humanization seeds.
+
+A user-requested exact seed replay must reproduce the same musical material under the same generator version and constraints.
+
+A fresh generation must use a new seed and undergo structural novelty validation.
+
+---
+
+# 5. ADVANCED PROJECT ANALYSIS ENGINE
+
+Before generating a single new note, perform an actual analysis of the selected source.
+
+## 5.1 MIDI analysis
+
+Extract:
+
+- Existing notes
+- Pitch distribution
+- Note durations
+- Onset positions
+- Rhythmic density
+- Velocity distributions
+- Accent positions
+- Repeated motifs
+- Phrase boundaries
+- Chord collections
+- Tonal centers
+- Harmonic ambiguity
+- Syncopation
+- Swing
+- Polyrhythms
+- Track roles
+- Repeated clip patterns
+- Sparse/dense sections
+- Section transitions
+
+## 5.2 Audio analysis
+
+When real audio data is available, analyze:
+
+- Transient onsets
+- Spectral centroid
+- Low-end activity
+- RMS
+- Loudness
+- Dynamic range
+- Frequency occupancy
+- Stereo activity
+- Rhythmic periodicity
+- Approximate BPM
+- Energy contour
+- Potential kick locations
+- Potential bass activity
+- Harmonic content where estimable
+
+Use FFT, onset detection, chroma, and other appropriate algorithms.
+
+Do not claim harmonic certainty from noisy or percussive audio.
+
+## 5.3 Structural analysis
+
+Analyze:
+
+- Project length
+- Active sections
+- Empty sections
+- Clip repetition
+- Instrument entrances/exits
+- Existing automation
+- Filter activity
+- Send activity
+- Breakdown candidates
+- Transition candidates
+- Groove changes
+- Energy peaks
+- Energy valleys
+
+## 5.4 Confidence-aware decisions
+
+Distinguish:
+
+- Confirmed source data
+- Reliable detected features
+- Probabilistic inferences
+- Creative proposals
+- Unsupported or unavailable information
+
+Example:
+
+If imported audio cannot be decoded, do not fabricate its key or drum content.
+
+Fall back to MIDI/project metadata and explain the reduced certainty.
+
+## 5.5 Project musical profile
+
+Build an internal `MusicalProjectProfile` containing:
+
+- Tempo map
+- Meter map
+- Tonal profile
+- Rhythm fingerprints
+- Existing motifs
+- Arrangement structure
+- Track roles
+- Groove profile
+- Layer density
+- Register occupancy
+- Energy contour
+- Existing FX activity
+- Sidechain graph
+- Musical constraints
+- Proposed complement opportunities
+- Confidence per feature
+
+All generated layers must reference this profile.
+
+---
+
+# 6. HIERARCHICAL COMPOSITION INTELLIGENCE
+
+Do not generate the entire track as unrelated random notes.
+
+Implement a hierarchical composition model:
+
+`Project Identity`
+` -> Composition Strategy`
+` -> Structural Form`
+` -> Section Plan`
+` -> Phrase Families`
+` -> Motifs`
+` -> Variations`
+` -> MIDI Notes`
+` -> Sound Design`
+` -> Automation`
+` -> Mix/Routing`
+` -> Validation`
+
+## 6.1 Composition strategies
+
+Provide multiple independent composition strategies:
+
+- Hypnotic repetition with evolving details
+- Asymmetric industrial polyrhythm
+- Minimal evolving groove
+- Dub-space composition
+- Dissonant mechanical sequences
+- Detroit-influenced melodic techno
+- Raw warehouse tension
+- Acid modulation
+- Sparse experimental techno
+- Percussion-driven rhythmic development
+- Dark atmospheric pressure
+- Peak-energy rolling techno
+
+Each strategy must have its own structural and musical constraints.
+
+Do not merely change the label and use the same generator.
+
+## 6.2 Motif development
+
+Support genuine musical transformations:
+
+- Inversion
+- Transposition
+- Interval transformation
+- Rotation
+- Rhythmic displacement
+- Augmentation
+- Diminution
+- Retrograde where musically useful
+- Accent displacement
+- Note omission
+- Note extension
+- Call-and-response
+- Sequence mutation
+- Conditional fills
+- Polyrhythmic displacement
+- Harmonic substitution
+- Register movement
+- Counter-rhythm creation
+- Tension-note introduction
+- Controlled motif reduction
+
+## 6.3 Phrase architecture
+
+Support:
+
+- One-bar cells
+- Two-bar motifs
+- Three-bar phrases
+- Four-bar phrases
+- Five-bar asymmetrical phrases
+- Eight-bar phrases
+- Sixteen-bar structures
+- Longer evolving phrases
+
+Do not constrain everything to four-bar or sixteen-step loops.
+
+## 6.4 Controlled repetition
+
+Underground techno requires purposeful repetition.
+
+Do not eliminate repetition entirely.
+
+Instead:
+
+- Preserve recognizable groove identity.
+- Evolve selected parameters.
+- Introduce meaningful variations.
+- Maintain rhythmic tension.
+- Allow intentional minimalism.
+- Avoid accidental copied arrangements.
+- Avoid aimless constant novelty.
+
+The goal is **high musical identity and low unwanted redundancy**, not maximum randomness.
+
+---
+
+# 7. MEASURABLE NOVELTY AND REPETITION DETECTION
+
+Every newly generated composition must be evaluated before acceptance.
+
+## 7.1 Musical fingerprinting
+
+Generate fingerprints using:
+
+- Onset distributions
+- Pitch-class distributions
+- Note intervals
+- Duration sequences
+- Velocity/accent contours
+- Chord sequences
+- Phrase boundaries
+- Section arrangements
+- Automation shapes
+- Instrument entrance patterns
+- Production density profiles
+
+Represent rhythm and harmony separately.
+
+## 7.2 Comparison targets
+
+Compare every generation against:
+
+1. The selected source project.
+2. Existing tracks in that project.
+3. Previously generated variations.
+4. Existing motifs in the new arrangement.
+5. Recent generations from the same template.
+6. Previous outputs with the same composition strategy.
+7. Optional user-authorized personal project history.
+
+## 7.3 Similarity methods
+
+Implement an ensemble of:
+
+- Onset-set similarity
+- Weighted Jaccard similarity
+- Sequence alignment
+- Edit distance
+- Dynamic time warping where appropriate
+- N-gram similarity
+- Rhythmic edit distance
+- Harmonic sequence similarity
+- Self-similarity matrices
+- Phrase-level structure comparison
+
+Avoid treating two musically equivalent transpositions as completely unrelated simply because pitches differ.
+
+## 7.4 Novelty score
+
+Create normalized sub-scores:
+
+- Rhythmic novelty
+- Harmonic novelty
+- Motif novelty
+- Arrangement novelty
+- Sound-design novelty
+- Automation novelty
+- Source compatibility
+- Musical coherence
+
+Use a calibrated aggregate quality score.
+
+Do not treat one arbitrary numeric threshold as objective proof of originality.
+
+## 7.5 Rejection and regeneration
+
+If a fresh generation is excessively similar to a previous output, attempt constrained regeneration.
+
+Change the underlying compositional strategy or motif family when necessary.
+
+Do not solve similarity by merely shifting every note by one semitone or randomizing velocity.
+
+Set a bounded generation budget and show a transparent result when all candidates are unsuitable.
+
+Never freeze the UI in an infinite regeneration loop.
+
+## 7.6 Testing uniqueness
+
+Generate large candidate sets across multiple project types and templates.
+
+Measure:
+
+- Exact duplicate rate
+- Near-duplicate rate
+- Motif reuse
+- Arrangement-structure diversity
+- Harmonic diversity
+- Rhythmic diversity
+- Cross-layer coherence
+- Subjective musical quality
+
+Use human listening evaluation alongside algorithmic scoring.
+
+A mathematically different composition that sounds identical must not be classified as a successful creative variation.
+
+---
+
+# 8. FOUR CORE TECHNO LAYERS — COMPLETELY UPGRADED
+
+Preserve the four current layer controls.
+
+Make every layer context-aware, independently evolving, and musically complementary.
+
+## 8.1 RUMBLE SUB BASS INTELLIGENCE
+
+Existing target:
+
+`Operator -> Reverb -> EQ Eight -> Sidechain Compressor`
+
+Upgrade to include:
+
+- Root-aware bass design
+- Kick-derived rumble
+- Sub-note variation
+- Rhythmic bass phrasing
+- Rolling 16th-note variants
+- Offbeat rumble patterns
+- Asymmetric bass phrases
+- Harmonic tension
+- Bass rests
+- Controlled octave jumps
+- Sub decay evolution
+- Filter envelope evolution
+- Sidechain-aware amplitude shaping
+- Mono-compatible bass management
+- Low-frequency masking detection
+- Rumble tail overlap control
+- Optional dub/industrial saturation
+
+The generator must analyze existing kick positions before creating bass notes.
+
+Prevent unacceptable low-frequency collisions.
+
+When the source already contains a strong bassline, generate complementary material rather than duplicating the same rhythmic role.
+
+## 8.2 INDUSTRIAL POLYRHYTHM INTELLIGENCE
+
+Existing target:
+
+`Collision -> Drum Buss -> Erosion -> Saturator`
+
+Upgrade with:
+
+- Euclidean rhythms
+- 3:4 and 5:4 relationships
+- 3/16 and 5/16 structures
+- Seven-step cycles
+- Variable phrase lengths
+- Rotating accent patterns
+- Cross-rhythms
+- Metallic FM synthesis
+- Resonator tuning
+- Mechanical textures
+- Controlled irregularity
+- Ghost percussion
+- Velocity dynamics
+- Ratchets
+- Microtiming
+- Negative space
+- Multi-layer call-and-response
+
+Generate patterns that interact with the existing drums.
+
+Do not produce identical percussion every bar.
+
+Do not fill every gap with a note.
+
+Generate purposeful rhythmic pressure.
+
+## 8.3 HYPNOTIC DUB SYNTH INTELLIGENCE
+
+Existing target:
+
+`Wavetable -> Echo -> Auto Pan`
+
+Upgrade with:
+
+- Context-aware chord detection
+- Scale-aware harmony
+- Minor, Dorian, and Phrygian vocabulary
+- Modal ambiguity
+- Dissonant tension
+- Chord inversions
+- Voice leading
+- Suspensions
+- Reduced voicings
+- Harmonic substitutions
+- Non-standard chord spacing
+- Chord omissions
+- Rhythmic displacement
+- Multi-bar harmonic evolution
+- Filter motion
+- Echo feedback automation
+- Stereo movement
+- Phrase-based modulation
+
+The generator must not continuously output the same minor triad.
+
+It must support sparse one-note, two-note, three-note, and more complex voicings based on musical context.
+
+Do not force a tonal chord progression into an intentionally atonal or percussion-driven project.
+
+## 8.4 909 HATS AND GHOST GROOVE INTELLIGENCE
+
+Existing target:
+
+`Simpler -> Overdrive -> Auto Filter`
+
+Upgrade with:
+
+- Open/closed hat interaction
+- Choke groups
+- Offbeat patterns
+- Ghost hits
+- Sixteenth-note structures
+- Irregular rhythmic accents
+- Humanized velocity
+- Groove-aware swing
+- Hat decay evolution
+- Controlled note probability
+- Transient variation
+- Filter automation
+- Stereo movement
+- Fill generation
+- Sparse breakdown behavior
+- Phrase-level variation
+
+Do not rely exclusively on fixed 0.5/1.5/2.5/3.5 beat positions.
+
+Maintain genre-appropriate offbeat energy while varying articulation, rhythmic omissions, ghost placement, and phrase structure.
+
+---
+
+# 9. DYNAMIC ARRANGEMENT GENERATION ENGINE
+
+Every generated arrangement must be compositionally coherent and structurally distinctive.
+
+Remove the assumption that every project has a fixed 16-bar duration.
+
+## 9.1 Configurable length
+
+Support:
+
+- 16 bars
+- 32 bars
+- 64 bars
+- 96 bars
+- 128 bars
+- 192 bars
+- 256 bars
+- 384 bars
+- Custom length
+
+Support duration-based targets such as a full DJ-ready track.
+
+## 9.2 Structural strategies
+
+Generate multiple alternative arrangement forms.
+
+Examples:
+
+### Hypnotic long-form
+
+Gradual rhythmic entrance, evolving groove, extended tension, subtle breakdown, pressure rebuilding, minimal outro.
+
+### Industrial assault
+
+Immediate percussion pressure, sparse bass entries, abrupt structural edits, mechanical transitions, distortion climax, fractured outro.
+
+### Deep dub evolution
+
+Atmospheric introduction, delayed harmonic development, spacious groove, subtle automation peaks, extended hypnotic middle, gradual deconstruction.
+
+### Detroit-derived mechanical funk
+
+Groove-first introduction, syncopated bass, evolving chord accents, rhythmic variation, melodic tension, groove-focused return.
+
+### Asymmetric experimental form
+
+Unequal sections, irregular transitions, evolving meters or phrase lengths where appropriate, controlled structural surprise.
+
+These are starting strategy families, not fixed blueprints.
+
+## 9.3 Structural planner
+
+Create a section graph containing:
+
+- Section role
+- Start/end
+- Target energy
+- Harmonic activity
+- Percussion density
+- Bass density
+- Active layers
+- Transition strategy
+- Automation plan
+- FX plan
+- Expected tension
+
+Allow multiple energy peaks and nontraditional forms.
+
+## 9.4 Section-level development
+
+Each section must contain purposeful events.
+
+Examples:
+
+- Instrument introduction
+- Instrument removal
+- Accent shift
+- Motif variation
+- Filter opening
+- Send increase
+- Delay feedback gesture
+- Drum fill
+- Bass dropout
+- Stereo narrowing/widening
+- Automation transition
+- Short silence
+- Textural change
+
+Do not use all events in every section.
+
+Select events that serve the arrangement.
+
+## 9.5 Arrangement originality
+
+Compare newly generated section graphs to previous outputs.
+
+Vary:
+
+- Section count
+- Section length
+- Section ordering
+- Entrance patterns
+- Breakdown placement
+- Peak placement
+- Layer orchestration
+- Transition methods
+- Energy contour
+- Harmonic development
+- Automation architecture
+
+Do not label a new arrangement unique merely because its BPM changed.
+
+---
+
+# 10. AI SOUND DESIGN AND EFFECTS INTELLIGENCE
+
+Each generated layer must have a meaningful sound-design plan.
+
+Generate effects based on the musical purpose of that layer.
+
+## 10.1 Sound design planning
+
+Analyze:
+
+- Instrument function
+- Frequency register
+- Existing spectral occupancy
+- Rhythmic density
+- Required dynamic range
+- Spatial role
+- Existing processing
+- Section energy
+- Intended production aesthetic
+
+## 10.2 Device chains
+
+Support independently implemented functional audio effects and verified Ableton-native device mappings.
+
+### Rumble chain example
+
+`Sub Instrument -> Saturation -> Reverb -> EQ -> Sidechain Compressor -> Utility`
+
+### Industrial chain example
+
+`FM Percussion -> Resonator -> Erosion -> Drum Buss -> Saturation -> EQ`
+
+### Dub chain example
+
+`Synth -> Filter -> Chorus -> Echo -> Reverb -> Auto Pan -> Utility`
+
+### Hat chain example
+
+`Sample Instrument -> Filter -> Overdrive -> Transient/Envelope Processing -> Stereo Utility`
+
+These are candidate chains.
+
+Do not always generate exactly these chains.
+
+The intelligence engine must select, omit, reorder, and parameterize effects according to project context and device compatibility.
+
+## 10.3 Effect selection reasoning
+
+For every device, record:
+
+- Why it was selected
+- Why it belongs on the layer
+- Why it occupies its chain position
+- Expected audible outcome
+- Parameter values
+- Parameter ranges
+- Automation targets
+- CPU cost
+- Interoperability status
+- Risk of clipping or feedback
+
+## 10.4 Real-time verification
+
+Every generated device must process real audio.
+
+Changing a knob must modify DSP output.
+
+Bypass must affect output correctly.
+
+Effect parameters must be automatable, serializable, and reloadable.
+
+## 10.5 Intelligent mix balancing
+
+Provide recommendations for:
+
+- Kick/bass separation
+- Frequency masking
+- Low-end mono compatibility
+- Dynamic range
+- Reverb buildup
+- Excessive delay feedback
+- Stereo imbalance
+- Clipping
+- Layer over-density
+- Perceived loudness
+- Energy progression
+
+Never apply destructive mastering operations without user approval.
+
+---
+
+# 11. GENERATIVE AUTOMATION INTELLIGENCE
+
+The AI must produce professional, context-sensitive automation, not generic linear sweeps.
+
+## 11.1 Automation categories
+
+Support:
+
+- Filter cutoff
+- Resonance
+- Volume
+- Pan
+- Stereo width
+- Distortion
+- Reverb send
+- Delay send
+- Delay feedback
+- Reverb wet/dry
+- Decay
+- Saturator drive
+- Compressor threshold
+- Sidechain depth
+- Rack macros
+- Synth oscillator parameters
+- Modulation depth
+- Tempo
+- Additional supported automatable controls
+
+## 11.2 Musical automation strategies
+
+Generate:
+
+- Slow hypnotic movement
+- Rhythmic pumping
+- Phrase-end modulation
+- Tension risers
+- Controlled breakdown sweeps
+- Short FX gestures
+- Dub feedback transitions
+- Industrial saturation movement
+- Stereo narrowing before impact
+- Filter breathing
+- Gradual texture evolution
+- Event-triggered modulation
+- Macro snapshot transitions
+
+## 11.3 Automation constraints
+
+Automation must:
+
+- Respect parameter ranges.
+- Avoid unintended clipping.
+- Avoid dangerous feedback.
+- Follow musical phrase boundaries.
+- Support tempo-aware timing.
+- Preserve original automation when importing projects.
+- Produce real audible changes.
+- Be editable in Arrangement.
+- Support undo and persistence.
+- Render correctly offline.
+- Export to verified native `.als` structures when supported.
+
+## 11.4 Separate automation and modulation
+
+Implement distinct models for:
+
+- Parameter base value
+- Arrangement automation
+- Clip automation
+- Clip modulation
+- LFO modulation
+- Macro influence
+- Manual temporary overrides
+- Recording state
+
+Document precedence and composition rules.
+
+Do not destructively overwrite the base parameter when modulation runs.
+
+## 11.5 Automation preview
+
+Display:
+
+- Existing automation
+- Generated automation
+- Proposed changes
+- Applied automation
+- Parameter values
+- Exact bar positions
+- Compatible target devices
+
+Provide A/B listening and selective apply.
+
+---
+
+# 12. PROFESSIONAL DAW FUNCTIONAL PARITY
+
+Expand the current application to cover Ableton Live 12-class workflows.
+
+Use the official Live 12 manual as the authoritative feature inventory.
+
+Do not implement a generic simplified interpretation.
+
+## 12.1 Arrangement
+
+Implement complete:
+
+- Track creation
+- Grouping
+- Nested grouping
+- Reordering
+- Clip editing
+- Audio/MIDI clips
+- Waveform rendering
+- Looping
+- Snap
+- Zoom
+- Scrubbing
+- Locators
+- Tempo maps
+- Recording
+- Comping
+- Take lanes
+- Crossfades
+- Freeze/bounce equivalents
+- Time insertion/deletion
+- Automation lanes
+- Device access
+- Track routing
+
+## 12.2 Session
+
+Implement:
+
+- Clip launch matrix
+- Quantized launching
+- Scene launching
+- Follow Actions
+- Recording
+- Clip overdub
+- Session-to-Arrangement recording
+- Track overrides
+- Return to Arrangement
+- Clip envelopes
+- Loop control
+- Launch modes
+
+## 12.3 MIDI Piano Roll
+
+Implement:
+
+- Arbitrary clip length
+- Note drawing
+- Selection
+- Resize
+- Duplicate
+- Move
+- Quantize
+- Transpose
+- Chord editing
+- Velocity editing
+- Probability
+- MPE
+- Scale awareness
+- Microtonal tuning where supported
+- Multi-clip editing
+- MIDI transformations
+- MIDI generators
+
+## 12.4 MIDI Tools
+
+Implement functional equivalents for relevant Live 12 tools:
+
+- Arpeggiate
+- Connect
+- Ornament
+- Quantize
+- Recombine
+- Span
+- Strum
+- Time Warp
+- Rhythm
+- Seed
+- Shape
+- Stacks
+- Euclidean
+- Appropriate MPE transformations
+
+## 12.5 Instruments
+
+Develop real DSP instruments covering:
+
+- Subtractive synthesis
+- FM synthesis
+- Wavetable synthesis
+- Sampling
+- Multisampling
+- Drum synthesis
+- Physical modeling
+- Granular synthesis
+- Experimental synthesis
+- Polyphonic and MPE performance
+
+Use Ableton's Analog, Collision, Drift, Electric, Meld, Operator, Sampler, Simpler, Tension, and Wavetable as functional references.
+
+## 12.6 Audio effects
+
+Implement comprehensive functional effect categories:
+
+- Parametric EQ
+- Channel EQ
+- Compressor
+- Glue-style compression
+- Multiband dynamics
+- Limiter
+- Gate
+- Auto Filter
+- Auto Pan
+- Saturation
+- Distortion
+- Overdrive
+- Amp/Cabinet modeling
+- Delay
+- Echo
+- Ping-pong delay
+- Reverb
+- Convolution reverb
+- Chorus
+- Phaser
+- Flanger
+- Vocoder
+- Resonator
+- Beat Repeat
+- Grain delay
+- Frequency shifting
+- Spectral processing
+- Utility
+- Stereo controls
+- Spectrum
+- Tuner
+
+Build working DSP processors, not device-name placeholders.
+
+## 12.7 Racks
+
+Implement:
+
+- Instrument Rack
+- Drum Rack
+- Audio Effect Rack
+- MIDI Effect Rack
+- Parallel chains
+- Nested racks
+- Key zones
+- Velocity zones
+- Chain selection
+- Macro mapping
+- Macro variations
+- Preset save/load
+- Automation
+
+## 12.8 Mixer
+
+Implement:
+
+- Mute/Solo
+- Arm
+- Volume
+- Pan
+- Sends
+- Returns
+- Groups
+- Master bus
+- Crossfader
+- Monitoring
+- Routing
+- Sidechains
+- Gain meters
+- Delay compensation
+
+## 12.9 Groove and audio
+
+Implement:
+
+- Groove Pool
+- Swing
+- Groove extraction
+- Audio warping
+- Warp marker editing
+- Reverse
+- Fades
+- Sample slicing
+- Audio-to-MIDI where supported
+- Stem separation where appropriately integrated
+- Recording
+- Resampling
+- Offline bounce
+
+## 12.10 Plug-ins
+
+Provide a proper browser-native AudioWorklet/WASM plugin architecture.
+
+Support desktop-native VST3/AU through an appropriate optional native host rather than claiming direct browser execution.
+
+Treat Max for Live as a separate licensed/runtime interoperability problem.
+
+All unsupported compatibility must be clearly labeled.
+
+---
+
+# 13. UI/UX MODERNIZATION — ORIGINAL BUT DAW-PRECISE
+
+Maintain the Industrial Berghain dark aesthetic.
+
+Existing palette:
+
+- `#0B0D10`
+- `#12161B`
+- `#F59E0B`
+- `#06B6D4`
+
+Upgrade the interface into a cohesive studio environment with professional control density.
+
+## 13.1 Mandatory workspace areas
+
+- Top Transport
+- Left Browser
+- Arrangement
+- Session
+- Track Headers
+- Mixer
+- Bottom Piano Roll/Clip Editor
+- Device Rack
+- Automation Lanes
+- Right Inspector
+- AI Composer
+- Sidechain Studio
+- XML/ALS Diagnostics
+
+Do not use dashboard cards as substitutes for DAW editing surfaces.
+
+## 13.2 Interaction precision
+
+Every control must work through:
+
+`UI -> Validated Command -> Project State -> Audio/MIDI Engine -> Visual State -> Persistence`
+
+Support:
+
+- Single-click
+- Double-click
+- Right-click
+- Drag
+- Multi-select
+- Keyboard shortcuts
+- Scroll
+- Zoom
+- Context menu
+- Touch gestures
+- Undo/Redo
+
+## 13.3 Consistency
+
+One project must produce identical musical positions in:
+
+- Arrangement
+- Session
+- Piano Roll
+- Automation
+- Audio scheduler
+- XML inspector
+- Exporter
+
+No independent incorrect BPM state.
+
+No visual clips disconnected from project data.
+
+No missing groups.
+
+No fake waveforms.
+
+No dead effect controls.
+
+## 13.4 Reference fidelity
+
+Use Ableton Live 12 to validate workflow behavior and efficient information layout.
+
+Implement an independently branded interface rather than copying proprietary artwork or using static Ableton screenshots as UI.
+
+The objective is professional functional parity and precise behavior, supported by visual regression tests.
+
+---
+
+# 14. SINGLE CANONICAL PROJECT AND AUDIO MODEL
+
+Replace contradictory state ownership with a unified architecture.
+
+Recommended modules:
+
+- ProjectGraph
+- MusicalProjectProfile
+- CompositionPlanner
+- LayerGenerator
+- PhraseGenerator
+- ArrangementPlanner
+- SoundDesignPlanner
+- AutomationPlanner
+- NoveltyValidator
+- AudioEngine
+- TransportScheduler
+- MixerGraph
+- DeviceGraph
+- ALSCompiler
+- ExportValidator
+- ProjectPersistence
+- AndroidAudioBridge
+
+## 14.1 Data flow
+
+`Template/ALS Selection`
+
+` -> Import/Parse`
+
+` -> Canonical ProjectGraph`
+
+` -> Musical Feature Analysis`
+
+` -> MusicalProjectProfile`
+
+` -> Composition Planning`
+
+` -> Layer/Motif/Phrase Generation`
+
+` -> Arrangement Planning`
+
+` -> Sound/FX/Automation Planning`
+
+` -> Novelty + Musical Validation`
+
+` -> Preview Project Revision`
+
+` -> User Approval`
+
+` -> Canonical Project Mutation`
+
+` -> Real-Time Audio + UI Synchronization`
+
+` -> Save/Render/Export`
+
+## 14.2 Immutable proposal behavior
+
+AI generation must operate on a preview revision.
+
+The user can:
+
+- Preview
+- Compare
+- Regenerate
+- Keep selected motifs
+- Lock tracks
+- Lock sections
+- Accept
+- Reject
+- Undo
+
+Imported ALS structures remain untouched until compatible operations are approved.
+
+---
+
+# 15. SAFE ABLETON ALS ENGINE MODERNIZATION
+
+Preserve the current Pako/DOM parser during migration.
+
+Do not abruptly remove it.
+
+However, correct its architectural limitations.
+
+## 15.1 Import safety
+
+- Validate gzip magic.
+- Limit decompression resources.
+- Reject malformed XML.
+- Disable unsafe entity resolution.
+- Detect Live version.
+- Preserve unknown nodes.
+- Preserve residual attributes.
+- Preserve original source.
+- Build semantic project representation.
+- Detect missing samples.
+- Detect unsupported structures.
+
+## 15.2 Native device safety
+
+Do not directly invent `<DeviceChain>`, `<Operator>`, `<Lfo>`, or compressor XML structures merely because they appear plausible.
+
+Use verified version-specific templates generated from authorized actual Live fixtures.
+
+## 15.3 Typed operations
+
+Support:
+
+- Add track
+- Add clip
+- Insert MIDI notes
+- Modify notes
+- Add automation
+- Configure routing
+- Configure sidechain
+- Add verified native device
+- Modify verified device parameter
+- Change track volume/pan
+- Create return track
+- Update tempo with explicit approval
+
+## 15.4 Validation
+
+Run the full Project Cadence invariant set.
+
+Verify:
+
+- IDs
+- Track hierarchy
+- Routing
+- Sidechains
+- Automation references
+- Clip timing
+- UnknownSubtree preservation
+- Device ordering
+- Master uniqueness
+- Semantic re-import consistency
+
+## 15.5 Compatibility honesty
+
+Separate:
+
+- Parse supported
+- Inspect supported
+- Edit supported
+- Native export supported
+- Actual Ableton reopen verified
+
+No false compatibility labels.
+
+---
+
+# 16. NATIVE ANDROID APPLICATION MIGRATION
+
+**This is a complete additional product deliverable, not only mobile-responsive CSS.**
+
+Build an installable Android app with native packaging, device lifecycle support, local files, and validated audio performance.
+
+## 16.1 Migration strategy
+
+Preserve the current React/Vite application and share as much tested business logic as practical.
+
+Preferred initial packaging:
+
+**Capacitor Android + existing React frontend**
+
+Use:
+
+- Android Studio
+- Kotlin
+- Android SDK
+- Gradle
+- Capacitor
+- Android WebView
+- Native platform bridges
+- AndroidX adaptive libraries where needed
+
+For low-latency audio workloads, add a native DSP/audio service using:
+
+- Oboe
+- AAudio
+- Native C++ or compatible Rust DSP integration
+- Android NDK when justified
+
+Do not migrate every working React component to Kotlin simply to create an APK.
+
+## 16.2 Shared engine architecture
+
+Use:
+
+`Shared ProjectGraph`
+
+`Shared Composition Engine`
+
+`Shared MIDI/Automation Contracts`
+
+`Shared Presets`
+
+`Shared Validation Logic`
+
+with platform-specific audio backends.
+
+Browser:
+
+`AudioWorklet/Web Audio`
+
+Android native when needed:
+
+`Oboe/AAudio Native DSP`
+
+Both backends must produce compatible musical behavior.
+
+Avoid two unrelated composition engines.
+
+## 16.3 Native Android capabilities
+
+Implement:
+
+- File picker
+- `.als` import
+- MIDI import
+- Audio sample import
+- Local project save
+- Storage Access Framework
+- Project export
+- WAV export
+- Share sheet
+- Android audio focus
+- Audio route change detection
+- Headphones/Bluetooth handling
+- Sample-rate handling
+- Device interruption recovery
+- Screen lock behavior
+- App background/foreground lifecycle
+- MIDI controller access where supported
+- Persistent project recovery
+- Crash reporting with privacy controls
+
+Use minimal Android permissions.
+
+Do not request unrelated device access.
+
+## 16.4 Android phone UI
+
+Create purpose-built mobile views for:
+
+- Arrangement
+- Session
+- Step sequencer
+- Piano Roll
+- Mixer
+- Device macros
+- Performance pads
+- AI Composer
+- Automation
+- Export
+- Project manager
+
+Use bottom navigation, adaptive drawers, and touch-optimized detail panels.
+
+Do not simply render the 1920px desktop workspace scaled down.
+
+## 16.5 Android tablet UI
+
+Implement a complete professional tablet layout.
+
+Use available window dimensions rather than device-name assumptions.
+
+For larger layouts, support:
+
+- Arrangement with visible track inspector
+- Resizable split panes
+- Mixer plus Device View
+- Piano Roll plus selected device
+- Multi-touch interaction
+- Drag-and-drop where supported
+- Landscape and portrait
+- Keyboard/mouse input
+- External display behavior where supported
+
+## 16.6 Foldables
+
+Support:
+
+- Folded phone layout
+- Unfolded tablet layout
+- Half-open posture where relevant
+- Multi-window
+- Dynamic resizing
+- Rotation
+- Changing density
+- State restoration
+
+Opening or folding the device must not silently reset the project or audio state.
+
+## 16.7 Native performance
+
+Avoid:
+
+- Main-thread audio processing
+- Unbounded node allocation
+- Repeated AudioContext creation
+- Background timers leaking
+- Persistent invisible canvas loops
+- Excessive React rerenders
+- Unreleased decoded buffers
+- Unreleased WebGL textures
+- Repeated event listeners
+- Worklets surviving after project disposal
+
+## 16.8 Battery and thermal behavior
+
+Implement:
+
+- Adaptive analyzer frame rate
+- Low-power UI mode
+- Reduced background rendering
+- Worker suspension when idle
+- Memory-aware sample caching
+- CPU load monitoring
+- Audio-buffer management
+- Thermal-aware non-audio workload reduction
+
+Never sacrifice transport correctness merely to maintain decorative visual animation.
+
+## 16.9 Deliverables
+
+Produce:
+
+- Android Studio project
+- Debug APK
+- Release-ready signed build workflow
+- AAB build
+- App icons
+- Adaptive icons
+- Splash assets
+- Permissions documentation
+- Device testing matrix
+- Play Store readiness checklist
+- Installation instructions
+
+Do not claim a signed release artifact exists unless signing is actually configured and the build succeeds.
+
+---
+
+# 17. MEMORY LEAK, CPU, AUDIO, AND STABILITY FRAMEWORK
+
+Establish explicit performance budgets using real reference devices.
+
+## 17.1 Memory management
+
+Audit:
+
+- AudioContext lifecycle
+- Oscillator nodes
+- Buffer sources
+- Gain nodes
+- Analyser nodes
+- Event subscriptions
+- Web Workers
+- AudioWorklets
+- Canvas animation loops
+- WebGL resources
+- Cached audio buffers
+- Decoded samples
+- Project snapshots
+- Generator history
+- DOM references
+- Pending promises
+
+Every resource must have an ownership and disposal strategy.
+
+## 17.2 Audio resource lifecycle
+
+On track removal:
+
+- Stop associated voices safely.
+- Cancel pending events.
+- Disconnect unused nodes.
+- Release references.
+- Remove automation subscriptions.
+- Rebuild routing safely.
+
+On project change:
+
+- Stop old scheduling.
+- Dispose old project-scoped audio graphs.
+- Cancel pending regeneration.
+- Unload obsolete samples.
+- Initialize the new graph.
+- Restore transport only when appropriate.
+
+## 17.3 Performance tests
+
+Test:
+
+- 30-minute playback
+- 60-minute playback
+- Repeated template selection
+- 100 repeated project changes
+- Repeated `.als` imports
+- Hundreds of generation requests
+- Heavy automation playback
+- Repeated WAV exports
+- Rotation changes
+- App background/foreground cycles
+- Audio route changes
+- Large-screen resizing
+- Sample loading/unloading
+- Rapid navigation between screens
+
+## 17.4 Memory acceptance
+
+Use Android Studio Memory Profiler, heap analysis, allocation tracking, and relevant leak detectors.
+
+Establish baseline and steady-state memory after warmup.
+
+After repeated identical workflows, verify that retained memory does not grow without bound.
+
+Investigate statistically significant monotonic retained-memory growth.
+
+Distinguish actual leaks from normal caches, allocator behavior, and garbage collection.
+
+## 17.5 Crash and ANR prevention
+
+Track:
+
+- Crash rate
+- ANR rate
+- OOM events
+- Audio underruns
+- Fatal worker errors
+- Invalid project state
+- Export failures
+- UI thread stalls
+
+Release must be blocked by known critical crashes, data-loss paths, or unresolved severe stability regressions.
+
+---
+
+# 18. ADVANCED QUALITY ASSURANCE AND ROOT-CAUSE ENGINEERING
+
+Use a structured engineering framework for every problem.
+
+## 18.1 Investigation protocol
+
+For every issue:
+
+**Observe -> Reproduce -> Collect Evidence -> Form Hypotheses -> Challenge Assumptions -> Identify Root Cause -> Design Fix -> Implement -> Verify -> Regression Test -> Measure Impact**
+
+Do not patch symptoms without understanding ownership and cause.
+
+## 18.2 Required RCA fields
+
+- Issue ID
+- Description
+- Reproduction steps
+- Expected behavior
+- Actual behavior
+- Environment
+- Root cause
+- Contributing factors
+- Defective module
+- Fix strategy
+- Risk
+- Test cases
+- Regression coverage
+- Performance impact
+- Verification result
+
+## 18.3 Contrarian review
+
+Before accepting a solution, answer:
+
+1. Does the proposed change solve the actual root cause?
+2. Could it break working functionality?
+3. Does it unnecessarily increase complexity?
+4. Is there a simpler verified implementation?
+5. Is the new behavior audibly correct?
+6. Is the result musically useful?
+7. Does it preserve data?
+8. Does it work offline?
+9. Does it work on Android?
+10. Is there a hidden resource cost?
+11. Can it be regression-tested?
+12. Are any compatibility claims unsupported?
+
+## 18.4 Required test layers
+
+- Unit tests
+- Contract tests
+- Property-based tests
+- Integration tests
+- Audio DSP tests
+- MIDI tests
+- Musical novelty tests
+- AI constraint tests
+- ALS round-trip tests
+- Visual regression tests
+- End-to-end tests
+- Android instrumentation tests
+- Performance tests
+- Memory leak tests
+- Failure-injection tests
+- Native compatibility tests
+
+---
+
+# 19. MANDATORY CREATIVE ACCEPTANCE TESTS
+
+## TEST GEN-001 — Same template, repeated generation
+
+Select Berghain 04:00 AM.
+
+Generate at least 100 fresh projects using different seeds.
+
+Verify:
+
+- Unique generation identity
+- No accidental exact duplicate musical fingerprints
+- Multiple distinct motif structures
+- Multiple meaningful arrangement forms
+- Variation in harmony and rhythm
+- Variation in automation
+- Variation in layer orchestration
+- Musical coherence
+
+Review near-duplicates using similarity analysis and listening.
+
+## TEST GEN-002 — Different template identities
+
+Generate projects from all three starter templates.
+
+Verify differences in:
+
+- Groove
+- Rhythmic architecture
+- Harmonic vocabulary
+- Instrument choices
+- Arrangement development
+- FX processing
+- Energy contour
+- Automation behavior
+
+Do not accept the same generated MIDI with different preset names.
+
+## TEST GEN-003 — ALS-conditioned composition
+
+Import a real project with an existing kick, bass, and percussion.
+
+Generate new layers.
+
+Verify:
+
+- Correct source BPM
+- Existing musical structure preserved
+- Source rhythm considered
+- Existing bass role detected
+- Generated bass does not simply copy source
+- New percussion complements existing patterns
+- Harmony respects known project context
+- Effects account for existing tracks
+- Automation follows project sections
+
+## TEST GEN-004 — Intentional creative variation
+
+Lock the kick and bass.
+
+Regenerate percussion and synth.
+
+Verify:
+
+- Locked material unchanged
+- New percussion is meaningfully different
+- New harmony is coherent
+- Existing routing remains valid
+- Automation changes appropriately
+
+## TEST GEN-005 — Complete arrangement variation
+
+Generate multiple full-length tracks using the same stylistic preset with different seeds.
+
+Verify:
+
+- Different motif development
+- Different transitions
+- Different section durations
+- Different tension structures
+- Different layer entrances
+- Different automation evolution
+
+## TEST GEN-006 — Musical quality
+
+Perform producer-listening evaluations.
+
+Assess:
+
+- Groove
+- Originality
+- Tension
+- Coherence
+- Layer interaction
+- Sound design
+- Mix quality
+- Arrangement progression
+- Repetition quality
+- DJ usability
+
+Record human assessment separately from machine novelty metrics.
+
+## TEST GEN-007 — Deterministic reproducibility
+
+Generate using fixed seed, fixed project revision, and fixed generator version.
+
+Repeat generation.
+
+Verify equivalent results.
+
+## TEST GEN-008 — Performance
+
+Run repeated generation on desktop and supported Android devices.
+
+Verify:
+
+- No application freeze
+- Bounded execution
+- Cancelable generation
+- Proper memory release
+- No stale generated results after changing projects
+- Correct progress/error reporting
+
+---
+
+# 20. MANDATORY DAW FUNCTIONAL TESTS
+
+Every visible control must be verified through actual user behavior.
+
+## Automation
+
+Create MIDI, draw cutoff automation, play, measure frequency change, save, reload, and render.
+
+## Effects
+
+Insert effect, change controls, verify audible output, bypass, automate, save, and reload.
+
+## Mixer
+
+Adjust volume, pan, mute, solo, and sends.
+
+Verify actual signal changes.
+
+## Session
+
+Launch clips and scenes with correct quantization.
+
+Verify playback.
+
+## Arrangement
+
+Move, resize, duplicate, and split clips.
+
+Verify timing and audio.
+
+## Rack
+
+Build multiple chains and map macros.
+
+Verify each chain processes audio.
+
+## AI
+
+Generate a pattern, apply it, edit notes, play, save, and export.
+
+## ALS
+
+Import, inspect, modify through verified operations, validate, export, and reopen.
+
+## WAV
+
+Render supported project content to actual 24-bit PCM and validate the file header, sample count, duration, and audible result.
+
+## Android
+
+Install APK, import project, generate layers, play audio, edit automation, save, reopen, and export.
+
+No UI-only simulation is acceptable.
+
+---
+
+# 21. TECHNOLOGY AND RESEARCH STRATEGY
+
+Do not blindly install new libraries.
+
+For every proposed major dependency, evaluate:
+
+- Real necessity
+- Performance
+- Licensing
+- Android compatibility
+- Web compatibility
+- Offline behavior
+- Maintenance
+- Bundle size
+- Security
+- Developer ecosystem
+- Migration complexity
+- Interoperability impact
+
+Research appropriate implementations for:
+
+- Music information retrieval
+- Groove analysis
+- Scale/key estimation
+- Harmonic analysis
+- MIDI generation
+- Rhythmic fingerprinting
+- Sequence similarity
+- Audio onset detection
+- Real-time DSP
+- Spectral processing
+- Loudness metering
+- Android native audio
+- Sample management
+- ALS structural preservation
+
+Use credible academic literature and official technical documentation.
+
+Prefer validated algorithms over impressive terminology.
+
+Do not claim a model is musically intelligent without meaningful tests.
+
+---
+
+# 22. BUSINESS-LEVEL PRODUCT DIFFERENTIATION
+
+Design as a commercially serious next-generation production platform.
+
+The competitive advantage must come from functioning capabilities, not marketing claims.
+
+## Primary differentiators
+
+### Project-aware generation
+
+The AI understands the actual project before composing.
+
+### Parametric editability
+
+Generated music remains editable.
+
+### Structural intelligence
+
+The AI develops arrangements rather than producing endlessly repeated loops.
+
+### Production intelligence
+
+The AI understands effects, routing, sidechains, and automation.
+
+### Native interoperability
+
+Ableton projects can be inspected and safely modified within verified limits.
+
+### Cross-platform production
+
+Users can begin on Android/tablet and continue on desktop.
+
+### Creative control
+
+The user controls:
+
+- Seed
+- Motif preservation
+- Harmony constraints
+- Rhythmic density
+- Structural complexity
+- Novelty
+- Automation depth
+- Sound-design intensity
+- Regeneration scope
+- AI autonomy
+
+### Trust
+
+Original projects remain protected.
+
+No silent destructive changes.
+
+No fake compatibility.
+
+No hidden upload.
+
+No unverified completion claims.
+
+---
+
+# 23. DELIVERY SEQUENCE
+
+Execute the upgrade in this priority order.
+
+## P0 — Baseline and stabilization
+
+- Audit existing repository.
+- Run the app.
+- Capture current functionality.
+- Create baseline tests.
+- Fix critical defects.
+- Preserve persistence and exports.
+
+## P1 — Generator intelligence
+
+- Build musical analysis.
+- Implement project profiling.
+- Replace shallow generation logic.
+- Add phrase/motif/section models.
+- Add novelty validation.
+- Upgrade all four layers.
+- Add contextual sound design and automation.
+- Verify generation behavior.
+
+## P2 — Core DAW functionality
+
+- Fix canonical state.
+- Improve transport/audio scheduling.
+- Complete Arrangement.
+- Complete Session.
+- Complete MIDI editor.
+- Complete automation.
+- Complete mixer/routing.
+- Complete device processing.
+
+## P3 — Advanced studio
+
+- Add instrument/effect families.
+- Add racks.
+- Add advanced MIDI tools.
+- Add audio editing and recording.
+- Add professional workflow controls.
+
+## P4 — ALS safety
+
+- Improve parser/compiler.
+- Add typed operations.
+- Validate unknown structure preservation.
+- Add native device fixture registry.
+- Verify supported Live exports.
+
+## P5 — Android
+
+- Add Capacitor project.
+- Integrate Android filesystem.
+- Implement adaptive UI.
+- Add native audio backend where needed.
+- Run device performance tests.
+- Generate tested APK/AAB build artifacts.
+
+## P6 — Production hardening
+
+- Regression testing
+- Memory analysis
+- Audio correctness
+- Musical quality evaluation
+- Visual regression
+- Security validation
+- Long-running stability tests
+- Documentation
+- Release engineering
+
+Keep every phase independently testable.
+
+Do not destroy functioning workflows while implementing later stages.
+
+---
+
+# 24. REQUIRED TECHNICAL DELIVERABLES
+
+Produce:
+
+1. Updated existing source code.
+2. Baseline regression report.
+3. Root-cause audit.
+4. Unified project schema.
+5. Project analysis engine.
+6. Enhanced techno layer generator.
+7. Hierarchical composition planner.
+8. Novelty and similarity validator.
+9. Arrangement generator.
+10. AI sound-design planner.
+11. AI automation planner.
+12. Enhanced audio engine.
+13. Advanced DSP effects.
+14. Professional DAW UI enhancements.
+15. Mixer/routing improvements.
+16. ALS compiler validation.
+17. Android Studio source project.
+18. Android APK build.
+19. Android AAB build.
+20. Unit/integration/E2E test suite.
+21. Musical creativity evaluation report.
+22. Audio correctness report.
+23. Memory leak and performance report.
+24. Android device compatibility report.
+25. Updated README.
+26. Architecture documentation.
+27. Reproduction instructions.
+28. Verified feature-completion matrix.
+29. Known limitations.
+30. Final release readiness report.
+
+Do not fabricate artifacts or test results.
+
+If a build cannot be produced in the available environment, provide the exact blockers, actual source changes, and reproducible build instructions, explicitly marking the artifact as unverified.
+
+---
+
+# 25. FINAL ACCEPTANCE CRITERIA
+
+The application is ready for release only when the supported scope satisfies these requirements.
+
+### Existing functionality
+
+No unexplained regressions in previously verified behavior.
+
+### Composition
+
+Fresh generations produce meaningfully distinct material, validated against source content and prior outputs.
+
+### Project adaptation
+
+Generation responds to the selected template or actual imported project.
+
+### Arrangement
+
+Generated arrangements contain coherent musical development beyond repeated four-bar patterns.
+
+### Automation
+
+Automation controls real DSP parameters and survives playback, saving, and offline rendering.
+
+### Effects
+
+Enabled effects perform actual audio processing.
+
+### DAW functionality
+
+Core editing, playback, Session, Mixer, MIDI, routing, and automation workflows function reliably.
+
+### ALS
+
+No native export is enabled without passing its supported compatibility checks.
+
+### Android
+
+Supported phones, tablets, and foldables have functional adaptive workflows and validated stability.
+
+### Memory
+
+No known unrepaired resource leaks or unbounded memory growth in tested critical workflows.
+
+### Stability
+
+No known critical crash, data loss, or reproducible fatal audio failure in released supported workflows.
+
+### QA
+
+Every critical capability has reproducible evidence.
+
+---
+
+# 26. FINAL EXECUTION INSTRUCTION
+
+**STOP TREATING THIS APPLICATION AS A FOUR-LAYER TECHNO LOOP GENERATOR WITH AN ABLETON-LIKE INTERFACE.**
+
+It must evolve into a serious, original, project-aware music creation environment.
+
+The generator must understand the source project.
+
+The composition engine must create coherent, meaningfully varied music.
+
+The arrangement planner must produce distinct musical structures.
+
+The sound-design planner must choose appropriate instruments and effects.
+
+The automation engine must produce real evolving parameter behavior.
+
+The mixer and sidechain engine must operate on real audio routing.
+
+The DAW interface must offer professional editing and performance workflows.
+
+The ALS compiler must preserve source fidelity.
+
+The Android application must be a properly engineered product, not merely an untested WebView wrapper.
+
+**PRESERVE EVERYTHING THAT ALREADY WORKS.**
+
+**REPAIR ROOT CAUSES, NOT SYMPTOMS.**
+
+**CHALLENGE WEAK ASSUMPTIONS.**
+
+**MEASURE MUSICAL NOVELTY, NOT JUST RANDOMNESS.**
+
+**VERIFY AUDIO, NOT JUST VISUALS.**
+
+**PROTECT USER PROJECTS.**
+
+**USE TEST-DRIVEN, EVIDENCE-BASED ENGINEERING.**
+
+**DELIVER ACTUAL CODE CHANGES, NOT ANOTHER CONCEPT DOCUMENT.**
+
+Start by inspecting the existing project and proving the baseline behavior.
+
+Then prioritize the new Project-Conditioned Techno Layer Generator and Arrangement Intelligence Engine.
+
+Integrate both with the real audio engine, DAW editor, automation, and safe `.als` pipeline.
+
+Complete Android migration with measured performance and stability.
+
+Continue implementing, validating, reviewing, and fixing the remaining scope through the documented release gates.
+
+The ultimate objective is a trustworthy, original, world-class parametric music workstation whose intelligence and capabilities justify its ambition.
+
+**END OF MASTER IMPLEMENTATION PROMPT v3.0.**

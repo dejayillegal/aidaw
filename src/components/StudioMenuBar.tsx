@@ -28,6 +28,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { downloadDebugApk } from '../utils/apkDownloader';
 
 interface StudioMenuBarProps {
   projectName: string;
@@ -51,6 +52,7 @@ interface StudioMenuBarProps {
   onOpenXmlInspector: () => void;
   onOpenPythonExporter: () => void;
   onOpenArchitectureModal?: () => void;
+  onOpenDiagnostics?: () => void;
 }
 
 export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
@@ -75,6 +77,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
   onOpenXmlInspector,
   onOpenPythonExporter,
   onOpenArchitectureModal,
+  onOpenDiagnostics,
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
@@ -147,6 +150,17 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 <span>Multi-Project Batch Queue...</span>
                 <span className="text-[10px] text-zinc-500">Cmd+B</span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void downloadDebugApk('parametric-techno-daw-debug.apk');
+                  closeMenu();
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-emerald-500/20 text-emerald-300 flex items-center justify-between font-semibold"
+              >
+                <span>Download Android Debug APK (.apk)</span>
+                <span className="text-[10px] text-emerald-400">APK</span>
+              </button>
               <div className="h-px bg-[#1F2733] my-1" />
               <button
                 type="button"
@@ -156,8 +170,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 <span>Clear Arrangement State...</span>
               </button>
               <div className="h-px bg-[#1F2733] my-1" />
-              <div className="px-3 py-1.5 opacity-80">
-                <PWAInstallButton className="w-full justify-center py-2" />
+              <div className="px-3 py-1.5 opacity-95">
+                <PWAInstallButton className="w-full justify-center py-1.5" />
               </div>
             </div>
           )}
@@ -392,6 +406,19 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
           >
             <Settings className="w-3 h-3 text-amber-400" />
             <span className="hidden sm:inline">Settings</span>
+          </button>
+        )}
+
+        {/* Diagnostics Panel Toggle */}
+        {onOpenDiagnostics && (
+          <button
+            type="button"
+            onClick={onOpenDiagnostics}
+            className="p-1 px-1.5 rounded bg-[#161C24] hover:bg-[#202835] text-emerald-300 border border-[#273244] hover:text-emerald-200 transition-colors flex items-center gap-1 text-[10px]"
+            title="Open Real-Time Audio Diagnostics & Buffer Performance"
+          >
+            <Activity className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <span className="hidden sm:inline">Diagnostics</span>
           </button>
         )}
 

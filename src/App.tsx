@@ -63,6 +63,12 @@ import { BulkQueueAndExportModal } from './components/BulkQueueAndExportModal';
 import { StudioSettingsModal } from './components/StudioSettingsModal';
 import { ReferenceTrackModal } from './components/ReferenceTrackModal';
 import { MidiHumanizationHeatmapModal } from './components/MidiHumanizationHeatmapModal';
+import {
+  TouchInteractionSettingsModal,
+  TouchInteractionConfig,
+  DEFAULT_TOUCH_CONFIG,
+} from './components/TouchInteractionSettingsModal';
+import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { exportClipToMidiFile, downloadMidiFile } from './engine/midiFileExporter';
 import {
   CompingAndTransientModal,
@@ -340,6 +346,9 @@ export default function App() {
   const [isCompingModalOpen, setIsCompingModalOpen] = useState<boolean>(false);
   const [isReferenceModalOpen, setIsReferenceModalOpen] = useState<boolean>(false);
   const [isHeatmapModalOpen, setIsHeatmapModalOpen] = useState<boolean>(false);
+  const [isTouchSettingsOpen, setIsTouchSettingsOpen] = useState<boolean>(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
+  const [touchConfig, setTouchConfig] = useState<TouchInteractionConfig>(DEFAULT_TOUCH_CONFIG);
   const [, setCommandBusTick] = useState<number>(0);
 
   const handleApplyLayoutPreset = (
@@ -484,12 +493,16 @@ export default function App() {
         if (truePeakDbtp !== undefined) setMasterTruePeakDbtp(truePeakDbtp);
         if (lufs !== undefined) setMasterLufs(lufs);
       },
-      () => {
+      (reason?: string) => {
         setIsPlaying(false);
-        const bars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-        setStatusMessage(
-          `Completed full ${bars}-bar (${bars * 4}-beat) arrangement sequence playthrough.`
-        );
+        if (reason) {
+          setStatusMessage(reason);
+        } else {
+          const bars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
+          setStatusMessage(
+            `Completed full ${bars}-bar (${bars * 4}-beat) arrangement sequence playthrough.`
+          );
+        }
       }
     );
   }, [project, humanization, transport, masterBus]);
@@ -2110,6 +2123,7 @@ export default function App() {
         onOpenXmlInspector={() => setActiveTab('xml')}
         onOpenPythonExporter={() => setActiveTab('python')}
         onOpenArchitectureModal={() => setActiveTab('architecture')}
+        onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       />
 
       {/* Hidden File Input for .als Import */}
@@ -2455,6 +2469,20 @@ export default function App() {
         arrangementLengthBars={activeTotalBars}
         currentPlayheadBeat={playheadBeat}
         onUpdateHumanization={handleUpdateHumanization}
+      />
+
+      {/* Android & iOS Touch Interaction Settings Modal */}
+      <TouchInteractionSettingsModal
+        isOpen={isTouchSettingsOpen}
+        onClose={() => setIsTouchSettingsOpen(false)}
+        config={touchConfig}
+        onChangeConfig={(partial) => setTouchConfig((prev) => ({ ...prev, ...partial }))}
+      />
+
+      {/* Real-Time Audio Diagnostics Sidebar Drawer */}
+      <DiagnosticsPanel
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
       />
 
       {/* Studio Settings Modal */}
