@@ -82,8 +82,8 @@ export const StudioSettingsModal: React.FC<StudioSettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-fadeIn">
-      <div className="w-full max-w-2xl bg-[#0F131A] dark:bg-[#0F131A] border border-[#232B38] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="studio-modal-overlay fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-fadeIn">
+      <div className="w-full max-w-2xl bg-[#0F131A] dark:bg-[#0F131A] border border-[#232B38] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
         {/* Modal Header */}
         <div className="px-4 py-3 bg-[#090C11] border-b border-[#1F2734] flex items-center justify-between select-none">
           <div className="flex items-center gap-2">
@@ -95,6 +95,7 @@ export const StudioSettingsModal: React.FC<StudioSettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close settings"
             className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-[#1A202C] transition-colors"
           >
             <X className="w-4 h-4" />
@@ -162,7 +163,7 @@ export const StudioSettingsModal: React.FC<StudioSettingsModalProps> = ({
         </div>
 
         {/* Modal Body Content */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5 font-mono text-xs text-slate-200">
+        <div className="p-4 sm:p-6 min-h-0 overflow-y-auto flex-1 space-y-5 font-mono text-xs text-slate-200">
           {/* TAB 1: APPEARANCE & THEME */}
           {activeTab === 'appearance' && (
             <div className="space-y-5">
@@ -429,6 +430,7 @@ export const StudioSettingsModal: React.FC<StudioSettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close settings"
             className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs transition shadow-sm"
           >
             Close Settings
@@ -438,3 +440,4 @@ export const StudioSettingsModal: React.FC<StudioSettingsModalProps> = ({
     </div>
   );
 };
+

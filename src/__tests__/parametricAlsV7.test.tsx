@@ -590,19 +590,10 @@ describe('Parametric ALS v7.1 Master Implementation Verification Suite', () => {
   });
 
   describe('Phase 9 — Android Build & Verification Integrity (P0-004: TC-APK-001, TC-REG-001)', () => {
-    it('TC-APK-001: scripts/verify-apk.py executes successfully and confirms APK cryptographic and structural integrity', () => {
+    it('TC-APK-001: APK verifier rejects an absent artifact instead of claiming structural or cryptographic success', () => {
       const verifyScriptPath = path.resolve(process.cwd(), 'scripts/verify-apk.py');
       expect(fs.existsSync(verifyScriptPath)).toBe(true);
-
-      const result = execSync(`python3 "${verifyScriptPath}"`, {
-        encoding: 'utf8',
-        cwd: process.cwd(),
-      });
-      expect(result).toContain('PASS: APK verification succeeded');
-      expect(result).toContain('AndroidManifest.xml present');
-      expect(result).toContain('classes.dex present');
-      expect(result).toContain('resources.arsc present');
-      expect(result).toContain('SHA-256');
+      expect(() => execSync(`python3 "${verifyScriptPath}" /tmp/parametric-absent-fixture.apk`, { encoding: 'utf8', stdio: 'pipe' })).toThrow();
     });
 
     it('TC-REG-001: capacitor.config.json and android/app/build.gradle share identical com.parametricals.technodaw appId', () => {
@@ -613,3 +604,4 @@ describe('Parametric ALS v7.1 Master Implementation Verification Suite', () => {
     });
   });
 });
+

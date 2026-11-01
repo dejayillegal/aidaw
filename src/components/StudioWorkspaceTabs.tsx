@@ -49,9 +49,9 @@ export const StudioWorkspaceTabs: React.FC<StudioWorkspaceTabsProps> = ({
   ];
 
   return (
-    <div className="h-9 bg-[#0B0E13] border-b border-[#1E2530] px-3 flex items-center justify-between text-xs font-mono select-none shrink-0 z-20">
+    <div className="min-h-9 min-w-0 overflow-x-auto bg-[#0B0E13] border-b border-[#1E2530] px-3 flex items-center justify-between text-xs font-mono select-none shrink-0 z-20">
       {/* Primary Workspace Tabs */}
-      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+      <div className="min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -158,3 +158,4 @@ export const StudioWorkspaceTabs: React.FC<StudioWorkspaceTabsProps> = ({
     </div>
   );
 };
+

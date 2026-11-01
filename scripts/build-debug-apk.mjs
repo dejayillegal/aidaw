@@ -1,238 +1,78 @@
 #!/usr/bin/env node
-/**
- * Parametric ALS DAW — Controlled Capacitor / Gradle Android APK Orchestrator
- *
- * Replaces the former manual byte-level APK builder with standard Gradle / Capacitor
- * assembly pipeline:
- * 1. Validates build prerequisites (Node.js, Capacitor, Gradle/Java availability).
- * 2. Compiles production web bundle (npm run build -> dist/).
- * 3. Synchronizes web assets with Capacitor Android (npx cap sync android).
- * 4. Executes Gradle assembleDebug (cd android && ./gradlew assembleDebug).
- * 5. Verifies genuine APK artifacts, computes SHA-256 checksums, and publishes
- *    metadata (apk-metadata.json).
- */
-
+/** Gradle is the only APK producer/signing authority. Verify before any distribution write. */
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT_DIR = path.resolve(__dirname, '..');
-
+const ROOT_DIR = path.resolve(import.meta.dirname, '..');
+const releaseMetadata = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'public/apk-metadata.json'), 'utf8'));
 export const APP_ID = 'com.parametricals.technodaw';
 export const APP_NAME = 'Parametric ALS DAW';
-const releaseMetadata = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'public/apk-metadata.json'), 'utf8'));
 export const VERSION_NAME = releaseMetadata.versionName;
 export const VERSION_CODE = releaseMetadata.versionCode;
-export const TARGET_SDK = 36;
-export const MIN_SDK = 24;
-
-/**
- * Computes SHA-256 hex digest for a file or Buffer.
- */
+export const TARGET_SDK = releaseMetadata.targetSdk;
+export const MIN_SDK = releaseMetadata.minSdk;
+const artifactRelativePath = 'android/app/build/outputs/apk/debug/app-debug.apk';
 export function computeSha256(input) {
-  const hash = crypto.createHash('sha256');
-  if (typeof input === 'string') {
-    const data = fs.readFileSync(input);
-    hash.update(data);
-  } else {
-    hash.update(input);
-  }
-  return hash.digest('hex');
+  return crypto.createHash('sha256').update(typeof input === 'string' ? fs.readFileSync(input) : input).digest('hex');
 }
-
-/**
- * Validates build prerequisites and detects toolchain capabilities.
- */
 export function validatePrerequisites() {
-  const hasGradleWrapper = fs.existsSync(path.join(ROOT_DIR, 'android/gradlew'));
-  const hasPackageJson = fs.existsSync(path.join(ROOT_DIR, 'package.json'));
-  const hasCapacitorConfig = fs.existsSync(path.join(ROOT_DIR, 'capacitor.config.ts'));
-
   let hasJava = false;
-  try {
-    execSync('javac -version', { stdio: 'ignore' });
-    hasJava = true;
-  } catch {
-    try {
-      execSync('java -version', { stdio: 'ignore' });
-      hasJava = true;
-    } catch {
-      hasJava = false;
+  try { execFileSync('javac', ['-version'], { stdio: 'ignore' }); hasJava = true; } catch { /* reported below */ }
+  return { hasGradleWrapper: fs.existsSync(path.join(ROOT_DIR, 'android/gradlew')),
+    hasPackageJson: fs.existsSync(path.join(ROOT_DIR, 'package.json')),
+    hasCapacitorConfig: fs.existsSync(path.join(ROOT_DIR, 'capacitor.config.ts')), hasJava };
+}
+export function buildWebAssets() { execFileSync('npm', ['run', 'build'], { cwd: ROOT_DIR, stdio: 'inherit' }); }
+export function syncCapacitor() {
+  // Never copy a previously distributed APK back into a new APK or PWA cache.
+  for (const folder of ['dist', 'android/app/src/main/assets/public']) {
+    for (const name of ['parametric-techno-daw-debug.apk', 'parametric-techno-daw-debug.apk.sha256']) {
+      fs.rmSync(path.join(ROOT_DIR, folder, name), { force: true });
     }
   }
-
-  return {
-    hasGradleWrapper,
-    hasPackageJson,
-    hasCapacitorConfig,
-    hasJava,
-  };
+  execFileSync(process.execPath, [path.join(ROOT_DIR, 'node_modules/@capacitor/cli/bin/capacitor'), 'sync', 'android'], { cwd: ROOT_DIR, stdio: 'inherit' });
 }
-
-/**
- * Builds the production web assets with Vite.
- */
-export function buildWebAssets() {
-  console.log('[Orchestrator] Step 1: Building production web bundle...');
-  execSync('npm run build', { cwd: ROOT_DIR, stdio: 'inherit' });
-}
-
-/**
- * Synchronizes web assets to the Capacitor Android project.
- */
-export function syncCapacitor() {
-  console.log('[Orchestrator] Step 2: Synchronizing web assets with Capacitor Android...');
-  execSync('npx cap sync android', { cwd: ROOT_DIR, stdio: 'inherit' });
-}
-
-/**
- * Invokes Gradle assembleDebug to produce a genuine Android debug APK.
- */
 export function runGradleAssemble() {
   const prereqs = validatePrerequisites();
-  const gradlewPath = path.join(ROOT_DIR, 'android/gradlew');
-  const isWindows = process.platform === 'win32';
-  const gradlewCmd = isWindows ? 'gradlew.bat' : './gradlew';
-
-  if (!prereqs.hasJava || !prereqs.hasGradleWrapper) {
-    throw new Error('JDK and Gradle wrapper are mandatory; refusing stale APK fallback');
-  }
-  {
-    console.log('[Orchestrator] Step 3: Invoking Gradle assembleDebug...');
-    if (!isWindows) {
-      try {
-        fs.chmodSync(gradlewPath, 0o755);
-      } catch {
-        // Ignored if permissions cannot be set
-      }
-    }
-    execSync(`${gradlewCmd} assembleDebug --stacktrace`, {
-      cwd: path.join(ROOT_DIR, 'android'),
-      stdio: 'inherit',
-    });
-  }
+  if (!prereqs.hasJava || !prereqs.hasGradleWrapper) throw new Error('JDK 21 and Gradle wrapper required; no stale APK fallback');
+  // Remove previous output before Gradle, even when its prior mtime looks recent.
+  fs.rmSync(path.join(ROOT_DIR, 'android/app/build/outputs/apk/debug'), { recursive: true, force: true });
+  if (process.platform !== 'win32') fs.chmodSync(path.join(ROOT_DIR, 'android/gradlew'), 0o755);
+  execFileSync(process.platform === 'win32' ? 'gradlew.bat' : './gradlew', ['assembleDebug', '--stacktrace'], { cwd: path.join(ROOT_DIR, 'android'), stdio: 'inherit' });
 }
-
-/**
- * Publishes verified APK artifact and writes checksum & metadata files.
- */
-export function publishArtifacts() {
-  console.log('[Orchestrator] Step 4: Verifying and publishing APK artifacts...');
-  const gradleApk = path.join(ROOT_DIR, 'android/app/build/outputs/apk/debug/app-debug.apk');
-  const publicApk = path.join(ROOT_DIR, 'public/parametric-techno-daw-debug.apk');
-  const distApk = path.join(ROOT_DIR, 'dist/parametric-techno-daw-debug.apk');
-
-  // Ensure public and dist directories exist
-  fs.mkdirSync(path.join(ROOT_DIR, 'public'), { recursive: true });
-  fs.mkdirSync(path.join(ROOT_DIR, 'dist'), { recursive: true });
-  fs.mkdirSync(path.join(ROOT_DIR, 'android/app/build/outputs/apk/debug'), { recursive: true });
-
-  if (!fs.existsSync(gradleApk) || fs.statSync(gradleApk).size <= 1024) {
-    throw new Error('Fresh Gradle-generated APK missing; refusing stale distribution artifacts');
-  }
-  const sourceApk = gradleApk;
-
-  const apkBuf = fs.readFileSync(sourceApk);
-  const sha256Hex = computeSha256(apkBuf);
-
-  // Sync to all distribution targets
-  fs.writeFileSync(publicApk, apkBuf);
-  fs.writeFileSync(distApk, apkBuf);
-
-  // Write SHA-256 checksum files
-  const shaContent = `${sha256Hex}  parametric-techno-daw-debug.apk\n`;
-  fs.writeFileSync(path.join(ROOT_DIR, 'public/parametric-techno-daw-debug.apk.sha256'), shaContent);
-  fs.writeFileSync(path.join(ROOT_DIR, 'dist/parametric-techno-daw-debug.apk.sha256'), shaContent);
-  fs.writeFileSync(
-    path.join(ROOT_DIR, 'android/app/build/outputs/apk/debug/app-debug.apk.sha256'),
-    `${sha256Hex}  app-debug.apk\n`
-  );
-
-  // Write JSON metadata
-  const metadata = {
-    applicationId: APP_ID,
-    appName: APP_NAME,
-    versionName: VERSION_NAME,
-    versionCode: VERSION_CODE,
-    buildVariant: 'debug',
-    sha256: sha256Hex,
-    sizeBytes: apkBuf.length,
-    targetSdk: TARGET_SDK,
-    minSdk: MIN_SDK,
-    verificationStatus: 'verified',
-    buildSystem: 'Gradle/Capacitor',
-    buildTimestamp: new Date().toISOString(),
-  };
-
-  const metadataJson = JSON.stringify(metadata, null, 2);
-  fs.writeFileSync(path.join(ROOT_DIR, 'public/apk-metadata.json'), metadataJson);
-  fs.writeFileSync(path.join(ROOT_DIR, 'dist/apk-metadata.json'), metadataJson);
-
-  console.log(`[Orchestrator] Published APK: ${apkBuf.length} bytes, SHA-256: ${sha256Hex}`);
-  return {
-    sourceApk,
-    sizeBytes: apkBuf.length,
-    sha256: sha256Hex,
-    metadata,
-  };
+export function verifyApkArtifact(apkPath = path.join(ROOT_DIR, artifactRelativePath), rootDir = ROOT_DIR) {
+  const args = [path.join(rootDir, 'scripts/verify-apk.py'), apkPath, '--metadata', path.join(rootDir, 'public/apk-metadata.json')];
+  if (process.env.ANDROID_DEBUG_CERT_SHA256) args.push('--certificate-sha256', process.env.ANDROID_DEBUG_CERT_SHA256);
+  return JSON.parse(execFileSync('python3', args, { cwd: rootDir, encoding: 'utf8' }));
 }
-
-/**
- * Runs verify-apk.py verification on the published APK.
- */
-export function verifyApkArtifact() {
-  const verifyScript = path.join(ROOT_DIR, 'scripts/verify-apk.py');
-  const targetApk = path.join(ROOT_DIR, 'public/parametric-techno-daw-debug.apk');
-  if (fs.existsSync(verifyScript) && fs.existsSync(targetApk)) {
-    console.log('[Orchestrator] Step 5: Executing verify-apk.py...');
-    try {
-      execSync(`python3 "${verifyScript}" "${targetApk}"`, {
-        cwd: ROOT_DIR,
-        stdio: 'inherit',
-      });
-      return true;
-    } catch {
-      return false;
-    }
+export function publishArtifacts(rootDir = ROOT_DIR) {
+  const sourceApk = path.join(rootDir, artifactRelativePath);
+  if (!fs.existsSync(sourceApk)) throw new Error('Fresh Gradle artifact missing');
+  // Verification runs on staging source. A failure cannot overwrite an existing download.
+  const report = verifyApkArtifact(sourceApk, rootDir);
+  if (!report.certificatePinned) throw new Error('Distribution blocked: ANDROID_DEBUG_CERT_SHA256 trusted baseline required');
+  const metadata = { ...JSON.parse(fs.readFileSync(path.join(rootDir, 'public/apk-metadata.json'), 'utf8')),
+    ...report, verificationStatus: 'artifact-verified', buildSystem: 'Gradle/Capacitor', buildTimestamp: new Date().toISOString() };
+  const apk = fs.readFileSync(sourceApk);
+  if (computeSha256(apk) !== report.sha256 || apk.length !== report.sizeBytes) throw new Error('Artifact changed after verification');
+  for (const dir of ['public', 'dist']) {
+    const target = path.join(rootDir, dir); fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'parametric-techno-daw-debug.apk'), apk);
+    fs.writeFileSync(path.join(target, 'parametric-techno-daw-debug.apk.sha256'), `${report.sha256}  parametric-techno-daw-debug.apk\n`);
+    // Metadata is written last. Concurrent readers reject inconsistent checksum/size pairs.
+    fs.writeFileSync(path.join(target, 'apk-metadata.json'), JSON.stringify(metadata, null, 2) + '\n');
   }
-  return false;
+  return { sourceApk, sha256: report.sha256, sizeBytes: report.sizeBytes, metadata };
 }
-
-/**
- * Main build orchestrator entry point.
- */
-export function orchestrateGradleBuild(options = {}) {
-  const { skipWebBuild = false, skipCapSync = false } = options;
-
-  if (!skipWebBuild) {
-    buildWebAssets();
-  }
-
-  if (!skipCapSync) {
-    syncCapacitor();
-  }
-
+export function orchestrateGradleBuild({ skipWebBuild = false, skipCapSync = false } = {}) {
+  if (!skipWebBuild) buildWebAssets();
+  if (!skipCapSync) syncCapacitor();
   runGradleAssemble();
-  const published = publishArtifacts();
-  if (!verifyApkArtifact()) throw new Error('APK verification failed; build is not releasable');
-
-  return published;
+  return publishArtifacts();
 }
-
-// Backward compatibility export alias
 export const buildApk = orchestrateGradleBuild;
-
-// CLI execution
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  try {
-    orchestrateGradleBuild();
-    console.log('[Orchestrator] Android APK build and verification completed successfully.');
-  } catch (err) {
-    console.error(`[Orchestrator] Build error: ${err.message}`);
-    process.exit(1);
-  }
+  try { orchestrateGradleBuild(); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

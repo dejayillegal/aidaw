@@ -55,83 +55,36 @@ async function startServer() {
     }
   });
 
-  // Published APK metadata endpoint
-  app.get('/api/apk-metadata', (_req, res) => {
-    const metaCandidates = [
-      path.join(__dirname, 'public', 'apk-metadata.json'),
-      path.join(__dirname, 'dist', 'apk-metadata.json'),
-    ];
-    for (const p of metaCandidates) {
-      if (fs.existsSync(p)) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(p, 'utf-8'));
-          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-          return res.json(meta);
-        } catch {
-          // Fallback to dynamic metadata below
-        }
-      }
+  // Only an explicitly verified distribution pair can be served. No dynamic certification.
+  const readPublishedApk = () => {
+    for (const directory of ['public', 'dist']) {
+      try {
+        const metadata = JSON.parse(fs.readFileSync(path.join(__dirname, directory, 'apk-metadata.json'), 'utf8'));
+        if (!['artifact-verified', 'verified'].includes(metadata.verificationStatus) || !metadata.certificatePinned) continue;
+        const bytes = fs.readFileSync(path.join(__dirname, directory, 'parametric-techno-daw-debug.apk'));
+        const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+        if (hash !== metadata.sha256 || bytes.length !== metadata.sizeBytes) continue;
+        return { metadata, bytes };
+      } catch { /* next explicitly published distribution, never Gradle intermediate output */ }
     }
-
-    // Dynamic metadata fallback
-    const apkCandidates = [
-      path.join(__dirname, 'dist', 'parametric-techno-daw-debug.apk'),
-      path.join(__dirname, 'public', 'parametric-techno-daw-debug.apk'),
-      path.join(__dirname, 'android/app/build/outputs/apk/debug/app-debug.apk'),
-    ];
-    const existingPath = apkCandidates.find((p) => fs.existsSync(p));
-    let sha256Hex = '';
-    let sizeBytes = 0;
-    if (existingPath) {
-      const buf = fs.readFileSync(existingPath);
-      sizeBytes = buf.length;
-      sha256Hex = crypto.createHash('sha256').update(buf).digest('hex');
-    }
-
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return res.json({
-      applicationId: 'com.parametricals.technodaw',
-      appName: 'Parametric ALS DAW',
-      versionName: '7.2.0',
-      versionCode: 2,
-      buildVariant: 'debug',
-      sha256: sha256Hex,
-      sizeBytes,
-      targetSdk: 36,
-      minSdk: 24,
-      verificationStatus: 'verified',
-      buildSystem: 'Gradle/Capacitor',
-      buildTimestamp: new Date().toISOString(),
-    });
-  });
-
-  // Direct binary download route for the compiled v1+v2 signed Android Debug APK
-  const serveDebugApk = (_req: express.Request, res: express.Response) => {
-    const candidates = [
-      path.join(__dirname, 'dist', 'parametric-techno-daw-debug.apk'),
-      path.join(__dirname, 'public', 'parametric-techno-daw-debug.apk'),
-      path.join(__dirname, 'android/app/build/outputs/apk/debug/app-debug.apk'),
-    ];
-    const existingPath = candidates.find((p) => fs.existsSync(p));
-    if (!existingPath) {
-      return res.status(404).json({ error: 'APK binary not found' });
-    }
-    const apkBuf = fs.readFileSync(existingPath);
-    const sha256Hex = crypto.createHash('sha256').update(apkBuf).digest('hex');
-
-    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="parametric-techno-daw-debug.apk"'
-    );
-    res.setHeader('Content-Length', String(apkBuf.length));
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.setHeader('X-APK-SHA256', sha256Hex);
-    res.setHeader('X-APK-VersionCode', '2');
-    res.setHeader('X-APK-VersionName', '7.2.0');
-    return res.status(200).send(apkBuf);
+    return null;
   };
-
+  app.get('/api/apk-metadata', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const published = readPublishedApk();
+    return published ? res.json(published.metadata) : res.status(503).json({ error: 'Verified Android artifact unavailable' });
+  });
+  const serveDebugApk = (_req: express.Request, res: express.Response) => {
+    const published = readPublishedApk();
+    if (!published) return res.status(503).json({ error: 'Verified Android artifact unavailable' });
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', 'attachment; filename="parametric-techno-daw-debug.apk"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-APK-SHA256', published.metadata.sha256);
+    res.setHeader('X-APK-VersionCode', String(published.metadata.versionCode));
+    res.setHeader('X-APK-VersionName', published.metadata.versionName);
+    return res.send(published.bytes);
+  };
   app.get('/api/download/apk', serveDebugApk);
   app.get('/parametric-techno-daw-debug.apk', serveDebugApk);
 
@@ -494,3 +447,4 @@ Return a JSON object containing the 1-bar pattern array and a brief technical ra
 }
 
 startServer();
+

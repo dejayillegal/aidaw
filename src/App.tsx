@@ -1,3 +1,4 @@
+import { saveExportBlob } from './services/fileExportService';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AbletonProjectState,
@@ -248,7 +249,7 @@ function enrichProjectWithAnalysis(
 ): AbletonProjectState {
   const totalBars = rawState.arrangementLengthBars || 16;
   const musicalProfile = analyzeProjectMusicalProfile(rawState);
-  const arrangementSections = generateSectionArrangementPlan(formId, totalBars);
+  const arrangementSections = generateSectionArrangementPlan(formId, totalBars, rawState.lastGenerationIdentity?.compositionSeed || 0);
   const alsValidation = validateAlsProjectCadence(rawState.rawXmlModified);
   return {
     ...rawState,
@@ -885,6 +886,16 @@ export default function App() {
     setCompositionSeed(baseCompSeed);
     setJitterSeed(baseHumSeed);
 
+    const sharedSections = generateSectionArrangementPlan(activeFormId, totalBars, baseCompSeed);
+    // Full-arrangement composition also withdraws the existing unlocked kick during
+    // builds/breakdowns. Preserve its rhythm and every locked track.
+    for (const track of project.tracks.filter(track => track.archetype === 'kick' && !track.locked)) {
+      const arranged = decomposeNotesIntoSectionClips(track.name, track.archetype,
+        track.clips.flatMap(clip => clip.notes), totalBars, sharedSections);
+      workingXml = syncTrackNotesToXml(workingXml, track.id, track.archetype,
+        `${track.name}_Arranged`, arranged.flatMap(clip => clip.notes), totalBeats);
+    }
+
     const composedMap = new Map<
       TechnoArchetype,
       ReturnType<typeof composeProjectConditionedLayerNotes>
@@ -916,7 +927,8 @@ export default function App() {
         humanization,
         cSeed,
         hSeed,
-        totalBars
+        totalBars,
+        sharedSections
       );
       composedMap.set(arch, comp);
 
@@ -949,7 +961,8 @@ export default function App() {
           t.archetype,
           activeFormId,
           baseCompSeed,
-          totalBars
+          totalBars,
+          sharedSections
         ),
       };
     });
@@ -2116,16 +2129,12 @@ export default function App() {
           );
         }
       );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const cleanBase = project.fileName.replace(/\.als$/i, '').replace(/\.xml$/i, '');
+      const cleanBase = project.fileName.replace(/\.(als|xml)$/i, '');
       const exportName = `${cleanBase}_${project.tempo}bpm_${totalBars}bars_${bitDepth}bit.wav`;
-      a.href = url;
-      a.download = exportName;
-      a.click();
-      URL.revokeObjectURL(url);
+      setStatusMessage('Audio rendered. Select a destination to save the WAV…');
+      const saved = await saveExportBlob(blob, exportName);
       setStatusMessage(
-        `Exported Lossless Audio Track: ${exportName} (${(blob.size / (1024 * 1024)).toFixed(2)} MB · ${durationSeconds.toFixed(1)}s · 44.1kHz/${bitDepth}-bit PCM).`
+        `${saved.verified ? 'Saved and verified' : 'Download requested'}: ${exportName} (${(blob.size / (1024 * 1024)).toFixed(2)} MB · ${durationSeconds.toFixed(1)}s · 44.1kHz/${bitDepth}-bit PCM).`
       );
     } catch (err: any) {
       setStatusMessage(`Lossless WAV render failed: ${err.message}`);
@@ -2297,7 +2306,7 @@ export default function App() {
   }, [handleUndo, handleRedo]);
 
   return (
-    <div className="h-dvh w-screen overflow-hidden grid grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
+    <div className="studio-shell h-dvh w-full overflow-hidden grid grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
       {/* 1. TOP 28px SOUNDCRAFT STUDIO MENU BAR */}
       <StudioMenuBar
         projectName={project.fileName}
@@ -2354,7 +2363,7 @@ export default function App() {
         canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
         editMode={editMode}
         onTogglePlay={handleTogglePlay}
-        onStop={handleTogglePlay}
+        onStop={() => { synthEngine.stop(); setIsPlaying(false); setMasterPeakDb(-60); }}
         onRewindToStart={handleReturnToZero}
         onUpdateTempo={handleUpdateTempo}
         onUpdateTransport={handleUpdateTransport}
@@ -2719,3 +2728,4 @@ export default function App() {
     </div>
   );
 }
+

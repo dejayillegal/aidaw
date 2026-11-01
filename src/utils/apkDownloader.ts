@@ -21,6 +21,8 @@ export interface ApkMetadata {
   minSdk: number;
   buildTimestamp: string;
   buildSystem: string;
+  verificationStatus?: string;
+  certificatePinned?: boolean;
 }
 
 /**
@@ -68,6 +70,10 @@ export async function downloadDebugApk(
   // 1. Fetch verified build metadata
   const metadata = await fetchApkMetadata();
 
+  if (!metadata || !['artifact-verified', 'verified'].includes(metadata.verificationStatus || '') || !metadata.certificatePinned || !/^[a-f0-9]{64}$/i.test(metadata.sha256)) {
+    throw new Error('No certificate-pinned, verified Android artifact is available. Build qualification is pending.');
+  }
+
   // 2. Fetch the APK binary from server endpoints
   const endpoints = [
     `/api/download/apk?t=${Date.now()}`,
@@ -109,7 +115,10 @@ export async function downloadDebugApk(
   const computedSha256 = await computeBufferSha256Hex(apkBuffer);
 
   // 4. Verify against metadata if available
-  const expectedSha256 = metadata?.sha256 || serverSha256;
+  const expectedSha256 = metadata.sha256;
+  if (!computedSha256 || apkBuffer.byteLength !== metadata.sizeBytes) {
+    throw new Error('APK checksum capability missing or published size mismatch');
+  }
   if (
     expectedSha256 &&
     computedSha256 &&
@@ -176,3 +185,4 @@ export function exportUserDataBackup(
     URL.revokeObjectURL(url);
   }, 2000);
 }
+

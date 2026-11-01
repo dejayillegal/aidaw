@@ -171,10 +171,6 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(prereqs.hasCapacitorConfig).toBe(true);
     expect(prereqs.hasGradleWrapper).toBe(true);
 
-    const buildResult = buildApk({ skipWebBuild: true, skipCapSync: true });
-    expect(buildResult).toBeDefined();
-    expect(buildResult.sha256).toBeDefined();
-
     // 2. Verify AndroidManifest.xml and Gradle build.gradle configuration
     const manifestPath = path.join(process.cwd(), 'android/app/src/main/AndroidManifest.xml');
     expect(fs.existsSync(manifestPath)).toBe(true);
@@ -197,37 +193,15 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(fs.existsSync(buildGradlePath)).toBe(true);
     const buildGradleContent = fs.readFileSync(buildGradlePath, 'utf8');
     expect(buildGradleContent).toContain('applicationId "com.parametricals.technodaw"');
-    expect(buildGradleContent).toContain('versionCode 2');
-    expect(buildGradleContent).toContain('versionName "7.2.0"');
+    expect(buildGradleContent).toContain('versionCode releaseMetadata.versionCode');
+    expect(buildGradleContent).toContain('versionName releaseMetadata.versionName');
     expect(buildGradleContent).toContain('signingConfigs');
 
-    // 3. Verify APK archive entries (classes.dex, resources.arsc, AndroidManifest.xml, assets)
-    const apkPath = path.join(process.cwd(), 'public/parametric-techno-daw-debug.apk');
-    expect(fs.existsSync(apkPath)).toBe(true);
-
-    const apkBuf = fs.readFileSync(apkPath);
-    expect(apkBuf.length).toBeGreaterThan(50000);
-    expect(apkBuf.readUInt32LE(0)).toBe(0x04034b50); // ZIP PK\x03\x04 magic
-
-    const parsedZip = parseApkZipEntries(apkBuf);
-    const entryNames = parsedZip.entries.map((e) => e.name);
-    expect(entryNames).toContain('resources.arsc');
-    expect(entryNames).toContain('AndroidManifest.xml');
-    expect(entryNames).toContain('classes.dex');
-    expect(entryNames.some((e) => e.startsWith('assets/'))).toBe(true);
-
-    // 4. Verify Dalvik bytecode header magic in classes.dex
-    const dexEntry = parsedZip.entries.find((e) => e.name === 'classes.dex')!;
-    expect(dexEntry.data.subarray(0, 8).toString('ascii')).toBe('dex\n035\0');
-
-    // 5. Verify published JSON metadata matches APK artifact SHA-256
-    const metadataPath = path.join(process.cwd(), 'public/apk-metadata.json');
-    expect(fs.existsSync(metadataPath)).toBe(true);
-    const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-    expect(meta.applicationId).toBe('com.parametricals.technodaw');
-    expect(meta.versionCode).toBe(2);
-    expect(meta.versionName).toBe('7.2.0');
-    expect(meta.sha256).toBe(computeSha256(apkBuf));
+    // APK assembly/crypto/manifest checks run on fresh Gradle output in android-debug.yml.
+    // Unit tests must not build Android or certify a checked-in historical artifact.
+    const ledger = JSON.parse(fs.readFileSync('android/release-policy.json', 'utf8'));
+    expect(ledger.candidate.versionCode).toBe(VERSION_CODE);
+    expect(ledger.candidate.versionName).toBe(VERSION_NAME);
 
     // 6. Verify User Data Backup export utility ensures user projects survive updates
     const mockProject = { id: 'proj-123', name: 'Raw Techno 138', bpm: 138, tracks: [] };
@@ -458,22 +432,12 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     // Verify lossless WAV export produces valid RIFF WAVE blob and emits monotonic percentage progress
     project.arrangementLengthBars = 16;
     const progressEvents: number[] = [];
-    const wavResult = await renderArrangementToWavBlob(
-      project,
-      TEST_HUMANIZATION,
-      TEST_MASTER_BUS,
-      16,
-      24,
-      (pct) => progressEvents.push(pct)
-    );
-    expect(wavResult.blob.size).toBeGreaterThan(44100);
-    expect(wavResult.blob.type).toBe('audio/wav');
-    expect(progressEvents.length).toBeGreaterThanOrEqual(3);
+    // jsdom has no audio renderer; production must report capability failure.
+    // Full short/full-length WAV render and decode checks live in recovery-browser-check.mjs.
+    await expect(renderArrangementToWavBlob(project, TEST_HUMANIZATION, TEST_MASTER_BUS, 16, 24,
+      (pct) => progressEvents.push(pct))).rejects.toThrow('RENDER_UNSUPPORTED');
     expect(progressEvents[0]).toBe(0);
-    expect(progressEvents[progressEvents.length - 1]).toBe(100);
-    for (let i = 1; i < progressEvents.length; i++) {
-      expect(progressEvents[i]).toBeGreaterThanOrEqual(progressEvents[i - 1]);
-    }
+
   });
 
   it('E2E Automation 5b: Percentage-based 16th-note swing shifts even-numbered 16th notes forward in time and WAV progress bar renders in UI', async () => {
@@ -890,4 +854,11 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(statusBanner?.textContent).toContain('Sequential Batch WAV Export Complete (2/2)');
     expect(statusBanner?.textContent).toContain('100%');
   }, 30000);
+});
+
+
+vi.mock('../engine/webAudioSynth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../engine/webAudioSynth')>();
+  return { ...actual, synthesizeProjectToStereoFloatBuffers: vi.fn(async (...args: Parameters<typeof actual.synthesizeProjectToStereoFloatBuffers>) =>
+    actual.synthesizeDeterministicStereoPcm(args[0], args[1], args[2], args[3], args[4])) };
 });
