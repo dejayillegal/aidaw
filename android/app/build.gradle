@@ -7,8 +7,14 @@ android {
         applicationId "com.parametricals.technodaw"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "7.2.0"
+        // Canonical release identity is tracked in public/apk-metadata.json.
+        // Fail configuration when Gradle and published release metadata diverge.
+        def releaseMetadata = new groovy.json.JsonSlurper().parse(file('../../public/apk-metadata.json'))
+        versionCode releaseMetadata.versionCode as Integer
+        versionName releaseMetadata.versionName as String
+        if (releaseMetadata.applicationId != applicationId) {
+            throw new GradleException('APK metadata applicationId does not match Gradle applicationId')
+        }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
