@@ -7,7 +7,7 @@ import {
   generateSectionArrangementProposal,
 } from '../engine/compositionIntelligenceEngine';
 import { buildStarterAbletonXml, parseAlsXmlString } from '../engine/alsXmlEngine';
-import { encodeAudioBufferToWavBlob, renderArrangementToWavBlob } from '../engine/webAudioSynth';
+import { encodeAudioBufferToWavBlob, renderArrangementToWavBlob, shouldPlayNote } from '../engine/webAudioSynth';
 import type { ArrangementSectionNode, HumanizationConfig, MasterBusConfig, MidiNoteEvent } from '../types/ableton';
 
 const humanization: HumanizationConfig = {
@@ -154,4 +154,11 @@ it('composition follows the requested seed/form instead of stale project section
   const stale = composeProjectConditionedLayerNotes(project, 'rumble', 'hypnotic_evolving', 'industrial_assault', humanization, 123, 456, 32);
   const fresh = composeProjectConditionedLayerNotes({ ...project, arrangementSections: undefined }, 'rumble', 'hypnotic_evolving', 'industrial_assault', humanization, 123, 456, 32);
   expect(stale.notes).toEqual(fresh.notes);
+});
+
+it('zero-probability notes are excluded and first-pass eligibility is reproducible', () => {
+  expect(shouldPlayNote({ ...note, probability: 0 })).toBe(false);
+  expect(shouldPlayNote({ ...note, probability: 1 })).toBe(true);
+  const candidate = { ...note, probability: 0.5 };
+  expect(shouldPlayNote(candidate)).toBe(shouldPlayNote(candidate));
 });

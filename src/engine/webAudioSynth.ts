@@ -2689,16 +2689,8 @@ export class ParametricWebAudioEngine {
         const clipStartBeat = clip.startTime;
         const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
         clip.notes.forEach((note) => {
-          // Enforce clip boundary: only schedule notes that belong to this clip's active span
-          if (note.time < clipStartBeat - 0.05 || note.time >= clipEndBeat + 0.05) {
-            return;
-          }
-          if (note.probability !== undefined && note.probability < 1.0) {
-            const detHash =
-              ((Math.round(note.time * 100) + note.pitch * 17 + this.loopGeneration * 31) % 100) /
-              100;
-            if (detHash > note.probability) return;
-          }
+          // Match the offline timeline contract: half-open clip span and seeded eligibility.
+          if (note.time < clipStartBeat || note.time >= clipEndBeat || !shouldPlayNote(note)) return;
 
           if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
             if (
