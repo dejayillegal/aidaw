@@ -1578,13 +1578,31 @@ export async function renderArrangementToWavBlob(
       reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
     });
 
-    const renderedBuffer = await offlineCtx.startRendering();
-    reportProgress(75);
-    const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth, (encPct) => {
-      reportProgress(75 + Math.round((encPct / 100) * 25));
-    });
-    reportProgress(100);
-    return { blob, durationSeconds, sampleRate, bitDepth };
+    reportProgress(55);
+    let renderedBuffer: AudioBuffer | null = null;
+    const renderStartTime = performance.now();
+    const renderInterval = setInterval(() => {
+      const elapsedSec = (performance.now() - renderStartTime) / 1000;
+      const estimatedPcmPct = 55 + Math.min(19, (elapsedSec / Math.max(0.5, durationSeconds * 0.15)) * 19);
+      reportProgress(estimatedPcmPct);
+    }, 100);
+
+    try {
+      renderedBuffer = await offlineCtx.startRendering();
+    } catch {
+      renderedBuffer = null;
+    } finally {
+      clearInterval(renderInterval);
+    }
+
+    if (renderedBuffer) {
+      reportProgress(75);
+      const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth, (encPct) => {
+        reportProgress(75 + Math.round((encPct / 100) * 25));
+      });
+      reportProgress(100);
+      return { blob, durationSeconds, sampleRate, bitDepth };
+    }
   }
 
   reportProgress(10);

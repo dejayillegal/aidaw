@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AbletonProjectState,
   AbletonTrack,
@@ -237,6 +237,19 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
 }) => {
   const [leftDockWidth, setLeftDockWidth] = useState<number>(224);
   const [bottomDockHeight, setBottomDockHeight] = useState<number>(256);
+  const [windowWidth, setWindowWidth] = useState<number>(
+    typeof window !== 'undefined' ? window.innerWidth : 1200
+  );
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isCompact = windowWidth < 768;
+  const effectiveLeftWidth = isCompact ? Math.min(leftDockWidth, 180) : leftDockWidth;
+  const effectiveRightWidth = isCompact ? 260 : 320;
 
   const handleStartResizeLeft = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -480,8 +493,8 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
       <div
         className="flex-1 grid min-w-0 min-h-0 overflow-hidden"
         style={{
-          gridTemplateColumns: `${leftDockOpen ? `${leftDockWidth}px` : '0px'} minmax(0, 1fr) ${
-            rightDockOpen ? '320px' : '0px'
+          gridTemplateColumns: `${leftDockOpen ? `${effectiveLeftWidth}px` : '0px'} minmax(0, 1fr) ${
+            rightDockOpen ? `${effectiveRightWidth}px` : '0px'
           }`,
         }}
       >

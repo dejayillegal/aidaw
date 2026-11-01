@@ -1,0 +1,1414 @@
+Worked for 2m 23s
+
+### Parametric ALS — Android Audio, WAV Export & Foldable UI Audit
+
+Three release-blocking problems
+
+I inspected the latest GitHub `main` commit, [`58587ef`](https://github.com/dejayillegal/aidaw/commit/58587efe16fae83c844f6b8f008d17f482800392?utm_source=chatgpt.com), against your new device photo.
+
+The photo shows the DAW compressed into a small landscape viewport with tiny controls, horizontal clipping and insufficient space for its editors. Your reported WAV export stuck at 55%, audio crackling, and tracks failing to render are the highest-priority functional problems.
+
+Here is what the source confirms:
+
+| Area               | Finding                                                                                                                                               | Priority |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| WAV export         | renderArrangementToWavBlob() reaches 55% after scheduling tracks, then waits on one large offline render with no intermediate progress                | P0       |
+| Android rendering  | The offline exporter allocates a full stereo buffer and schedules all voices; it lacks a device-aware bounded export strategy                         | P0       |
+| Audio crackling    | Real-time scheduling remains on a 20 ms JavaScript timer with many per-note audio nodes; the exact crackling cause still needs device-level diagnosis | P0       |
+| Foldable/mobile UI | The workstation reserves a 224px left dock, a 320px right dock and a bottom editor of at least 240px plus its configured height                       | P0       |
+| Timeline           | The UI still uses fixed arrangementZoom and arrangementScrollBar state rather than fully integrating the continuous viewport controller               | P1       |
+| Branding           | Logo and PWA icons exist, but the icon generator draws a basic bar graphic; it does not implement a coherent professional native/web identity         | P1       |
+| Android release    | The newest CI run failed during Android SDK setup, before compiling or testing the latest APK                                                         | P0       |
+
+A particularly important calculation: 55% is not evidence that 55% of the audio has rendered. In the current source, it is the end of the MIDI scheduling stage. Rendering starts afterward, and a pending `OfflineAudioContext.startRendering()` promise can leave the interface displaying 55% indefinitely.
+
+Also, the latest APK orchestrator can fall back to an existing public or dist APK when no fresh Gradle output is available. This undermines build provenance and must be corrected.
+
+The new prompt below specifically requires real Android audio-output testing, independent clip export, recoverable WAV rendering, adaptive foldable workspaces and complete branding asset integration.
+
+### Google AI Studio — Parametric ALS v7.3 Master Android Recovery Prompt
+
+This is a corrective implementation directive, not another planning exercise. It targets your latest screenshot and current GitHub source, while preserving the advanced DAW, Ableton workflows, underground music engine and SoundCraft-style interface.
+
+# PARAMETRIC ALS v7.3 — ANDROID DAW CRITICAL RECOVERY
+## WAV EXPORT ENGINE · CRACKLE-FREE PLAYBACK · ADAPTIVE FOLDABLE WORKSTATION · WORKING TRACK GENERATION · COMPLETE APP BRANDING
+
+### MASTER PRODUCTION IMPLEMENTATION DIRECTIVE FOR GOOGLE AI STUDIO
+
+**Repository:** https://github.com/dejayillegal/aidaw
+
+**Last independently inspected commit:** `58587efe16fae83c844f6b8f008d17f482800392`
+
+**Failed CI:** https://github.com/dejayillegal/aidaw/actions/runs/41320317869
+
+**Supporting evidence:** User-supplied photograph showing compressed Android landscape/foldable layout and user report of WAV render stuck at 55%, audio crackling and missing generated tracks.
+
+**Objective:** Repair the actual standalone Android DAW so it plays audio correctly, generates musical arrangements, exports valid WAV files without hanging, adapts to every supported Android window size, and includes a complete professional app icon, logo and splash-screen identity.
+
+## 0. ABSOLUTE EXECUTION POLICY
+
+Operate as an integrated engineering organization covering:
+
+- Android Platform and Capacitor Architecture
+- Professional DAW Audio Engineering
+- Web Audio and AudioWorklet DSP
+- Offline Rendering and WAV Encoding
+- Real-Time MIDI Scheduling
+- React/TypeScript Architecture
+- Foldable and Responsive UI Engineering
+- Ableton ALS Preservation
+- Underground Electronic Music Composition
+- Mobile Performance Optimization
+- Test Automation and Release Engineering
+- Professional Brand Identity and Icon Design
+
+The current product has genuine functionality, but the Android implementation is not release-qualified.
+
+DO NOT:
+
+- Merely modify progress labels to appear more reliable.
+- Increase or disable arbitrary audio thresholds to conceal crackling.
+- Report export success without a real playable audio file.
+- Replace a broken OfflineAudioContext render with lower-quality synthesis without disclosing DSP differences.
+- Assume all Android devices can render a complete multitrack arrangement in one audio buffer.
+- Force a desktop DAW layout into a small Android viewport.
+- Hide buttons without providing an accessible alternative.
+- Treat a passing unit test as proof that audio is playing.
+- Substitute a ZIP file for a valid APK.
+- Reuse stale APKs when the current Gradle build fails.
+- Corrupt existing ALS or MIDI project structures.
+- Claim full functionality when any P0 acceptance scenario fails.
+
+DO:
+
+1. Inspect the newest source revision.
+2. Establish a reproducible defect baseline.
+3. Write failing regression tests.
+4. Repair each root cause.
+5. Preserve existing features.
+6. Run real browser and Android testing.
+7. Verify exported audio.
+8. Inspect screenshots.
+9. Deliver a genuinely installable APK.
+10. Provide independently auditable evidence.
+
+**All P0 problems must be resolved before a production release is approved.**
+
+---
+
+# 1. P0 — WAV RENDER STUCK AT EXACTLY 55%
+
+## 1.1 Confirmed source behavior
+
+File:
+
+`src/engine/webAudioSynth.ts`
+
+Function:
+
+`renderArrangementToWavBlob()`
+
+Current implementation:
+
+- Initializes the offline audio graph.
+- Reports 10% after initialization.
+- Iterates project tracks.
+- Schedules each track's MIDI events.
+- Advances reported progress up to 55%.
+- Calls `await offlineCtx.startRendering()`.
+- Reports 75% only after that promise resolves.
+- Encodes WAV data between 75% and 100%.
+
+This creates an important problem.
+
+**55% indicates scheduling has finished. It does not indicate that 55% of audio rendering is complete.**
+
+On Android, a large offline render may consume significant memory and CPU resources while the interface displays an unchanged percentage.
+
+The current implementation lacks adequate visibility into this stage.
+
+## 1.2 Mandatory root-cause investigation
+
+Determine whether the observed stall is caused by:
+
+- Excessive OfflineAudioContext allocation
+- Android WebView memory pressure
+- Large numbers of simultaneously scheduled oscillators
+- Expensive audio graph construction
+- Long audio render duration
+- Unresolved `startRendering()` promise
+- Failed or suspended audio context
+- AudioWorklet compatibility
+- Hidden JavaScript exception
+- Renderer process failure
+- App backgrounding
+- WebView lifecycle interruption
+- Main-thread blocking
+- Insufficient storage
+- WAV encoding cost
+- Download/storage permission failure
+
+Capture:
+
+- Project duration
+- Track count
+- Clip count
+- MIDI note count
+- Estimated voice count
+- Audio sample rate
+- Number of output frames
+- Estimated PCM memory
+- Device memory class
+- Available storage
+- Render stage timings
+- Browser/WebView version
+- JavaScript and native logs
+
+Differentiate CPU-bound processing from memory allocation failure and export-destination failure.
+
+## 1.3 Replace the export lifecycle
+
+Introduce a dedicated, typed `RenderJobService`.
+
+Required job states:
+
+`queued → validating → preparing → scheduling → rendering → processing → encoding → saving → verifying → completed`
+
+Failure states:
+
+`cancelled | failed | interrupted | resource_exhausted | unsupported`
+
+Every job must have:
+
+- Unique job ID
+- Project revision ID
+- Source project identity
+- Output configuration
+- Start time
+- Current phase
+- Actual measured progress
+- Elapsed time
+- Last successful checkpoint
+- Warning details
+- Cancellation state
+- Failure reason
+- Result metadata
+
+Create a dedicated React hook such as `useRenderJob()` to manage job status without blocking UI interactions.
+
+## 1.4 Honest progress tracking
+
+Do not derive full rendering progress solely from the number of tracks scheduled.
+
+If a single OfflineAudioContext operation cannot expose accurate intermediate progress, display:
+
+`Rendering audio — processing current segment`
+
+with an indeterminate indicator and genuine elapsed time.
+
+Do not fabricate 56%, 57%, 58% simply because time has passed.
+
+For segmented rendering, show measurable completed segments and total planned segments.
+
+Example:
+
+`Rendering segment 4 of 12 — 33% of segments complete`
+
+Distinguish:
+
+- Scheduling
+- DSP rendering
+- Master processing
+- WAV encoding
+- Saving
+- Verification
+
+## 1.5 Bounded and segmented rendering
+
+Implement a device-aware memory budget.
+
+Calculate expected allocation requirements before rendering.
+
+Avoid creating an entire 128/256/512/1024-bar stereo Float32 buffer on Android when the device cannot safely support it.
+
+Select segment size based on measured resources and project complexity.
+
+Support segments such as:
+
+- 2 bars
+- 4 bars
+- 8 bars
+- 16 bars
+- Larger segments when verified safe
+
+### Continuity requirements
+
+Segmenting must preserve:
+
+- Musical note timing
+- Notes crossing segment boundaries
+- Instrument release envelopes
+- Delay feedback
+- Reverb tails
+- Sidechain envelope continuity
+- Automation
+- Master processing state
+- Phase and oscillator continuity where required
+- Loop/take behavior
+- Exact total exported duration
+
+Do not simply start a fresh sound engine for every segment and join audio buffers if that causes audible discontinuities.
+
+Prefer stateful DSP where feasible.
+
+Where using overlapping windows, explicitly manage warm-up, overlap, carry-over tails, and seam validation.
+
+Use sample-accurate frame offsets.
+
+## 1.6 Cancellation and recovery
+
+Support:
+
+- Cancel export
+- Retry after failure
+- Export a smaller range
+- Export selected track
+- Export stems
+- Export full arrangement
+- Save progress where genuinely resumable
+
+A timeout must not merely reject the UI promise while leaving a large background render consuming memory.
+
+A cancelled or failed job must release resources and avoid publishing incomplete files.
+
+If the underlying browser API cannot cancel an in-progress monolithic render, design segmentation and job isolation around that limitation.
+
+Do not claim resumability unless the architecture actually supports checkpoints.
+
+## 1.7 WAV file correctness
+
+Verify the final file:
+
+- RIFF or applicable large-file format header
+- Correct WAV format identifier
+- Sample format
+- Channel count
+- Sample rate
+- Bit depth
+- Frame count
+- Duration
+- Correct file size
+- Non-silent audio where expected
+- No NaN/Infinity samples
+- Acceptable clipping behavior
+- Consistent channel data
+
+Support 16-bit PCM, 24-bit PCM and 32-bit float where implemented.
+
+The default mobile export should use a tested, resource-appropriate configuration.
+
+For very large files, define a proper RF64/WAVE64 strategy or reject unsupported sizes explicitly instead of overflowing standard RIFF fields.
+
+## 1.8 Android file output
+
+Do not rely exclusively on:
+
+`URL.createObjectURL()` → `<a download>`
+
+Provide a native-compatible file-save flow through Android's Storage Access Framework or a correctly integrated Capacitor file bridge.
+
+Allow the user to select a destination.
+
+Verify that the saved file actually exists and can be played.
+
+### Acceptance
+
+Export:
+
+- 1 bar
+- 4 bars
+- 16 bars
+- 32 bars
+- 64 bars
+- 128 bars
+- Selected track
+- All tracks
+- Multiple stems
+
+The final output must be valid, audible and structurally correct.
+
+No job may remain indefinitely displaying 55% without meaningful status or failure handling.
+
+---
+
+# 2. P0 — AUDIO CRACKLING AND REAL-TIME PLAYBACK
+
+## 2.1 Inspect actual audio scheduling
+
+File:
+
+`src/engine/webAudioSynth.ts`
+
+Current implementation includes:
+
+- JavaScript interval-based scheduling
+- Approximately 20ms scheduling interval
+- 120ms lookahead
+- Per-note audio oscillator creation
+- Persistent track channel graph
+- Voice scheduling identity set
+- Loop-generation tracking
+- Multiple synthesis layers
+- Reverb and delay processing
+- Master limiting
+
+These mechanisms need actual Android performance validation.
+
+Do not automatically assume the scheduler interval is the sole cause of crackling.
+
+## 2.2 Distinguish the failure categories
+
+### Audio underrun
+
+Missing audio because the engine cannot deliver output in time.
+
+### Signal clipping
+
+Distortion from amplitudes exceeding intended signal limits.
+
+### Discontinuity clicks
+
+Abrupt gain, phase, filter or envelope changes.
+
+### Voice overload
+
+Too many simultaneous active synthesis voices.
+
+### Scheduling burst
+
+A delayed callback schedules too many voices at once.
+
+### Output routing problem
+
+Android audio route, Bluetooth or WebView audio-focus problem.
+
+### DSP instability
+
+Invalid parameters, unstable feedback, denormal issues or expensive processors.
+
+Create diagnostic tests capable of distinguishing these failures.
+
+## 2.3 Audio timing architecture
+
+Use `AudioContext.currentTime` as the audio clock.
+
+Maintain bounded scheduling.
+
+Do not depend on React renders for note scheduling.
+
+Avoid duplicate scheduling when:
+
+- Timeline loops
+- User scrubs
+- Playback resumes
+- Project changes
+- Tempo changes
+- Audio context resumes
+
+Use stable MIDI event IDs and loop-generation tracking.
+
+Investigate the current behavior where scheduled note identities are cleared after reaching a large set size.
+
+Ensure this cannot unexpectedly schedule duplicate audio events.
+
+## 2.4 Voice allocation
+
+Implement explicit voice tracking.
+
+Track:
+
+- Voice ID
+- Track ID
+- Note ID
+- Start time
+- Release time
+- Current state
+- Node ownership
+- Disposal status
+
+Provide controlled polyphony budgets based on device capabilities.
+
+Implement musically safe voice stealing only when necessary.
+
+Prioritize:
+
+1. Kick and essential low-end
+2. Rhythm-critical percussion
+3. Lead motifs
+4. Supporting synths
+5. Nonessential texture voices
+
+Do not indiscriminately drop timing-critical notes.
+
+Where voice limits are reached, report performance degradation honestly.
+
+## 2.5 Real DSP lifecycle
+
+Audit:
+
+- Oscillator creation
+- GainNode allocation
+- Filter node reuse
+- Noise buffer reuse
+- Reverb impulse generation
+- Delay feedback
+- Saturation
+- Compression
+- Limiter
+- Per-track analyzer
+- Metering
+- AudioWorklet availability
+
+Dispose of finished nodes.
+
+Prevent duplicate graph connections.
+
+Avoid expensive allocations during high-density playback.
+
+Move appropriate continuous processing off the main JavaScript thread with AudioWorklet when available and validated.
+
+Use a reliable fallback when AudioWorklet is unsupported.
+
+## 2.6 Mastering and gain staging
+
+Inspect gain composition across:
+
+- Per-note synthesis
+- Velocity
+- Instrument output
+- Inserts
+- Track fader
+- Pan
+- VCA
+- Group bus
+- Sends
+- Returns
+- Master gain
+
+Prevent accidental double gain application.
+
+Avoid multiple uncontrolled saturation/limiting stages.
+
+Make gain and dynamics behavior consistent between playback and offline export for supported devices.
+
+Do not advertise BS.1770-compliant true peak without reference-signal validation.
+
+## 2.7 Android audio focus and routing
+
+Implement and verify:
+
+- AudioContext resume on valid user action
+- Correct audio focus handling
+- Screen on/off behavior
+- Foreground/background transitions
+- Wired headphones
+- Bluetooth output
+- Speaker output
+- Device rotation
+- Interruption recovery
+
+Do not silently restart playback after a genuine user pause.
+
+### Acceptance
+
+Playback must be audibly stable during:
+
+- Eight-track techno template
+- Sixteen-track project
+- Complex percussion sequence
+- Acid synth and rumble layering
+- Mixer adjustments
+- Timeline zoom
+- Clip editing
+- Spectrum display
+- AI generation panel use
+- WAV export preparation
+
+Gather actual audio output recordings, signal statistics and device logs.
+
+No claim of crackle-free playback without real audio testing.
+
+---
+
+# 3. P0 — GENERATED TRACKS NOT PLAYING OR APPEARING
+
+Inspect:
+
+- `src/App.tsx`
+- `src/engine/compositionIntelligenceEngine.ts`
+- `src/engine/alsXmlEngine.ts`
+- `src/engine/alsPatchEngine.ts`
+- `src/services/commandBus.ts`
+- `src/engine/webAudioSynth.ts`
+- `src/components/TimelineCanvas.tsx`
+- `src/components/AiComposerIntelligencePanel.tsx`
+
+## 3.1 Trace the complete creation flow
+
+Required transaction:
+
+`User selects range`
+
+→ `Chooses generator`
+
+→ `Selects instrument role`
+
+→ `Generates MIDI/audio content`
+
+→ `Creates valid clip`
+
+→ `Adds or updates track`
+
+→ `Commits canonical project state`
+
+→ `Persists project`
+
+→ `Updates audio graph`
+
+→ `Updates Arrangement`
+
+→ `Audible playback`
+
+→ `Safe export`
+
+Identify every stage where success is reported despite a missing result.
+
+## 3.2 Required creation behaviors
+
+Support:
+
+- Add empty MIDI clip
+- Generate chord clip
+- Generate bass clip
+- Generate percussion clip
+- Generate drum clip
+- Create new instrument track
+- Generate full arrangement
+- Regenerate selected layer
+- Generate section
+- Extend arrangement
+- Add automation
+
+Generated clips must contain valid note timing relative to their clip identity and supported playback interpretation.
+
+Clips must be visible at the requested musical position.
+
+New tracks must be registered with the current audio engine.
+
+New tracks must not accidentally inherit mute/solo isolation or zero gain without a clear reason.
+
+## 3.3 Verify real sound generation
+
+For each instrument role:
+
+- Kick
+- Sub
+- Rumble
+- Acid
+- Hats
+- Percussion
+- Dub Chords
+- Synths
+- Textures
+- Transitions
+
+Verify real output.
+
+If generated material is silent, diagnose whether the cause is:
+
+- Missing instrument
+- No notes
+- Wrong note pitch/range
+- Clip outside arrangement
+- Muted track
+- Active solo isolation
+- Zero effective gain
+- Missing audio routing
+- Audio engine stale project
+- Unsupported device chain
+- AudioContext suspended
+- Invalid note time mapping
+
+Do not report "Track Created" until the track is actually committed and available for playback.
+
+## 3.4 Persistence and safe ALS
+
+Use targeted ALS patches.
+
+Do not invoke destructive `syncTrackClipsToXml()` as the default source mutation route.
+
+Preserve existing clips, notes, devices, automation and IDs.
+
+Failure must roll back the complete operation.
+
+### Acceptance
+
+On Android:
+
+1. Create new project.
+2. Add a bass track.
+3. Select Bars 9–17.
+4. Generate a bass clip.
+5. Verify the clip is visible.
+6. Press Play.
+7. Verify audible bass.
+8. Adjust its mixer fader.
+9. Save project.
+10. Relaunch application.
+11. Verify the track and audio remain correct.
+12. Export an audible WAV.
+
+---
+
+# 4. P0 — REBUILD MOBILE AND FOLDABLE UI ADAPTATION
+
+The supplied photo shows a dense desktop layout compressed into the available Android viewport.
+
+This must be treated as a product usability failure.
+
+## 4.1 Confirmed layout constraints
+
+In `SoundCraftWorkstation.tsx`, the desktop layout uses:
+
+- Left dock initially 224px
+- Right inspector 320px
+- Bottom editor initially 256px
+- Central Arrangement minimum height 240px
+- Fixed vertical studio chrome
+
+These values may be acceptable for large desktops but cannot be assumed safe for phones or foldable windows.
+
+## 4.2 Build adaptive layout architecture
+
+Implement a dedicated `AdaptiveStudioLayoutController`.
+
+It must respond to **actual available app window dimensions**, not only device type or physical screen size.
+
+Support width classes and height constraints.
+
+Suggested modes:
+
+### Compact width — below 600dp
+
+Single primary workspace at a time.
+
+Only essential navigation and controls remain visible.
+
+### Medium width — 600–839dp
+
+Primary workspace plus optional collapsible inspector.
+
+### Expanded width — 840–1199dp
+
+Professional editing workspace with adaptive docks.
+
+### Large width — 1200dp and above
+
+Full studio layout with multi-panel workspaces.
+
+Also handle compact-height landscape independently.
+
+The Android window may change size without changing the physical device.
+
+Respond to fold/unfold, rotation, split-screen, desktop windowing and IME appearance.
+
+## 4.3 Phone landscape mode
+
+Provide:
+
+- Compact transport
+- Workspaces accessible via tabs/overflow
+- Full-width Arrangement
+- Toggleable Track List
+- Toggleable Mixer
+- Toggleable Piano Roll
+- Toggleable AI Composer
+- Contextual inspector sheet
+- Bottom sheet for secondary controls
+
+Do not display left and right docks simultaneously when doing so leaves no usable central canvas.
+
+## 4.4 Folded and unfolded behavior
+
+On a foldable device, support:
+
+- Outer-screen portrait
+- Outer-screen landscape where supported
+- Inner-screen portrait
+- Inner-screen landscape
+- Multi-window
+- Partial-window resize
+
+The layout must recalculate available space during transitions.
+
+Preserve:
+
+- Active project
+- Selected track
+- Selected clip
+- Playback position
+- Audio state
+- Current workspace
+- Scroll position
+- Zoom
+- Panel selection
+- Unsaved edits
+
+Do not reload the whole application when changing posture.
+
+Where fold or hinge geometry intersects the app window, keep essential controls away from occluded areas.
+
+## 4.5 Fix hidden controls after Settings
+
+Specifically audit:
+
+- Settings
+- Diagnostics
+- Download APK
+- Master Export
+- AI Composer
+- Project Queue
+- Device Rack
+- Track controls
+- Full-screen dialogs
+- Toolbars
+- Tab selectors
+
+Controls must not disappear off-screen without a usable navigation mechanism.
+
+Provide:
+
+- Scrollable toolbar groups
+- Accessible overflow menus
+- Bottom sheets
+- Responsive dialogs
+- Collapsible secondary sections
+- Sticky essential actions
+- Proper focus management
+- Keyboard navigation
+- Android back-button handling
+
+## 4.6 Fix dialog clipping
+
+Current `StudioSettingsModal.tsx` uses a centered dialog with `max-h-[90vh]`.
+
+Adapt dialogs to small windows and landscape.
+
+Use viewport-safe modal dimensions.
+
+Keep headers and close controls visible.
+
+Make content independently scrollable.
+
+Account for:
+
+- Status bar
+- Navigation bar
+- Gesture area
+- Display cutouts
+- Soft keyboard
+- IME resizing
+- Screen rotation
+
+No dialog may trap the user without a visible exit.
+
+## 4.7 Responsive typography and touch
+
+Do not shrink the complete desktop UI to tiny text.
+
+Define:
+
+- Readable mobile typography
+- Touch targets appropriate to Android ergonomics
+- Controlled truncation
+- Icon-label tooltips
+- Gesture alternatives
+- Accessible contrast
+- Consistent pressed/selected states
+
+## 4.8 Critical viewport tests
+
+Test these representative window sizes and update them with actual device metrics:
+
+- 360 × 800 CSS px
+- 390 × 844 CSS px
+- 412 × 915 CSS px
+- 640 × 360 CSS px
+- 800 × 600 CSS px
+- 768 × 1024 CSS px
+- 1024 × 768 CSS px
+- 1440 × 900 CSS px
+
+Test folded/unfolded transitions using Android emulator configurations and physical foldable hardware if available.
+
+### Acceptance
+
+At every supported viewport:
+
+- Play is accessible.
+- Stop is accessible.
+- Track selection works.
+- Arrangement remains usable.
+- Mix Console opens.
+- Settings opens and closes.
+- Export controls remain reachable.
+- All critical controls remain readable.
+- No layout extends beyond the app window unintentionally.
+- No data is lost during resizing.
+
+---
+
+# 5. P1 — COMPLETE ANDROID-NATIVE FILE HANDLING
+
+The DAW must work as a standalone application.
+
+Implement:
+
+- Android-compatible project import
+- Save project
+- Save As
+- WAV export
+- MIDI export
+- ALS export where supported
+- Selected-track export
+- Stem export
+- Reopen exported files
+
+Use Android document APIs and appropriate Capacitor integration.
+
+Do not depend solely on browser anchor downloads.
+
+Handle:
+
+- User cancellation
+- Invalid destination
+- Low storage
+- Write failure
+- Permission denial
+- App interruption
+- Filename collisions
+- Large files
+- Media scanning where appropriate
+
+Provide explicit success only after the destination write succeeds.
+
+Preserve MIME types, extensions and correct content.
+
+---
+
+# 6. P1 — REAL AUDIO EXPORT ARCHITECTURE PARITY
+
+The existing `synthesizeDeterministicStereoPcm()` uses simplified instrument synthesis and approximate insert effects.
+
+This creates the possibility that fallback WAV output differs audibly from normal Web Audio playback.
+
+## Required review
+
+Compare:
+
+- Normal realtime playback
+- OfflineAudioContext output
+- Deterministic PCM fallback
+- Master Export 2.0 output
+
+Identify unsupported behaviors.
+
+Do not silently replace:
+
+- EQ
+- Compression
+- Saturation
+- Delay
+- Reverb
+- Sidechain
+- Automation
+- Device parameters
+
+with simplified alternatives while labeling the output identical.
+
+## Required design
+
+Use one canonical rendering contract with shared processor semantics where practical.
+
+If parity cannot be guaranteed, provide an explicit capability report.
+
+Allow the user to select a verified supported export mode.
+
+Do not claim professional mastering accuracy from approximated synthesis.
+
+---
+
+# 7. P1 — FIX TIMELINE, EDITOR AND MIXER INTEGRATION
+
+Preserve the previous advanced DAW requirements.
+
+### Timeline
+
+Use one authoritative `TimelineViewportController`.
+
+Support continuous zoom, accurate clip selection, independent clips, adaptive grid, dynamic bars and pointer-anchored zoom.
+
+### Mixer
+
+Use persistent channel processing.
+
+Verify faders modify already-playing audio.
+
+### Piano Roll
+
+Allow accurate editing of user-created clips and generated chords at any selected bar range.
+
+### Automation
+
+Verify automation actually affects DSP.
+
+### Undo/Redo
+
+Use immutable project transactions.
+
+### ALS
+
+Preserve original XML structures.
+
+### Session Matrix
+
+Verify scene launching affects actual playback.
+
+Do not certify these capabilities solely through isolated UI tests.
+
+---
+
+# 8. P1 — PROFESSIONAL ORIGINAL APP ICON, LOGO AND BRAND SYSTEM
+
+The existing application has a basic icon and PNG generator.
+
+Replace the inconsistent artwork with a coherent professional identity for **Parametric ALS**.
+
+## 8.1 Visual direction
+
+**Concept:** Precision Industrial Audio Technology.
+
+Create an original, identifiable brand mark based on:
+
+- Parametric control
+- Audio waveforms
+- Signal routing
+- MIDI sequencing
+- Arrangement geometry
+- Underground electronic music
+
+The icon should be recognizable without text at small sizes.
+
+Do not use the official Ableton logo or copy another DAW's trademarked identity.
+
+## 8.2 Brand system
+
+Primary colors:
+
+- Industrial Black: `#0B0D10`
+- Raised Surface: `#12161B`
+- Amber Signal: `#F59E0B`
+- Cyan Analysis: `#06B6D4`
+- Neutral White: `#E5E7EB`
+
+Create one strong primary mark and derive consistent variants.
+
+## 8.3 Required visual assets
+
+Implement:
+
+- Primary app logo
+- Symbol-only icon
+- Horizontal wordmark
+- Compact navigation logo
+- Android adaptive icon foreground
+- Android adaptive icon background
+- Android monochrome/themed icon
+- Android round icon where applicable
+- Android launcher icon sizes
+- Android splash-screen artwork
+- PWA 192×192 icon
+- PWA 512×512 icon
+- PWA maskable icon
+- Apple touch icon
+- Valid favicon `.ico`
+- SVG brand mark
+- Light and dark variants
+- High-resolution source artwork
+
+Maintain an editable vector master and appropriate exported raster assets.
+
+Do not merely rename PNG bytes to `.ico`.
+
+Do not create blurry icons by enlarging a tiny raster source.
+
+## 8.4 Android integration
+
+Use the official Capacitor-supported asset generation flow where applicable.
+
+Integrate the results with:
+
+- Android mipmap resources
+- Adaptive icon definitions
+- Manifest
+- Splash theme
+- PWA manifest
+- HTML metadata
+- Studio application header
+- Settings/About
+- Android home screen launcher
+
+Ensure the icon renders correctly on Android adaptive-icon masks and Android themed icons.
+
+## 8.5 Visual QA
+
+Capture screenshots of:
+
+- Launcher icon
+- App splash
+- Application header
+- Folded layout
+- Unfolded layout
+- Light/dark modes
+- Android Settings app listing
+- Installed application details
+
+Verify no clipping, jagged edges, illegible text or inconsistent branding.
+
+---
+
+# 9. P0 — COMPLETE ANDROID BUILD AND CI RECOVERY
+
+Latest inspected revision:
+
+`58587efe16fae83c844f6b8f008d17f482800392`
+
+GitHub CI:
+
+https://github.com/dejayillegal/aidaw/actions/runs/41320317869
+
+The workflow currently fails during Android SDK setup.
+
+Inspect the exact logs and correct the failure.
+
+Do not assume that Gradle compilation passed because the repository includes build scripts.
+
+## Critical APK orchestrator defect
+
+Current `scripts/build-debug-apk.mjs` may reuse an existing APK from `public/` or `dist/` when no new Gradle APK is available.
+
+It may subsequently write that file back into the Gradle output directory.
+
+**This fallback must be removed.**
+
+The only publishable artifact is the APK produced by the current successful Gradle build for the current source revision.
+
+No stale artifact substitution.
+
+No false verification status.
+
+## Required pipeline
+
+1. Clean source checkout
+2. Lockfile-valid dependency installation
+3. Type checking
+4. Unit/integration tests
+5. Production web build
+6. Capacitor Android sync
+7. Gradle debug APK build
+8. SDK cryptographic signing verification
+9. Manifest and version verification
+10. APK SHA-256 calculation
+11. Emulator installation
+12. Offline launch
+13. Multitrack audio test
+14. WAV export test
+15. UI adaptive-layout test
+16. Artifact publication
+
+## APK update compatibility
+
+Preserve application ID and signing continuity.
+
+Compare previous installed signing identity with the candidate APK.
+
+Do not uninstall user data without explicit approval and backup verification.
+
+If the existing app cannot be updated because of signing lineage, report that clearly and use an authorized migration path.
+
+---
+
+# 10. P0 — ACTUAL DEVICE TESTING REQUIRED
+
+Do not rely on JSDOM or mocked Web Audio as proof of Android functionality.
+
+Run an end-to-end mobile test program.
+
+## Test A — Playback
+
+Install app, create project, press Play, confirm actual non-silent output.
+
+## Test B — Audio stability
+
+Play multiple tracks and operate mixer while recording actual output.
+
+Detect clipping, glitches, silence gaps and discontinuities where measurable.
+
+## Test C — Track generation
+
+Create Bass, Drum, Chord and Percussion clips.
+
+Confirm each plays and is saved.
+
+## Test D — WAV export
+
+Export 4/16/32/64/128-bar project variants.
+
+Confirm every supported case finishes or fails explicitly with a reason.
+
+Verify the saved WAV.
+
+## Test E — Folder access
+
+Save a WAV through Android's document picker and reopen it.
+
+## Test F — Folded layout
+
+Use the app in outer-screen portrait and landscape modes supported by the device.
+
+## Test G — Unfolded layout
+
+Open the inner screen.
+
+Verify all menus, Settings, transport and editors fit correctly.
+
+## Test H — Fold/unfold while playing
+
+Verify state continuity and correct audio-focus behavior.
+
+## Test I — Persistence
+
+Create and save a project; force-close and relaunch.
+
+Verify project integrity.
+
+## Test J — Offline mode
+
+Disable network and execute essential DAW workflows.
+
+---
+
+# 11. STRESS, FAILURE AND RECOVERY TESTS
+
+Simulate:
+
+- Renderer memory pressure
+- Long offline export
+- App backgrounding during render
+- User cancelling export
+- AudioContext suspension
+- Bluetooth output changes
+- Device rotation while playing
+- Fold/unfold during editing
+- Storage permission denial
+- Insufficient disk space
+- Invalid ALS input
+- Missing instrument device
+- Malformed MIDI
+- Large project
+- Multiple consecutive exports
+- Multiple project switches
+
+Every failure must produce:
+
+- A truthful error
+- Safe cleanup
+- Preserved project data
+- A retry path where appropriate
+- Diagnostic evidence
+
+No permanently stuck progress dialog.
+
+No invisible operation that continues indefinitely after cancellation.
+
+---
+
+# 12. IMPLEMENTATION PRIORITIES
+
+## Phase 0 — Establish reproducible baseline
+
+Confirm latest SHA, capture logs, reproduce 55% stall, crackling and layout clipping.
+
+## Phase 1 — Repair WAV export
+
+Introduce render-job lifecycle, bounded rendering, cancellation, output validation and native file saving.
+
+## Phase 2 — Repair real-time Android audio
+
+Fix actual measured causes of crackling and voice/scheduler instability.
+
+## Phase 3 — Repair track generation
+
+Ensure all supported track roles create visible, audible, editable and persistent content.
+
+## Phase 4 — Rebuild adaptive Android layouts
+
+Fix phone/foldable/landscape controls, dialogs, toolbars and dock behavior.
+
+## Phase 5 — Complete DSP and file workflow parity
+
+Validate real-time/offline audio and native export behavior.
+
+## Phase 6 — Implement professional branding
+
+Create and integrate all native/web/PWA assets.
+
+## Phase 7 — Repair CI and APK delivery
+
+Build genuine verified APK from final source, then install and exercise it.
+
+## Phase 8 — Full regression and performance
+
+Verify all critical workflows and release gates.
+
+---
+
+# 13. RELEASE GATES
+
+**G0 — Reproduction:** All user-reported failures recorded with source/runtime evidence.
+
+**G1 — WAV Export:** Android completes valid output or fails safely with a documented reason.
+
+**G2 — Real-Time Audio:** Audible playback without known release-blocking crackling defects on qualified devices.
+
+**G3 — Track Generation:** New clips/tracks are audible, editable and persistent.
+
+**G4 — Offline Rendering:** Supported processors and instruments are represented accurately in output or explicitly labeled unsupported.
+
+**G5 — Foldable UI:** No inaccessible essential controls in supported window configurations.
+
+**G6 — Settings and Dialogs:** All menus and dialogs are visible and usable.
+
+**G7 — Mixer:** Faders, solo, mute, meters and effects work on actual audio.
+
+**G8 — Timeline:** Zoom, scrolling, clip editing and selection remain correct.
+
+**G9 — Project Integrity:** No unrequested data loss or native ALS mutation.
+
+**G10 — Branding:** Consistent professional logo, app icon, adaptive assets and splash.
+
+**G11 — Android Build:** Current-source Gradle APK builds and passes signature verification.
+
+**G12 — Android Installation:** APK installs and launches on qualified Android versions.
+
+**G13 — Offline App:** Playback, editing, persistence and file export function without internet.
+
+**G14 — CI:** Current commit passes mandatory build and tests.
+
+**G15 — Release Evidence:** Artifacts, screenshots, test logs and measurements are complete.
+
+No P0 gate may be bypassed by a claim of successful unit tests.
+
+---
+
+# 14. FINAL DELIVERABLES
+
+Deliver the following:
+
+1. Baseline commit SHA.
+2. Final commit SHA.
+3. Changed source files.
+4. Root cause for the 55% render stall.
+5. Root cause for audio crackling.
+6. Root cause for missing/generated track failures.
+7. Foldable layout before/after screenshots.
+8. Audio rendering architecture changes.
+9. Audio output measurements.
+10. Sample verified WAV files or test artifact metadata.
+11. Native save/export test logs.
+12. Test matrix with actual outcomes.
+13. Android Gradle build logs.
+14. APK signing verification.
+15. APK version and certificate identity.
+16. APK size and SHA-256.
+17. Android installation logs.
+18. Offline playback results.
+19. Branding asset list and implementation screenshots.
+20. Remaining known defects.
+21. Failed, skipped and unverified test cases.
+22. Final release-gate report.
+
+Label each result as:
+
+- Verified on physical Android hardware
+- Verified on Android emulator
+- Verified in browser
+- Verified by automated test
+- Source-verified only
+- Blocked/unverified
+
+Do not substitute one evidence type for another.
+
+---
+
+# 15. FINAL IMPLEMENTATION COMMAND
+
+The current Android DAW is not acceptable while:
+
+- WAV export stops progressing at 55%.
+- Audio crackles during playback.
+- Newly generated tracks fail to become audible.
+- Important app controls are cut off on the unfolded/mobile display.
+- Settings and other dialogs are difficult or impossible to reach.
+- Offline project export is unreliable.
+- The APK pipeline can reuse stale artifacts.
+- CI is failing.
+- Branding is incomplete.
+
+Fix the actual defects at their roots.
+
+Preserve existing production features.
+
+Use tested, maintainable engineering.
+
+Implement the complete adaptive Android DAW rather than a desktop screen compressed into a phone.
+
+Produce real, verified WAV output.
+
+Deliver correctly generated musical tracks.
+
+Use accurate, real-time audio processing.
+
+Create a distinctive original Parametric ALS logo and launcher identity.
+
+Build and verify one canonical APK from the final source commit.
+
+**DO NOT RESPOND WITH ONLY A PLAN. MAKE THE ACTUAL SOURCE CHANGES, EXECUTE THE TESTS AVAILABLE TO YOUR ENVIRONMENT, AND REPORT EVIDENCE.**
+
+**DO NOT MARK UNEXECUTED ANDROID TESTS AS PASSED.**
+
+**DO NOT CLAIM THE RELEASE IS COMPLETE IF ANY CRITICAL AUDIO, EXPORT, STORAGE, INSTALLATION OR LAYOUT GATE FAILS.**
+
+**IMPLEMENT PARAMETRIC ALS v7.3 AND QUALIFY IT AS A WORKING STANDALONE ANDROID MUSIC PRODUCTION APPLICATION.**
+
+**END OF MASTER DIRECTIVE v7.3.**
+
+### What I would verify first after the next push
+
+The key release test should be one complete Android workflow: open the app on the unfolded screen, create a bass track, generate an eight-bar clip, hear it, adjust its mixer volume, export a valid WAV into Android storage, close the app and reopen the saved project.
+
+That single workflow crosses the audio engine, composition system, UI, storage and native Android bridge. It is a far stronger readiness test than a large count of isolated unit tests.
+
+For the UI, Android recommends adaptive decisions based on available window size, including compact-height landscape cases where multi-pane layouts are unsuitable. developer.android.com +1 For branding, the supported Capacitor asset-generation workflow can produce native adaptive icons and splash resources from appropriate source assets. GitHub
+
+Review boundary: I inspected the latest repository source, CI status and your device photo. I have not modified the repository, executed the current APK, recorded its audio or verified WAV output on a physical device. Those remain mandatory proof requirements for Google AI Studio's implementation report.
