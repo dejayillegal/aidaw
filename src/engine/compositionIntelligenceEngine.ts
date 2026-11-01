@@ -2214,6 +2214,7 @@ export function insertClipIntoTrackTimeline(
       result.push({
         ...clip,
         id: `${clip.id}_L_${Math.round(cStart)}`,
+        sourceClipId: clip.id,
         endTime: targetStart,
         length: leftLen,
         notes: leftNotes,
@@ -2227,6 +2228,7 @@ export function insertClipIntoTrackTimeline(
       result.push({
         ...clip,
         id: `${clip.id}_R_${Math.round(targetEnd)}`,
+        sourceClipId: clip.id,
         name: `${clip.name}_Cont`,
         startTime: targetEnd,
         endTime: cEnd,
@@ -2260,6 +2262,7 @@ export function splitTrackClipAtBeat(
       out.push({
         ...clip,
         id: `${clip.id}_A`,
+        sourceClipId: clip.id,
         name: `${clip.name}_A`,
         startTime: cStart,
         endTime: splitBeat,
@@ -2269,6 +2272,7 @@ export function splitTrackClipAtBeat(
       out.push({
         ...clip,
         id: `${clip.id}_B_${Math.round(splitBeat)}`,
+        sourceClipId: clip.id,
         name: `${clip.name}_B`,
         startTime: splitBeat,
         endTime: cEnd,
@@ -2290,15 +2294,17 @@ export function duplicateTrackClip(
   clips: AbletonMidiClip[],
   clipId: string
 ): { clips: AbletonMidiClip[]; duplicatedClip: AbletonMidiClip | null } {
-  const source = clips.find((c) => c.id === clipId) || clips[0];
-  if (!source) return { clips, duplicatedClip: null };
+  const source = clips.find((c) => c.id === clipId);
+  if (!source) throw new Error(`Target clip ${clipId} not found`);
 
-  const deltaBeats = Math.max(4, source.length);
+  const deltaBeats = source.length;
+  if (!Number.isFinite(deltaBeats) || deltaBeats <= 0) throw new Error('Invalid source clip length');
   const newStart = source.startTime + deltaBeats;
   const newEnd = newStart + deltaBeats;
   const dupNotes: MidiNoteEvent[] = source.notes.map((n, i) => ({
     ...n,
     id: `${n.id}_dup_${i}_${Date.now()}`,
+    sourceNoteId: n.id,
     time: Number((n.time + deltaBeats).toFixed(3)),
     quantizedTime: Number((n.quantizedTime + deltaBeats).toFixed(3)),
   }));
@@ -2306,6 +2312,7 @@ export function duplicateTrackClip(
   const duplicatedClip: AbletonMidiClip = {
     ...source,
     id: `${source.id}_dup_${Math.round(newStart)}`,
+    sourceClipId: source.id,
     name: `${source.name}_Dup`,
     startTime: newStart,
     endTime: newEnd,
@@ -2332,7 +2339,7 @@ export function consolidateTrackClipsInRange(
 
   for (const c of clips) {
     for (const n of c.notes) {
-      if (n.time >= lo - 0.01 && n.time < hi - 0.001) {
+      if (n.time >= Math.max(lo, c.startTime) && n.time < Math.min(hi, c.startTime + c.length)) {
         collectedNotes.push({ ...n });
       }
     }
@@ -2361,7 +2368,7 @@ export function moveOrResizeTrackClip(
   newLength: number
 ): AbletonMidiClip[] {
   const target = clips.find((c) => c.id === clipId);
-  if (!target) return clips;
+  if (!target) throw new Error(`Target clip ${clipId} not found`);
 
   const safeStart = Math.max(0, newStartTime);
   const safeLen = Math.max(1, newLength);
@@ -2372,8 +2379,7 @@ export function moveOrResizeTrackClip(
       ...n,
       time: Number((n.time + deltaStart).toFixed(3)),
       quantizedTime: Number((n.quantizedTime + deltaStart).toFixed(3)),
-    }))
-    .filter((n) => n.time >= safeStart - 0.01 && n.time < safeStart + safeLen);
+    }));
 
   const updatedClip: AbletonMidiClip = {
     ...target,

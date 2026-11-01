@@ -8,5 +8,7 @@ coverage/
 !.env.example
 
 recovery-browser-evidence/
+.recovery-evidence/
+__pycache__/
 *.keystore
 *.jks

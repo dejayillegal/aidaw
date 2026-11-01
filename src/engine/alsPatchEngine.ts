@@ -115,20 +115,18 @@ export class AlsPatchEngine {
   }
 
   /**
-   * Finds a track element by its Id or 0-indexed position.
+   * Resolves native identity only. Position is never a substitute for identity.
    */
   private findTrackElement(doc: Document, trackId: string): Element | null {
     const tracks = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
-    const byId = tracks.find((t) => t.getAttribute('Id') === trackId);
-    if (byId) return byId;
+    const matches = tracks.filter((t) => t.getAttribute('Id') === trackId);
+    return matches.length === 1 ? matches[0] : null;
+  }
 
-    // Support compound IDs e.g. track_0_1
-    const match = trackId.match(/track_(\d+)/);
-    if (match) {
-      const idx = parseInt(match[1], 10);
-      if (tracks[idx]) return tracks[idx];
-    }
-    return null;
+  private failure(type: string, error: string): AlsPatchResult {
+    return { operationId: `${type}_${Date.now()}`, operationType: type, success: false,
+      structuralValid: false, referenceValid: false, versionCompatibility: 'unverified',
+      changedNodeIds: [], preservedNodeIds: [], error };
   }
 
   /**
@@ -138,6 +136,12 @@ export class AlsPatchEngine {
     xmlString: string,
     params: PatchClipBoundsParams
   ): AlsPatchResult {
+    if (!Number.isFinite(params.newStartBeat) || params.newStartBeat < 0 ||
+        !Number.isFinite(params.newLengthBeats) || params.newLengthBeats <= 0 ||
+        !Number.isFinite(params.newStartBeat + params.newLengthBeats) ||
+        (params.newLoopEndBeats !== undefined && (!Number.isFinite(params.newLoopEndBeats) || params.newLoopEndBeats <= 0))) {
+      return this.failure('patchClipBounds', 'Invalid clip bounds');
+    }
     const opId = `patch_bounds_${Date.now()}`;
     const { doc, error } = this.parseDocument(xmlString);
     if (!doc) {
@@ -170,7 +174,8 @@ export class AlsPatchEngine {
     }
 
     const clipEls = Array.from(trackEl.querySelectorAll('MidiClip, AudioClip'));
-    const targetClip = clipEls.find((c) => c.getAttribute('Id') === params.clipId) || clipEls[0];
+    const matches = clipEls.filter((c) => (c.getAttribute('Data-AIDAW-LogicalId') || c.getAttribute('Id')) === params.clipId);
+    const targetClip = matches.length === 1 ? matches[0] : null;
     if (!targetClip) {
       return {
         operationId: opId,
@@ -210,9 +215,8 @@ export class AlsPatchEngine {
     endEl.setAttribute('Value', newEndBeat.toFixed(3));
 
     let loopEndEl = targetClip.querySelector('Loop > LoopEnd');
-    if (loopEndEl) {
-      const loopVal = params.newLoopEndBeats ?? params.newLengthBeats;
-      loopEndEl.setAttribute('Value', loopVal.toFixed(3));
+    if (loopEndEl && params.newLoopEndBeats !== undefined) {
+      loopEndEl.setAttribute('Value', params.newLoopEndBeats.toFixed(3));
     }
 
     const updatedXml = this.serializer.serializeToString(doc);
@@ -237,6 +241,7 @@ export class AlsPatchEngine {
     xmlString: string,
     params: PatchNoteVelocityParams
   ): AlsPatchResult {
+    if (!Number.isFinite(params.newVelocity)) return this.failure('patchNoteVelocity', 'Invalid note velocity');
     const opId = `patch_vel_${Date.now()}`;
     const { doc, error } = this.parseDocument(xmlString);
     if (!doc) {
@@ -253,10 +258,12 @@ export class AlsPatchEngine {
       };
     }
 
-    const noteEls = Array.from(doc.querySelectorAll('MidiNoteEvent'));
-    const targetNote =
-      noteEls.find((n) => n.getAttribute('NoteId') === params.noteId) ||
-      noteEls.find((n) => n.getAttribute('Id') === params.noteId);
+    const trackEl = this.findTrackElement(doc, params.trackId);
+    const clips = trackEl ? Array.from(trackEl.querySelectorAll('MidiClip')).filter(c => (c.getAttribute('Data-AIDAW-LogicalId') || c.getAttribute('Id')) === params.clipId) : [];
+    if (clips.length !== 1) return this.failure('patchNoteVelocity', `Target track/clip ${params.trackId}/${params.clipId} missing or ambiguous`);
+    const noteEls = Array.from(clips[0].querySelectorAll('MidiNoteEvent'));
+    const matches = noteEls.filter(n => (n.getAttribute('Data-AIDAW-LogicalId') || n.getAttribute('NoteId') || n.getAttribute('Id')) === params.noteId);
+    const targetNote = matches.length === 1 ? matches[0] : null;
 
     if (!targetNote) {
       return {
@@ -303,6 +310,10 @@ export class AlsPatchEngine {
     xmlString: string,
     params: PatchTrackMixerParams
   ): AlsPatchResult {
+    if ((params.volumeDb !== undefined && (!Number.isFinite(params.volumeDb) || !Number.isFinite(Math.pow(10, params.volumeDb / 20)))) ||
+        (params.pan !== undefined && (!Number.isFinite(params.pan) || Math.abs(params.pan) > 1))) {
+      return this.failure('patchTrackMixer', 'Invalid mixer value');
+    }
     const opId = `patch_mixer_${Date.now()}`;
     const { doc, error } = this.parseDocument(xmlString);
     if (!doc) {
@@ -334,6 +345,11 @@ export class AlsPatchEngine {
       };
     }
 
+    for (const [value, parameter] of [[params.volumeDb, 'Volume'], [params.pan, 'Pan'], [params.muted, 'Speaker'], [params.soloed, 'Solo']] as const) {
+      if (value !== undefined && !trackEl.querySelector(`DeviceChain > Mixer > ${parameter} > Manual`)) {
+        return this.failure('patchTrackMixer', `Missing mixer parameter ${parameter} on track ${params.trackId}`);
+      }
+    }
     if (params.volumeDb !== undefined) {
       const volEl = trackEl.querySelector('DeviceChain > Mixer > Volume > Manual');
       if (volEl) {
@@ -387,6 +403,13 @@ export class AlsPatchEngine {
     xmlString: string,
     params: PatchInsertClipParams
   ): AlsPatchResult {
+    if (!Number.isFinite(params.clip.startTime) || params.clip.startTime < 0 || !Number.isFinite(params.clip.length) || params.clip.length <= 0 ||
+        !Number.isFinite(params.clip.startTime + params.clip.length) ||
+        (params.clip.loopEndBeats !== undefined && (!Number.isFinite(params.clip.loopEndBeats) || params.clip.loopEndBeats <= 0)) ||
+        params.clip.notes.some(n => !Number.isFinite(n.time) || !Number.isFinite(n.duration) || n.duration <= 0 ||
+          !Number.isInteger(n.pitch) || n.pitch < 0 || n.pitch > 127 || !Number.isFinite(n.velocity))) {
+      return this.failure('patchInsertClip', 'Invalid clip or note data');
+    }
     const opId = `patch_insert_clip_${Date.now()}`;
     const { doc, error } = this.parseDocument(xmlString);
     if (!doc) {
@@ -419,9 +442,6 @@ export class AlsPatchEngine {
     }
 
     let eventsEl = trackEl.querySelector('DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events');
-    if (!eventsEl) {
-      eventsEl = trackEl.querySelector('Events');
-    }
     if (!eventsEl) {
       let mainSeq = trackEl.querySelector('DeviceChain > MainSequencer');
       if (!mainSeq) {
@@ -479,10 +499,14 @@ export class AlsPatchEngine {
     loopEl.appendChild(loopEndEl);
     loopEl.appendChild(loopOnEl);
     newClipEl.appendChild(loopEl);
+    // Attach before allocation so every subsequently allocated ID is reserved in the DOM.
+    eventsEl.appendChild(newClipEl);
 
     // Group notes by pitch into KeyTrack nodes
     const notesEl = doc.createElement('Notes');
     const keyTracksEl = doc.createElement('KeyTracks');
+    notesEl.appendChild(keyTracksEl);
+    newClipEl.appendChild(notesEl);
     const byPitch = new Map<number, typeof params.clip.notes>();
 
     params.clip.notes.forEach((n) => {
@@ -501,6 +525,8 @@ export class AlsPatchEngine {
       keyTrackEl.appendChild(midiKeyEl);
 
       const ktNotesEl = doc.createElement('Notes');
+      keyTrackEl.appendChild(ktNotesEl);
+      keyTracksEl.appendChild(keyTrackEl);
       notesList.forEach((n) => {
         const noteEl = doc.createElement('MidiNoteEvent');
         noteEl.setAttribute('Time', n.time.toFixed(3));
@@ -513,13 +539,12 @@ export class AlsPatchEngine {
         ktNotesEl.appendChild(noteEl);
       });
 
-      keyTrackEl.appendChild(ktNotesEl);
-      keyTracksEl.appendChild(keyTrackEl);
     });
 
-    notesEl.appendChild(keyTracksEl);
-    newClipEl.appendChild(notesEl);
-    eventsEl.appendChild(newClipEl);
+    const generator = doc.createElement('NoteIdGenerator');
+    const noteIds = Array.from(newClipEl.querySelectorAll('MidiNoteEvent')).map(n => Number(n.getAttribute('NoteId')));
+    generator.setAttribute('NextId', String(noteIds.reduce((max, id) => Math.max(max, id), 0) + 1));
+    notesEl.appendChild(generator);
 
     const updatedXml = this.serializer.serializeToString(doc);
     return {
