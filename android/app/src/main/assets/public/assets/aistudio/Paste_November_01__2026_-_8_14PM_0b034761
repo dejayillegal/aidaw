@@ -1,0 +1,1471 @@
+Worked for 3m 40s
+
+### Parametric ALS — Repository Audit & Corrective Implementation Prompt
+
+Android installation and release verification blocked
+
+I reviewed the latest `main` branch of [dejayillegal/aidaw](https://github.com/dejayillegal/aidaw?utm_source=chatgpt.com), commit [`0917556`](https://github.com/dejayillegal/aidaw/commit/0917556146bfe8f6a7af40a21b1f195c961de929?utm_source=chatgpt.com), along with the Android pipeline, ALS editing paths, audio engine, timeline, mixer, composition engine and test infrastructure.
+
+The screenshot is particularly important because it shows Google AI Studio reporting successful APK verification and 40 passing tests while Android itself refuses to install the application. These results are not equivalent.
+
+### Most important findings
+
+| Priority | Source evidence                                                                                            | What must be fixed                                                                                                             |
+| -------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| P0       | Android displays “package conflicts with an existing package”                                              | Diagnose installed package ID, signing certificate, version code and exact package-manager failure; protect existing user data |
+| P0       | Latest Android CI run failed at Node setup                                                                 | Repair CI dependencies and toolchain, then verify the final commit                                                             |
+| P0       | scripts/build-debug-apk.mjs still contains a 1,323-line custom APK builder                                 | Remove custom APK construction and use actual Capacitor/Gradle packaging                                                       |
+| P0       | scripts/verify-apk.py checks signature markers, not cryptographic validity                                 | Require Android SDK apksigner, zipalign, manifest checks and installation                                                      |
+| P0       | syncTrackClipsToXml() still removes and rebuilds native MIDI clips                                         | Use the newer alsPatchEngine consistently; reject failed patches and preserve native data                                      |
+| P1       | TimelineCanvas.tsx still maintains separate local zoom/scroll state                                        | Integrate TimelineViewportController into the actual Arrangement UI                                                            |
+| P1       | The audio engine has persistent channel nodes but still approximates some effects through gain multipliers | Verify real insert DSP, solo behavior, faders, meters and offline rendering                                                    |
+| P1       | Native ALS export still claims “100% compatible” without an Ableton reopen test                            | Replace the claim with an evidence-backed compatibility report                                                                 |
+
+The Android install error is consistent with a signing-certificate mismatch, particularly because the custom APK builder generates a fresh RSA key for each build. However, the screenshot does not show the exact package-manager error code, so other package/update conflicts must also be checked. Android requires matching package identity and signing lineage, with acceptable version codes, for an in-place update. developer.android.com +1
+
+The newest workflow also specifies Node 20 even though Capacitor 8 requires Node 22 or newer. The repository tree has `bun.lock` but no root `package-lock.json`, while CI uses npm caching and `npm ci`. Both require correction or explicit toolchain reconciliation. Capacitor Documentation +1
+
+Positive progress: ALS import no longer automatically decomposes long clips, the new targeted XML patch engine exists, mixer fader preview handling has improved, and the workstation has genuine separate Edit/Mix modes. The next step is to finish their integration and prove them through real-device and project-level testing.
+
+The prompt below addresses the current failure first, then audits and repairs the entire application without sacrificing existing functionality.
+
+# GOOGLE AI STUDIO — PARAMETRIC ALS v7.2
+## COMPLETE REPOSITORY FORENSIC AUDIT, ANDROID INSTALLATION RECOVERY & PRODUCTION RELEASE IMPLEMENTATION
+
+### MASTER CORRECTIVE IMPLEMENTATION DIRECTIVE
+
+**Repository:** https://github.com/dejayillegal/aidaw
+
+**Latest audited baseline:** `0917556146bfe8f6a7af40a21b1f195c961de929`
+
+**Existing tested Android correction:** https://github.com/dejayillegal/aidaw/pull/1
+
+**Current failed CI:** https://github.com/dejayillegal/aidaw/actions/runs/41316813663
+
+**User-reported Android error:** "App not installed as package conflicts with an existing package."
+
+**Execution objective:** Inspect the complete existing application, reproduce and fix the confirmed failures, reconcile all implementation paths, preserve project functionality and musical data, produce a genuine Android application, and prove end-to-end functionality.
+
+## 0 — CRITICAL INSTRUCTION: IMPLEMENT, DO NOT SIMPLY REPORT SUCCESS
+
+The previous Google AI Studio response claimed:
+
+- Android APK verification successful.
+- Valid AndroidManifest and DEX.
+- APK signatures verified.
+- 40/40 tests passing.
+- Successful compilation.
+- All implementation phases completed.
+
+However, the actual device reports an installation conflict.
+
+GitHub's newest main-branch CI is also failing.
+
+**Therefore, the previous completion claim is not an acceptable release certification.**
+
+You must identify the exact mismatch between:
+
+1. Source-code implementation.
+2. Web build output.
+3. Generated Android APK.
+4. APK distributed to the user.
+5. Installed Android application.
+6. Existing package signing identity.
+7. Android package-manager requirements.
+8. CI test results.
+9. Actual device execution.
+
+Do not repeat a successful internal test when the delivered application cannot install.
+
+Operate as a Principal Android Engineer, DAW Architect, Real-Time DSP Engineer, React/TypeScript Engineer, Native ALS Interoperability Engineer, Security Engineer, Music Composition Specialist and Independent QA Release Auditor.
+
+Deliver real code changes and executable evidence.
+
+---
+
+# 1 — IMMEDIATE P0: ANDROID INSTALLATION CONFLICT
+
+## 1.1 Reproduce the exact user failure
+
+The attached screenshot shows:
+
+**Parametric Techno DAW — App not installed as package conflicts with an existing package.**
+
+Do not assume the cause without inspecting the Android package-manager result.
+
+Investigate:
+
+- Existing installed application ID
+- Existing app certificate
+- New APK certificate
+- Existing version code
+- Candidate version code
+- APK package name
+- APK installer source
+- Package-manager error code
+- Shared-user/package conflicts
+- Content-provider authority conflicts
+- Split APK incompatibilities where applicable
+- Android OS/API compatibility
+
+Potential failures include:
+
+- `INSTALL_FAILED_UPDATE_INCOMPATIBLE`
+- `INSTALL_FAILED_VERSION_DOWNGRADE`
+- `INSTALL_FAILED_CONFLICTING_PROVIDER`
+- `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE`
+- Certificate lineage mismatch
+- Incorrect package metadata
+
+Classify the actual failure from ADB output.
+
+Do not treat the generic Android installation dialog as a complete root-cause report.
+
+## 1.2 Mandatory diagnosis commands
+
+Run appropriate commands against the explicit selected device:
+
+```bash
+adb devices -l
+
+adb shell pm list packages | grep parametricals
+
+adb shell pm path com.parametricals.technodaw
+
+adb shell dumpsys package com.parametricals.technodaw
+
+adb install -r -t android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+On Windows, replace `grep` with `findstr` where appropriate.
+
+Inspect the APK independently:
+
+```bash
+apksigner verify --verbose --print-certs android/app/build/outputs/apk/debug/app-debug.apk
+
+aapt dump badging android/app/build/outputs/apk/debug/app-debug.apk
+
+zipalign -c -P 16 4 android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Use the correct installed Android SDK tooling paths.
+
+Compare the installed application's signing certificate with the candidate APK's certificate. Where necessary, inspect the installed base APK through ADB on a test device using permitted access.
+
+Capture the exact install error and signing fingerprints.
+
+## 1.3 Preserve user data
+
+**DO NOT AUTOMATICALLY UNINSTALL THE EXISTING APPLICATION.**
+
+Existing app data may include projects, generated compositions, MIDI, audio files, settings and saved templates.
+
+Before any destructive migration:
+
+- Identify the installed version.
+- Determine what app data exists.
+- Provide a supported project export or backup path.
+- Verify that exported data can be restored.
+- Preserve signing identity when possible.
+
+If the previously installed APK was signed using an ephemeral key that is no longer available, acknowledge that an in-place update may be impossible.
+
+Choose an explicit remediation:
+
+A. Reuse a compatible signing identity if available.
+
+B. Perform a verified export/backup and reinstall only with user authorization.
+
+C. Use a separate temporary debug application ID for parallel testing, without pretending it is an upgrade to the existing app.
+
+Do not silently change the canonical production application ID.
+
+## 1.4 Versioning requirements
+
+Audit all version codes.
+
+The hand-built APK previously declared one version code while the Gradle project declared another.
+
+Create a consistent versioning strategy:
+
+- Stable application ID
+- Explicit version name
+- Monotonically increasing version code
+- Correct build variant
+- Stable signing identity for intended update paths
+- Repeatable artifact provenance
+
+Test installation on clean devices and updates over previous compatible releases.
+
+---
+
+# 2 — REMOVE THE CUSTOM APK BUILDER COMPLETELY
+
+## Confirmed existing problem
+
+`scripts/build-debug-apk.mjs` still contains code for:
+
+- Manual AndroidManifest binary XML generation
+- Manual resources.arsc generation
+- Dalvik DEX construction
+- Manual APK ZIP assembly
+- Manual APK signing blocks
+- Per-build RSA key generation
+- Bundled WebView runtime shims
+
+This architecture must not remain the production APK packaging path.
+
+### Required implementation
+
+Replace the custom builder with a controlled Capacitor/Gradle orchestrator.
+
+The script may:
+
+- Validate prerequisites
+- Build web assets
+- Run Capacitor sync
+- Invoke Gradle
+- Verify the generated APK
+- Compute SHA-256
+- Publish a validated artifact
+
+It must **not** manually construct Android executable formats.
+
+### Required pipeline
+
+```text
+Source checkout
+    ↓
+Dependency installation with lockfile
+    ↓
+TypeScript + unit tests
+    ↓
+Production web build
+    ↓
+Capacitor sync Android
+    ↓
+Gradle assembleDebug
+    ↓
+Android SDK APK verification
+    ↓
+APK signing identity verification
+    ↓
+Emulator/device installation
+    ↓
+Offline startup and functionality tests
+    ↓
+Artifact hash and release metadata
+    ↓
+Verified distribution
+```
+
+Canonical build commands should use the actual project scripts and installed toolchain.
+
+Example:
+
+```bash
+npm ci
+npm run lint
+npm test
+npm run build
+npx cap sync android
+
+cd android
+./gradlew :app:assembleDebug
+```
+
+Retain the existing Android Gradle wrapper.
+
+Generate APK artifacts only from the legitimate Gradle output.
+
+---
+
+# 3 — RECONCILE THE EXISTING CI-TESTED ANDROID FIX
+
+An existing pull request already demonstrates a legitimate Android build and limited offline instrumentation.
+
+**PR #1:** https://github.com/dejayillegal/aidaw/pull/1
+
+**Tested reference commit:** `36549acfe1e190966ad4b11d174fc3ec14dcd019`
+
+Do not discard that work.
+
+Compare its implementation against latest main.
+
+Perform proper conflict resolution.
+
+Preserve all newer DAW improvements while incorporating:
+
+- Genuine Gradle builds
+- Real APK signing
+- APK SDK verification
+- Controlled artifact downloads
+- Offline startup tests
+- Android instrumentation
+- Build documentation
+- Robust failure handling
+
+### Important
+
+Do not blindly merge an older branch over newer features.
+
+Rebase or reconcile based on actual common ancestry.
+
+Replace the newer main-branch tests that certify the handcrafted APK format.
+
+Re-run all tests on the final reconciled commit.
+
+Do not claim that the historical green PR establishes correctness of the new merged version.
+
+---
+
+# 4 — FIX THE RED MAIN-BRANCH GITHUB ACTIONS WORKFLOW
+
+The current CI run failed at **Setup Node.js 20** before Android compilation.
+
+The workflow currently uses:
+
+- Node 20
+- JDK 17
+- npm caching
+- `npm ci`
+
+But the repository uses Capacitor 8 and the visible root does not contain a committed `package-lock.json`.
+
+### Required correction
+
+Investigate the exact failed action logs.
+
+Standardize the toolchain against the installed Capacitor/Android Gradle Plugin versions.
+
+Use a compatible Node version, JDK, Gradle and Android SDK configuration.
+
+Prefer the already tested PR #1 environment where compatible.
+
+### Dependency lock
+
+Choose one authoritative package-management strategy.
+
+If using npm:
+
+- Produce a valid `package-lock.json`.
+- Commit it.
+- Use `npm ci`.
+- Configure npm cache against the correct lockfile.
+- Verify dependency reproducibility.
+
+If using Bun:
+
+- Use its correct frozen lockfile workflow.
+- Do not combine npm caching and `npm ci` with an incompatible or missing npm lockfile.
+
+### Required CI jobs
+
+1. Dependency validation
+2. TypeScript validation
+3. Unit tests
+4. React/component tests
+5. Browser E2E tests
+6. ALS integrity tests
+7. Audio DSP tests
+8. Production web build
+9. Android Gradle build
+10. Android lint
+11. APK verification
+12. Emulator installation
+13. Offline WebView tests
+14. Artifact publication
+
+A failure must block artifact publication.
+
+Do not display a successful release state if CI never reached the APK build.
+
+---
+
+# 5 — ENSURE THE DOWNLOADED APK IS THE VERIFIED APK
+
+Audit:
+
+- `server.ts`
+- `src/utils/apkDownloader.ts`
+- `public/parametric-techno-daw-debug.apk`
+- `dist/parametric-techno-daw-debug.apk`
+- `android/app/build/outputs/apk/debug/app-debug.apk`
+- `android/app/src/main/assets/public/`
+- CI release artifacts
+
+Current server behavior can choose among several APK locations.
+
+This creates the risk of distributing a stale or differently signed binary.
+
+### Required architecture
+
+Define a single approved artifact publication process.
+
+Maintain artifact metadata containing:
+
+```text
+Application ID
+Version name
+Version code
+Build variant
+Commit SHA
+CI run ID
+APK size
+SHA-256
+Signing certificate SHA-256
+Target SDK
+Minimum SDK
+Verification status
+Build timestamp
+```
+
+Every download must resolve to the approved artifact for that exact release.
+
+The browser download must:
+
+1. Fetch verified metadata.
+2. Fetch the APK.
+3. Verify expected content type and size.
+4. Compare artifact SHA-256 where supported.
+5. Reject stale or mismatched files.
+6. Display the actual version and build identity.
+7. Report failures clearly.
+
+Checking only the first four ZIP bytes is insufficient.
+
+### Additional requirements
+
+- Remove checked-in APK binaries from source folders.
+- Do not package an APK inside another Android app's assets.
+- Avoid stale service-worker-cached APK responses.
+- Do not use fallback files when verified artifacts are unavailable.
+- Return a truthful download-unavailable error instead.
+
+---
+
+# 6 — REMOVE MISLEADING APK VERIFICATION
+
+The existing `scripts/verify-apk.py` reports cryptographic success based on signature-related archive markers.
+
+This must be replaced or upgraded.
+
+### Required verification
+
+Use official SDK tools:
+
+- `apksigner`
+- `zipalign`
+- `aapt` or `aapt2`
+- Android package manager
+- ADB
+
+Verify:
+
+- Actual cryptographic APK signature
+- Correct signer certificate
+- Resources alignment
+- Package name
+- Main launcher activity
+- Version code
+- SDK compatibility
+- Real compiled DEX
+- Bundled assets
+- App installation
+- App launch
+
+The script must exit nonzero on any mandatory validation failure.
+
+### Explicit distinction
+
+**APK structure test:** File contains expected archive entries.
+
+**APK signature test:** Cryptographic signature is valid.
+
+**APK installation test:** Android accepts and installs the package.
+
+**APK launch test:** MainActivity and WebView launch.
+
+**Offline DAW test:** The real app runs its workflows without network access.
+
+All five are different gates.
+
+Do not merge them into one "APK VERIFIED" badge.
+
+---
+
+# 7 — COMPLETE ANDROID STANDALONE DAW RUNTIME
+
+Use the real Capacitor `BridgeActivity`, not a handcrafted WebView Activity.
+
+Audit:
+
+- Web asset loading
+- Capacitor bridge initialization
+- IndexedDB
+- File storage
+- AudioContext
+- Audio focus
+- Headphone output
+- Bluetooth output
+- Screen rotation
+- App pause/resume
+- Offline operation
+- Device memory limits
+- Android back navigation
+- Insets and system bars
+- Device lifecycle
+
+### Essential offline workflows
+
+The installed application must support:
+
+- Launch with internet disabled
+- Load locally bundled starter projects
+- Open existing saved project
+- Create new project
+- Generate music
+- Play multitrack audio
+- Edit MIDI notes
+- Edit Arrangement clips
+- Change mixer faders
+- Use supported DSP effects
+- Undo/Redo
+- Save project
+- Import supported ALS/MIDI/WAV
+- Export supported formats
+- Reopen saved project
+
+### Storage requirements
+
+Use appropriate Android document access and local storage approaches.
+
+Preserve project state through:
+
+- App restart
+- Screen rotation
+- Background/foreground transition
+- Android app update
+- Interrupted export
+- Storage permission rejection
+
+Use appropriate file-picker and export contracts.
+
+Do not assume browser download mechanisms are sufficient for every Android file workflow.
+
+### Service-worker behavior
+
+Avoid registering PWA service workers inside native Capacitor runtime where inappropriate.
+
+Do not use false network-success responses to hide missing backend functionality.
+
+---
+
+# 8 — RESTORE COMPLETE AUDIO PLAYBACK AND STABILITY
+
+Audit `src/engine/webAudioSynth.ts`.
+
+Verify the previous false-auto-pause fix remains effective.
+
+### Required scenarios
+
+- Playback starts on first authorized user gesture.
+- AudioContext resumes reliably.
+- Music continues despite ordinary main-thread timer jitter.
+- Loop boundaries do not duplicate or omit notes unexpectedly.
+- Tracks remain audible with correct mixer state.
+- Reverb and delay tails behave correctly.
+- Project switching does not leak old voices.
+- Audio stops gracefully.
+- Audio resumes after interruption.
+- Android audio focus loss is handled.
+- Output-device changes are handled.
+
+### Actual signal validation
+
+For every supported instrument archetype, render a test signal and confirm:
+
+- Non-silent output when expected
+- Correct note timing
+- Correct duration
+- Correct velocity response
+- No NaN samples
+- No uncontrolled clipping
+- Correct sample rate handling
+
+Do not use a mocked AudioContext as the sole evidence for production audio.
+
+### Diagnostics
+
+Remove false confidence indicators.
+
+Only show:
+
+- Actual AudioContext state
+- Actual sample rate
+- Actual measured level data
+- Scheduler recovery events
+- Verified processing/latency metrics
+- Supported device capability information
+
+Do not advertise hardware underruns based on simulated JavaScript timers.
+
+---
+
+# 9 — CANONICAL PROJECT STATE, UNDO AND MULTI-PROJECT SAFETY
+
+Audit:
+
+- `src/App.tsx`
+- `src/services/commandBus.ts`
+- `src/services/projectQueueService.ts`
+- `src/engine/webAudioSynth.ts`
+
+The application must use one authoritative project state.
+
+Audio runtime is a derived execution environment.
+
+### Required command flow
+
+```text
+User Action
+  ↓
+Validated Typed Command
+  ↓
+Immutable Project Draft
+  ↓
+Semantic Constraints
+  ↓
+Native ALS Patch (when supported)
+  ↓
+Project Invariant Validation
+  ↓
+Atomic Commit
+  ↓
+DSP/UI Synchronization
+  ↓
+Persistence
+  ↓
+Undo/Redo History
+```
+
+### Review recent improvements
+
+Verify that `updateTrackMixerLive()` no longer mutates canonical React project objects.
+
+Verify that preview and commit are separate.
+
+Verify that Undo restores:
+
+- Actual UI value
+- Project value
+- Audio DSP value
+- Persisted XML where supported
+
+### Special React safety
+
+Audit side effects inside React state updater functions.
+
+Do not perform irreversible queue writes, command-bus mutations or external callbacks inside state updater functions that may be re-entered during development or concurrent rendering.
+
+Ensure commands execute exactly once per user action.
+
+### Multi-project isolation
+
+A change to Project A must never modify Project B.
+
+Verify:
+
+- Queue identity
+- Snapshot ownership
+- Revision numbers
+- Undo history
+- Source XML
+- Audio engine project binding
+- Export destination
+- Temporary files
+- Background processing cancellation
+
+---
+
+# 10 — COMPLETE ALS PATCH ENGINE INTEGRATION
+
+A newer `src/engine/alsPatchEngine.ts` exists.
+
+However, the main project-editing flow still invokes legacy `syncTrackClipsToXml()`.
+
+That legacy function removes and rebuilds MIDI clip nodes, creating synthetic native IDs and potentially discarding unknown fields.
+
+### Required implementation
+
+Integrate the safe patch engine into the actual UI command path.
+
+Do not leave it only as a tested standalone utility.
+
+### Operations requiring safe implementation
+
+- MIDI note edit
+- Note velocity edit
+- Create clip
+- Move clip
+- Resize clip
+- Split clip
+- Duplicate clip
+- Delete clip
+- Consolidate clip
+- Edit automation
+- Change mixer gain
+- Change pan
+- Change sends
+- Add supported device
+- Reorder device
+- Remove device
+- Edit loop
+- Add marker
+- Change arrangement structure
+
+### Patch contract
+
+Every supported operation must return:
+
+- Success/failure
+- Updated semantic project
+- Updated XML
+- Changed native IDs
+- Preserved IDs
+- Structural integrity
+- Reference integrity
+- Version compatibility status
+- Rollback snapshot
+- Error detail
+
+No silent fallback to unchanged XML while reporting success.
+
+### Strict preservation
+
+Imported files must retain:
+
+- Tracks
+- MIDI clips
+- Audio clips
+- Notes
+- MIDI expression
+- Note identity
+- Devices
+- Automation
+- Groups
+- Routing
+- Unknown XML subtrees
+- Native metadata
+
+### Compatibility
+
+Use an explicit report distinguishing:
+
+- Parsed successfully
+- Browser-playable
+- Editable in Parametric ALS
+- Exported as ALS
+- Native Ableton reopen verified
+
+Do not claim "100% native Ableton Live 11/12 compatible" without native test evidence.
+
+---
+
+# 11 — COMPLETE TIMELINE AND CLIP EDITING
+
+The source includes `TimelineViewportController`.
+
+The rendered `TimelineCanvas` still uses separate zoom and scroll state.
+
+### Required correction
+
+Integrate one canonical viewport controller.
+
+All time-dependent visuals must share it.
+
+Support:
+
+- Cursor-anchored continuous zoom
+- Horizontal scrolling
+- Trackpad gestures
+- Touch pinch zoom
+- Adaptive grid
+- Zoom to selected clip
+- Zoom to range
+- Fit entire arrangement
+- Minimap
+- Playhead following
+- Dynamic bar extension
+- Track vertical scrolling
+- Variable meter when supported
+
+### Musical editing
+
+Implement and verify:
+
+- Click-to-select
+- Bar-range selection
+- Clip dragging
+- Clip resizing
+- Split
+- Duplicate
+- Loop
+- Slip
+- Shuffle
+- Spot
+- Quantize
+- Piano Roll editing
+- Chord insertion
+- Selected-range generation
+- Automation editing
+
+No accidental live-pad triggering while selecting a clip.
+
+Changing project duration must not automatically tile or delete music.
+
+### Example acceptance
+
+Select Bars 33–41.
+
+Generate a chord clip.
+
+Zoom continuously into Bar 35.
+
+Modify two notes.
+
+Move the clip.
+
+Undo.
+
+Redo.
+
+Save.
+
+Reopen.
+
+Verify exact timing, audio and XML integrity.
+
+---
+
+# 12 — REAL SOUNDCRAFT MIX CONSOLE AND DSP
+
+Preserve the professional Edit/Mix workspace layout.
+
+Audit the real mixer execution.
+
+### Persistent channel strips
+
+Every track must support a persistent graph with:
+
+- Input
+- Real ordered inserts
+- Fader
+- Pan
+- Solo/Mute
+- Sends
+- Routing
+- Level metering
+- Automation
+- Output
+
+### Real-time behaviors
+
+Moving a fader must change sustaining audio.
+
+Mute must silence active audio.
+
+Solo must isolate tracks correctly.
+
+Pan must change stereo output.
+
+Sends must affect actual return processing.
+
+VCA must modify effective channel gain without destructive updates.
+
+### Inserts
+
+Ten visible insert slots are only acceptable if their actual capabilities are identified.
+
+A selected compressor must behave as a compressor.
+
+A selected EQ must implement frequency-selective processing.
+
+An inserted delay must produce delayed output.
+
+Unsupported native devices must retain their source data but not be advertised as fully browser-renderable.
+
+### Tests
+
+Use audio reference signals to verify:
+
+- Frequency response
+- Gain change
+- Dynamics response
+- Delay timing
+- Reverb tail
+- Stereo pan
+- Bypass
+- Insert order
+- Solo
+- Mute
+- Meter accuracy
+- Offline rendering consistency
+
+Do not rely only on React control state tests.
+
+---
+
+# 13 — ADVANCED AI UNDERGROUND MUSIC ENGINE
+
+Preserve the 16 underground subgenre profiles and Groups A–H instrument taxonomy.
+
+Audit whether those profiles actually influence generation.
+
+### Required improvements
+
+Subgenre selection must materially change:
+
+- Groove
+- Kick architecture
+- Bass movement
+- Rhythm patterns
+- Swing
+- Polymeter
+- Harmony
+- Instrument roles
+- Texture
+- Arrangement
+- Energy
+- Transitions
+- Automation
+- Sound design
+
+### Musical intelligence
+
+Implement a hybrid system using:
+
+- Musical knowledge graph
+- Genre-specific rules
+- Constraint solving
+- Probabilistic motif variation
+- Phrase development
+- Energy trajectory planning
+- Harmonic checking
+- Low-end interaction analysis
+- Novelty fingerprints
+- Candidate rejection
+- Deterministic seed replay
+
+### Arrangement
+
+Generate independent editable clips rather than one monolithic song-length note collection.
+
+Use distinct section topology across projects.
+
+### Quality tests
+
+Generate original examples for:
+
+- Hardgroove
+- Dub Techno
+- Raw Warehouse
+- Hypnotic
+- Industrial
+- Minimal
+- Acid
+- Broken Techno
+
+Evaluate musical differences using structural metrics and actual audio listening tests.
+
+No fixed-pattern template should be labeled unique merely because its seed or name changes.
+
+### Offline requirement
+
+Essential composition must remain functional without paid AI APIs.
+
+External AI services may enhance the application but must not be mandatory for its core offline DAW operation.
+
+---
+
+# 14 — PROJECT STORAGE, QUEUE, EXPORT AND RECOVERY
+
+Audit the IndexedDB-backed queue.
+
+Verify:
+
+- Loading saved records after app restart
+- Project switching
+- Export isolation
+- Batch processing
+- Cancellation
+- Retry
+- Out-of-storage behavior
+- Corrupt import handling
+- Long-running analysis interruption
+
+### Mastering
+
+Verify measured:
+
+- Integrated LUFS
+- Sample peak
+- True peak
+- Crest factor
+- Gain reduction
+- Actual final output
+
+Reference-test loudness and true-peak algorithms.
+
+Do not claim a Waveshaper is a verified lookahead brickwall limiter without appropriate implementation and measurements.
+
+### Export formats
+
+Test:
+
+- WAV 16-bit
+- WAV 24-bit
+- WAV 32-bit float
+- Supported sample rates
+- MIDI
+- Project JSON
+- Supported ALS
+
+Verify file headers, lengths, audible content and save/reimport behavior.
+
+---
+
+# 15 — COMPLETE UI CONTROL AUDIT
+
+Enumerate every user-facing control.
+
+Do not limit the review to prominent buttons.
+
+Include:
+
+- Menus
+- Dialogs
+- Inputs
+- Sliders
+- Faders
+- Knobs
+- Toggles
+- Tooltips
+- Drag handles
+- Clip handles
+- Piano Roll
+- Transport
+- Automation
+- Device controls
+- Session launcher
+- Queue
+- AI Composer
+- Download APK
+- Export
+- Diagnostics
+- Settings
+
+### Required functional registry
+
+For every control record:
+
+`Control → Event → Command → State → Audio/Project Result → Persistence → Error Handling → Test`
+
+Identify:
+
+- No-op controls
+- Unimplemented menus
+- Misleading badges
+- Incorrect loading indicators
+- Stale state
+- Broken event handlers
+- Missing persistence
+- Inaccessible touch controls
+- Keyboard conflicts
+- Unhandled async errors
+
+All enabled, advertised release controls must perform their described function.
+
+---
+
+# 16 — SECURITY, PRIVACY AND ASSET AUDIT
+
+Inspect all assets bundled into:
+
+- `public/`
+- `dist/`
+- `android/app/src/main/assets/public/`
+
+Verify that no unnecessary files are distributed.
+
+The repository currently includes various AI Studio paste assets, screenshots and APK binaries inside web/native asset directories.
+
+Determine whether each is intentionally required.
+
+Remove accidental, stale or sensitive build artifacts from production packages without deleting needed source files.
+
+### Security review
+
+- File upload validation
+- Decompression limits
+- XML parser safety
+- Untrusted project data
+- Resource limits
+- Path handling
+- Native Android permissions
+- WebView security
+- External URL navigation
+- Service-worker caching
+- API keys
+- External AI requests
+- Dependency vulnerabilities
+- Third-party sample licensing
+
+No silent upload of projects.
+
+No unnecessary device permissions.
+
+No production secrets in bundled JavaScript.
+
+---
+
+# 17 — REAL AUTOMATED TEST INFRASTRUCTURE
+
+The UI currently reports 40 passing tests.
+
+You must preserve useful test coverage while expanding it to real system verification.
+
+### Verification hierarchy
+
+**Unit tests:** Pure logic and data transformations.
+
+**Integration tests:** Project commands, XML patches, mixer/DSP interfaces.
+
+**Browser E2E:** Real rendering and user interaction.
+
+**Audio tests:** Actual output samples and expected signal behavior.
+
+**Android tests:** Real APK installation and installed application execution.
+
+**Performance tests:** CPU, memory, latency and long-running reliability.
+
+**ALS interoperability tests:** Fixture round-trips and native reopen where available.
+
+### Release scenarios
+
+**APK-001:** Clean install on Android emulator succeeds.
+
+**APK-002:** Upgrade over correctly signed previous release succeeds without data loss.
+
+**APK-003:** Signer mismatch is diagnosed clearly; no automatic data-destructive uninstall.
+
+**APK-004:** Downloaded APK SHA-256 matches CI artifact.
+
+**APK-005:** Offline launch and playback succeed.
+
+**APK-006:** Offline edit/save/export/reopen succeed.
+
+**ALS-001:** Import preserves exact original musical content.
+
+**ALS-002:** MIDI note velocity patch preserves unrelated XML.
+
+**ALS-003:** Clip insert/split/delete operations preserve references.
+
+**ALS-004:** Failed patch rolls back the entire project transaction.
+
+**AUDIO-001:** Playback starts with real output.
+
+**AUDIO-002:** No false auto-pause during ordinary scheduling jitter.
+
+**AUDIO-003:** Mixer fader updates sustained sound immediately.
+
+**AUDIO-004:** Solo and mute operate correctly.
+
+**MIX-001:** DSP inserts execute genuine ordered processing.
+
+**TIME-001:** Continuous zoom preserves musical coordinates.
+
+**TIME-002:** Bar-range selection generates correctly bounded clips.
+
+**STATE-001:** Undo/Redo restores canonical and runtime state.
+
+**GEN-001:** Different subgenres produce measurably distinct compositions.
+
+**GEN-002:** Same seed reproduces identical compositions.
+
+**GEN-003:** Locked source tracks are preserved.
+
+**UI-001:** All critical visible controls are exercised.
+
+**DATA-001:** Project persistence survives restart and version migration.
+
+Do not mark JSDOM tests as Android device tests.
+
+Do not mark a test PASS based solely on a status message.
+
+---
+
+# 18 — ANDROID DEVICE VALIDATION MATRIX
+
+Use a matrix appropriate to supported Android versions and form factors.
+
+At minimum validate:
+
+- Android 14 emulator
+- Android 15 or 16 emulator
+- Real Android phone where device access exists
+- Android tablet/foldable layout where available
+
+### Required checks
+
+- Install
+- Upgrade
+- Launch
+- Login-independent offline startup
+- Audio playback
+- Mixer output
+- MIDI editor
+- Arrangement zoom
+- Clip generation
+- Export
+- Local storage
+- Rotation
+- Background/foreground
+- Audio focus
+- Headphone/Bluetooth switching
+- Repeated relaunch
+
+If physical hardware is inaccessible, report that limitation separately.
+
+A passing emulator does not certify physical-device audio latency.
+
+---
+
+# 19 — PERFORMANCE ENGINEERING
+
+Test representative workloads:
+
+- 8 tracks
+- 16 tracks
+- 32 tracks
+- 48 tracks
+- 64 tracks where supported
+
+And:
+
+- 16 bars
+- 128 bars
+- 512 bars
+- 1024 bars where supported
+- Dense MIDI
+- Heavy effects
+- Automation
+- FFT
+- Long playback
+- Batch exports
+
+Measure:
+
+- Frame time
+- Audio processing behavior
+- Main-thread blocking
+- Memory
+- Node lifecycle
+- Garbage collection
+- Export duration
+- App startup
+- Project loading
+- Android battery/thermal behavior when possible
+
+Use adaptive visual throttling before compromising audio reliability.
+
+Do not invent performance metrics.
+
+---
+
+# 20 — EXECUTION ORDER
+
+Implement in dependency order.
+
+### PHASE 0 — Verify source and reproduce failures
+
+Inspect current branch, screenshot evidence, CI logs, APKs, Android package details and existing test state.
+
+### PHASE 1 — Repair Android installation and CI
+
+Fix package/signing/version conflict, lockfile/toolchain, real Gradle build, APK verification and artifact distribution.
+
+### PHASE 2 — Protect project data
+
+Integrate targeted ALS patching and transactional project updates.
+
+### PHASE 3 — Restore verified audio
+
+Test playback, mixer runtime, DSP and AudioContext lifecycle.
+
+### PHASE 4 — Finish professional timeline interactions
+
+Integrate viewport controller, clip editing, bar selection, dynamic arrangement and Piano Roll synchronization.
+
+### PHASE 5 — Complete DSP and mastering
+
+Validate effects, mixer, sends, VCA, automation, realtime/offline output and measured mastering.
+
+### PHASE 6 — Deep music intelligence
+
+Improve subgenre grammar, layered arrangements, clip-specific generation and project novelty.
+
+### PHASE 7 — Complete native offline workflows
+
+Verify storage, file access, screen changes, audio focus and persistent project data.
+
+### PHASE 8 — Full release testing
+
+Run CI, Android installation, browser E2E, ALS integrity, audio, musical and performance verification.
+
+Deliver reviewable commits per phase.
+
+Do not overwrite working source unnecessarily.
+
+---
+
+# 21 — NON-NEGOTIABLE RELEASE GATES
+
+**G0 — Baseline:** Source, commit, tests and user failure reproduced.
+
+**G1 — APK Identity:** Application ID, signing certificate and versioning verified.
+
+**G2 — Android Build:** APK genuinely built through Gradle.
+
+**G3 — Android Installation:** Clean installation and compatible upgrade behavior tested.
+
+**G4 — Offline Android:** Startup, playback, editing and persistence verified.
+
+**G5 — CI:** Final commit passes all required jobs.
+
+**G6 — ALS:** Imported content and unknown native structures preserved.
+
+**G7 — Transactions:** Failed edits roll back; Undo/Redo works.
+
+**G8 — Audio:** Real sound output and stable playback verified.
+
+**G9 — Mixer:** Real-time DSP, faders and meters verified.
+
+**G10 — Timeline:** Continuous zoom and all critical clip edits verified.
+
+**G11 — Composition:** Advanced, diverse, editable music results verified.
+
+**G12 — Storage:** Save/reopen/migration verified.
+
+**G13 — UI:** No known release-blocking broken controls.
+
+**G14 — Performance/Security:** Tested resource budgets and security checks.
+
+**G15 — Artifact Provenance:** The downloaded APK matches the verified CI build.
+
+A failure in any P0 gate blocks release approval.
+
+---
+
+# 22 — REQUIRED FINAL EVIDENCE
+
+Deliver an independently auditable report.
+
+Include:
+
+1. Baseline commit SHA.
+2. Final implementation commit SHA.
+3. Branch/PR URL.
+4. Files modified.
+5. Exact Android installation failure code.
+6. Root cause.
+7. Original and new APK signing certificates.
+8. Version-code comparison.
+9. Data-preservation strategy.
+10. Final CI run URL.
+11. APK build logs.
+12. APK cryptographic verification output.
+13. APK SHA-256.
+14. APK size.
+15. ADB installation result.
+16. Installed app launch evidence.
+17. Offline audio evidence.
+18. ALS import/export preservation results.
+19. DSP and mixer measurements.
+20. Timeline browser E2E results.
+21. Project persistence results.
+22. Music-generation evaluation.
+23. Total test counts and actual outcomes.
+24. Failed/skipped tests.
+25. Performance findings.
+26. Android screenshots.
+27. Known limitations.
+28. Release-gate checklist.
+
+Separate results into:
+
+- Verified on device
+- Verified in emulator
+- Verified in browser
+- Verified by unit/integration test
+- Source inspection only
+- Unverified/blocked
+
+No "100%" label is allowed unless the exact underlying claim is proven.
+
+---
+
+# 23 — FINAL DIRECTIVE
+
+The previous implementation report was contradicted by Android's actual installation result.
+
+This must not happen again.
+
+**DO NOT:**
+
+- Provide another custom APK binary generator.
+- Use random signing keys for every build.
+- Automatically uninstall the user's existing app.
+- Publish unverified APK files.
+- Treat ZIP entries as proof of package installation.
+- Claim Android works because Vitest passes.
+- Claim all workflows work because the UI renders.
+- Treat a parser-success result as native Ableton compatibility.
+- Continue using destructive MIDI clip XML reconstruction.
+- Report fake or simulated audio measurements as real.
+- Leave the new viewport controller disconnected from the actual timeline.
+- Claim that 16 subgenre labels equal 16 deep musical generation grammars.
+- Return another completion report unsupported by CI, device logs and actual artifacts.
+
+**DO:**
+
+- Reproduce the current package-conflict error.
+- Preserve app data.
+- Repair signing and version compatibility.
+- Reuse the verified Gradle/Capacitor pipeline.
+- Repair the failing main-branch CI.
+- Deliver one canonical verified APK.
+- Integrate safe ALS patching across all editing paths.
+- Preserve project and audio state.
+- Verify actual playback.
+- Verify all critical mixer and timeline controls.
+- Maintain sophisticated, original underground composition capabilities.
+- Test the installed Android application offline.
+- Provide complete evidence from the final source revision.
+
+**START WITH THE ANDROID INSTALLATION CONFLICT AND FAILING CI. THEN COMPLETE THE FULL SYSTEM AUDIT AND REMEDIATION.**
+
+**THE TASK IS COMPLETE ONLY WHEN THE FINAL APK INSTALLS AND RUNS, CORE DAW WORKFLOWS OPERATE CORRECTLY, USER PROJECTS ARE PRESERVED, AND ALL MANDATORY RELEASE GATES PASS.**
+
+**END — PARAMETRIC ALS v7.2 MASTER PRODUCTION REMEDIATION DIRECTIVE.**
+
+### Immediate guidance for the APK already on your device
+
+Do not uninstall the existing Parametric Techno DAW app yet if it contains projects or settings you need. Android can reject an update when the signing certificate differs, and uninstalling normally deletes the application's local data. developer.android.com
+
+The first thing Google AI Studio should establish is whether the APK in the screenshot was built using the custom signer, whether an older package with `com.parametricals.technodaw` is installed, and whether both packages share the same certificate.
+
+The strongest existing starting point is still [Android PR #1](https://github.com/dejayillegal/aidaw/pull/1?utm_source=chatgpt.com), because it previously passed genuine Gradle, emulator installation and offline smoke tests. It must be reconciled with the latest `main` and tested again—not accepted based on its historical green run.
+
+Audit boundary: I inspected the repository structure and critical source paths, CI status, the existing pull request and your screenshot. I have not executed the current APK on your device or run the entire repository locally, so the prompt requires those checks rather than presenting them as already successful.

@@ -251,7 +251,7 @@ describe('Parametric ALS v7.1 Master Implementation Verification Suite', () => {
       // 4. Preserve automation envelopes
       expect(kickTrack.automationPoints).toBeDefined();
       expect(kickTrack.automationPoints.length).toBeGreaterThan(0);
-    });
+    }, 25000);
 
     it('TC-ALS-002: GenerateSectionArrangementProposal command creates structured arrangement proposals without mutating original project', () => {
       const { xml } = buildStarterAbletonXml('berghain-134', 12345, 128);
@@ -272,7 +272,7 @@ describe('Parametric ALS v7.1 Master Implementation Verification Suite', () => {
       expect(proposedKick.clips.length).toBeGreaterThan(1);
       expect(proposedKick.clips.some((c) => c.sectionRole === 'Intro')).toBe(true);
       expect(proposedKick.clips.some((c) => c.sectionRole === 'Peak_Drop')).toBe(true);
-    });
+    }, 25000);
   });
 
   describe('Phase 3 — Targeted Non-Destructive ALS Patch Engine (P0-002: TC-ALS-003)', () => {

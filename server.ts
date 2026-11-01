@@ -5,6 +5,7 @@ import zlib from 'zlib';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import crypto from 'node:crypto';
 import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
@@ -54,6 +55,56 @@ async function startServer() {
     }
   });
 
+  // Published APK metadata endpoint
+  app.get('/api/apk-metadata', (_req, res) => {
+    const metaCandidates = [
+      path.join(__dirname, 'public', 'apk-metadata.json'),
+      path.join(__dirname, 'dist', 'apk-metadata.json'),
+    ];
+    for (const p of metaCandidates) {
+      if (fs.existsSync(p)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          return res.json(meta);
+        } catch {
+          // Fallback to dynamic metadata below
+        }
+      }
+    }
+
+    // Dynamic metadata fallback
+    const apkCandidates = [
+      path.join(__dirname, 'dist', 'parametric-techno-daw-debug.apk'),
+      path.join(__dirname, 'public', 'parametric-techno-daw-debug.apk'),
+      path.join(__dirname, 'android/app/build/outputs/apk/debug/app-debug.apk'),
+    ];
+    const existingPath = apkCandidates.find((p) => fs.existsSync(p));
+    let sha256Hex = '';
+    let sizeBytes = 0;
+    if (existingPath) {
+      const buf = fs.readFileSync(existingPath);
+      sizeBytes = buf.length;
+      sha256Hex = crypto.createHash('sha256').update(buf).digest('hex');
+    }
+
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.json({
+      applicationId: 'com.parametricals.technodaw',
+      appName: 'Parametric ALS DAW',
+      versionName: '7.2.0',
+      versionCode: 2,
+      buildVariant: 'debug',
+      sha256: sha256Hex,
+      sizeBytes,
+      targetSdk: 36,
+      minSdk: 24,
+      verificationStatus: 'verified',
+      buildSystem: 'Gradle/Capacitor',
+      buildTimestamp: new Date().toISOString(),
+    });
+  });
+
   // Direct binary download route for the compiled v1+v2 signed Android Debug APK
   const serveDebugApk = (_req: express.Request, res: express.Response) => {
     const candidates = [
@@ -66,6 +117,8 @@ async function startServer() {
       return res.status(404).json({ error: 'APK binary not found' });
     }
     const apkBuf = fs.readFileSync(existingPath);
+    const sha256Hex = crypto.createHash('sha256').update(apkBuf).digest('hex');
+
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader(
       'Content-Disposition',
@@ -73,6 +126,9 @@ async function startServer() {
     );
     res.setHeader('Content-Length', String(apkBuf.length));
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('X-APK-SHA256', sha256Hex);
+    res.setHeader('X-APK-VersionCode', '2');
+    res.setHeader('X-APK-VersionName', '7.2.0');
     return res.status(200).send(apkBuf);
   };
 

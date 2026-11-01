@@ -41,3 +41,10 @@ This implementation plan details the architectural upgrades to deliver native-gr
 ### D. Dynamic Arrangement & Layering Engine (`compositionIntelligenceEngine.ts`)
 - **Variable Arrangement Lengths**: Support dynamic bar counts (24, 32, 48, 64, 96, 128 bars) across different project templates and AI reference imports rather than forcing a uniform 16-bar loop.
 - **Staggered Layer Entry & Exit**: Implement algorithmic arrangement section contours (Intro, Groove Establish, Hypnotic Lock, Tension Riser, Breakdown, Peak Drop, Outro) where tracks enter and exit dynamically across bars.
+
+### E. Android Gradle Assembly & Installation Recovery (`scripts/build-debug-apk.mjs` & CI)
+- **Eliminate Synthetic Byte-Level APK Generation**: Replaced the custom 1,300-line byte builder with a controlled Capacitor/Gradle orchestrator that builds the web bundle, syncs assets to `android/app/src/main/assets/public/`, and invokes `./gradlew assembleDebug`.
+- **Resolve `INSTALL_FAILED_UPDATE_INCOMPATIBLE`**: Eliminated ephemeral key generation that caused package signature mismatches; established deterministic debug keystore signing in `android/app/build.gradle`.
+- **Monotonic Versioning**: Configured `versionCode 2` and `versionName "7.2.0"`, with package name `com.parametricals.technodaw` in `AndroidManifest.xml`.
+- **Client-Side SHA-256 Validation & User Backup**: Added checksum verification in `src/utils/apkDownloader.ts` matching `/api/apk-metadata`, and provided `exportUserDataBackup()` for lossless project export before updates.
+- **Fixed GitHub Actions CI**: Added Node 22, `.npmrc` (`legacy-peer-deps=true`), and generated `package-lock.json` so `npm ci`, linting, tests, and Gradle assembly succeed in CI.

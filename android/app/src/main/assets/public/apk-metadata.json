@@ -1,0 +1,14 @@
+{
+  "applicationId": "com.parametricals.technodaw",
+  "appName": "Parametric ALS DAW",
+  "versionName": "7.2.0",
+  "versionCode": 2,
+  "buildVariant": "debug",
+  "sha256": "e5fbd85b784f34d0cf24d663007728e028a710a11b7e1c3c0af2e0835d305fe7",
+  "sizeBytes": 391344,
+  "targetSdk": 36,
+  "minSdk": 24,
+  "verificationStatus": "verified",
+  "buildSystem": "Gradle/Capacitor",
+  "buildTimestamp": "2026-11-01T14:53:53.633Z"
+}
