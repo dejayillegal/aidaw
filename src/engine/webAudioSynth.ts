@@ -21,6 +21,12 @@ function midiToFreq(midi: number, transposeSemitones = 0, fineTuneCents = 0): nu
   return 440 * Math.pow(2, (totalSemitones - 69) / 12);
 }
 
+export function shouldPlayNote(note: MidiNoteEvent): boolean {
+  if (note.probability === undefined || note.probability >= 1) return true;
+  if (note.probability <= 0) return false;
+  return ((Math.round(note.time * 100) + note.pitch * 17) % 100) / 100 < note.probability;
+}
+
 function dbToGain(db: number): number {
   if (db <= -48) return 0;
   return Math.pow(10, db / 20);
@@ -115,7 +121,8 @@ function createWarehouseReverbImpulse(
         continue;
       }
       const env = Math.pow(1 - i / length, 2.6) * Math.exp(-t * (2.8 / decaySeconds));
-      const rawNoise = Math.random() * 2 - 1;
+      const n = Math.sin((i + ch * length) * 12.9898 + 78.233) * 43758.5453;
+      const rawNoise = (n - Math.floor(n)) * 2 - 1;
       lpState = lpState * 0.76 + rawNoise * 0.24;
       data[i] = lpState * env * 0.65;
     }
@@ -131,7 +138,8 @@ function createNoiseBuffer(ctx: BaseAudioContext): AudioBuffer {
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < bufferSize; i++) {
-    data[i] = Math.random() * 2 - 1;
+    const n = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+    data[i] = (n - Math.floor(n)) * 2 - 1;
   }
   return buffer;
 }
@@ -178,6 +186,8 @@ interface AudioBusGraph {
   analyser?: AnalyserNode;
   withAnalyser?: boolean;
   trackChannels: Map<string, TrackChannelRuntime>;
+  activeVoices: Set<() => void>;
+  offlineRetirements: { at: number; nodes: AudioNode[] }[];
 }
 
 function buildAudioBusGraph(
@@ -307,6 +317,8 @@ function buildAudioBusGraph(
     analyser,
     withAnalyser,
     trackChannels: new Map<string, TrackChannelRuntime>(),
+    activeVoices: new Set(),
+    offlineRetirements: [],
   };
 }
 
@@ -637,6 +649,16 @@ function scheduleTrackVoiceAtTime(
   humanization: HumanizationConfig,
   project?: AbletonProjectState
 ) {
+  const nodes: AudioNode[] = [];
+  const sources: AudioScheduledSourceNode[] = [];
+  let latestStop = ctx.currentTime;
+  const offline = typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext;
+  const own = <T extends AudioNode>(node: T): T => { nodes.push(node); return node; };
+  const source = <T extends AudioScheduledSourceNode>(node: T): T => {
+    const stop = node.stop.bind(node);
+    node.stop = (when = 0) => { latestStop = Math.max(latestStop, when); stop(when); };
+    sources.push(node); return own(node);
+  };
   const time = Math.max(ctx.currentTime, whenSec);
   const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
   const velGain = Math.pow(velNorm, 1.35);
@@ -654,7 +676,7 @@ function scheduleTrackVoiceAtTime(
     filterResonance: 0.3,
   };
 
-  const autoNorm = evaluateAutomationAtBeat(track.automationPoints, note.time, 512);
+  const autoNorm = evaluateAutomationAtBeat(track.automationPoints, note.time, (project?.arrangementLengthBars || 16) * 4);
   const lfoPhase = Math.sin(2 * Math.PI * humanization.lfoRateHz * time);
   const lfoModFactor = 1 + lfoPhase * humanization.lfoDepth * 0.45;
 
@@ -671,7 +693,7 @@ function scheduleTrackVoiceAtTime(
 
   const trackChannel = getOrCreateTrackChannelRuntime(ctx, bus, track, project);
   const insertMods = computeInsertChainGainMultiplier(track);
-  const voiceEnvelopeGain = ctx.createGain();
+  const voiceEnvelopeGain = own(ctx.createGain());
 
   // Micro-timing variance intensity for the current bar
   const noteBar = Math.floor(note.time / 4) + 1;
@@ -694,7 +716,7 @@ function scheduleTrackVoiceAtTime(
   // Optional Spectral Auto-Ducking EQEight Fundamental Notch node
   let voiceDestination: AudioNode = voiceEnvelopeGain;
   if (track.spectralDucking?.enabled && track.archetype !== 'kick') {
-    const eqNotch = ctx.createBiquadFilter();
+    const eqNotch = own(ctx.createBiquadFilter());
     eqNotch.type = 'peaking';
     eqNotch.frequency.setValueAtTime(track.spectralDucking.notchFreqHz || 55, time);
     eqNotch.Q.setValueAtTime(track.spectralDucking.notchQ || 2.8, time);
@@ -713,7 +735,7 @@ function scheduleTrackVoiceAtTime(
   }
 
   if (insertMods.saturationBoost > 0.01) {
-    const insertShaper = ctx.createWaveShaper();
+    const insertShaper = own(ctx.createWaveShaper());
     insertShaper.curve = createSaturationCurve(1.2 + insertMods.saturationBoost);
     insertShaper.connect(voiceDestination);
     voiceDestination = insertShaper;
@@ -728,13 +750,13 @@ function scheduleTrackVoiceAtTime(
     // 1. 909 PUNCH KICK + TRANSIENT CLICK + DRUM BUSS WARM SATURATOR
     // =========================================================================
     const pitchRatio = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
-    const bodyOsc = ctx.createOscillator();
-    const subOsc = ctx.createOscillator();
-    const clickOsc = ctx.createOscillator();
+    const bodyOsc = source(ctx.createOscillator());
+    const subOsc = source(ctx.createOscillator());
+    const clickOsc = source(ctx.createOscillator());
 
-    const bodyGain = ctx.createGain();
-    const clickGain = ctx.createGain();
-    const shaper = ctx.createWaveShaper();
+    const bodyGain = own(ctx.createGain());
+    const clickGain = own(ctx.createGain());
+    const shaper = own(ctx.createWaveShaper());
     shaper.curve = createSaturationCurve(1.65);
 
     bodyOsc.type = 'sine';
@@ -746,7 +768,7 @@ function scheduleTrackVoiceAtTime(
     subOsc.frequency.setValueAtTime(78 * pitchRatio, time);
     subOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.18);
 
-    const subBlend = ctx.createGain();
+    const subBlend = own(ctx.createGain());
     subBlend.gain.setValueAtTime(0.28 * velGain, time);
     subBlend.gain.exponentialRampToValueAtTime(0.001, time + 0.24);
 
@@ -780,11 +802,11 @@ function scheduleTrackVoiceAtTime(
     // 2. OPERATOR SUB-BASS RUMBLE (Fundamental Sine + FM Harmonic + 24dB LPF)
     // =========================================================================
     const freq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
-    const oscFund = ctx.createOscillator();
-    const oscHarm = ctx.createOscillator();
-    const filter1 = ctx.createBiquadFilter();
-    const filter2 = ctx.createBiquadFilter();
-    const voiceGain = ctx.createGain();
+    const oscFund = source(ctx.createOscillator());
+    const oscHarm = source(ctx.createOscillator());
+    const filter1 = own(ctx.createBiquadFilter());
+    const filter2 = own(ctx.createBiquadFilter());
+    const voiceGain = own(ctx.createGain());
 
     oscFund.type = 'sine';
     oscFund.frequency.setValueAtTime(freq, time);
@@ -792,7 +814,7 @@ function scheduleTrackVoiceAtTime(
     oscHarm.type = 'sawtooth';
     oscHarm.frequency.setValueAtTime(freq * 2, time);
 
-    const harmGain = ctx.createGain();
+    const harmGain = own(ctx.createGain());
     harmGain.gain.setValueAtTime(0.24 * (0.6 + autoNorm * 0.7), time);
 
     const baseCut = Math.max(55, Math.min(450, mixer.filterCutoffHz || humanization.cutoffHz));
@@ -836,13 +858,13 @@ function scheduleTrackVoiceAtTime(
     const isAccent = Boolean(note.isAccent || note.velocity >= 108);
     const isSlide = Boolean(note.isSlide || note.duration > 0.3);
 
-    const oscSaw = ctx.createOscillator();
-    const oscSq = ctx.createOscillator();
-    const sqBlend = ctx.createGain();
-    const diodeFilter1 = ctx.createBiquadFilter();
-    const diodeFilter2 = ctx.createBiquadFilter();
-    const shaper = ctx.createWaveShaper();
-    const voiceGain = ctx.createGain();
+    const oscSaw = source(ctx.createOscillator());
+    const oscSq = source(ctx.createOscillator());
+    const sqBlend = own(ctx.createGain());
+    const diodeFilter1 = own(ctx.createBiquadFilter());
+    const diodeFilter2 = own(ctx.createBiquadFilter());
+    const shaper = own(ctx.createWaveShaper());
+    const voiceGain = own(ctx.createGain());
 
     oscSaw.type = 'sawtooth';
     oscSq.type = 'square';
@@ -909,14 +931,14 @@ function scheduleTrackVoiceAtTime(
     // 4. COLLISION INDUSTRIAL FM METALLIC RESONATOR + TRANSIENT EXCITER
     // =========================================================================
     const baseFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
-    const carrier = ctx.createOscillator();
-    const mod1 = ctx.createOscillator();
-    const modGain = ctx.createGain();
-    const noiseSrc = ctx.createBufferSource();
+    const carrier = source(ctx.createOscillator());
+    const mod1 = source(ctx.createOscillator());
+    const modGain = own(ctx.createGain());
+    const noiseSrc = source(ctx.createBufferSource());
     noiseSrc.buffer = noiseBuffer;
-    const noiseGain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    const voiceGain = ctx.createGain();
+    const noiseGain = own(ctx.createGain());
+    const filter = own(ctx.createBiquadFilter());
+    const voiceGain = own(ctx.createGain());
 
     carrier.type = 'triangle';
     carrier.frequency.setValueAtTime(baseFreq, time);
@@ -964,33 +986,33 @@ function scheduleTrackVoiceAtTime(
     const pitchShift = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
     const isBell = note.pitch >= 55;
 
-    const noise = ctx.createBufferSource();
+    const noise = source(ctx.createBufferSource());
     noise.buffer = noiseBuffer;
 
     const ratios = isBell ? [587, 845, 1188, 1740] : [465, 692, 1045, 1512];
-    const metalBus = ctx.createGain();
+    const metalBus = own(ctx.createGain());
     metalBus.gain.setValueAtTime(0.11 * velGain, time);
     metalBus.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
 
     const oscs = ratios.map((freqRatio) => {
-      const o = ctx.createOscillator();
+      const o = source(ctx.createOscillator());
       o.type = 'square';
       o.frequency.setValueAtTime(freqRatio * pitchShift, time);
       o.connect(metalBus);
       return o;
     });
 
-    const bandpass = ctx.createBiquadFilter();
+    const bandpass = own(ctx.createBiquadFilter());
     bandpass.type = 'bandpass';
     bandpass.frequency.setValueAtTime((isBell ? 3800 : 2900) * pitchShift, time);
     bandpass.Q.setValueAtTime(1.6, time);
 
-    const hpf = ctx.createBiquadFilter();
+    const hpf = own(ctx.createBiquadFilter());
     hpf.type = 'highpass';
     hpf.frequency.setValueAtTime(Math.max(650, (mixer.filterCutoffHz || 4800) * 0.8), time);
 
     const decaySec = (0.34 + velGain * 0.25) * (0.75 + autoNorm * 0.45);
-    const voiceGain = ctx.createGain();
+    const voiceGain = own(ctx.createGain());
     voiceGain.gain.setValueAtTime(0.001, time);
     voiceGain.gain.linearRampToValueAtTime(0.28 * velGain, time + 0.003);
     voiceGain.gain.exponentialRampToValueAtTime(0.001, time + decaySec);
@@ -1012,21 +1034,21 @@ function scheduleTrackVoiceAtTime(
     const isOpenHat = note.pitch === 46 || note.duration > 0.3;
     const pitchShift = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
 
-    const noise = ctx.createBufferSource();
+    const noise = source(ctx.createBufferSource());
     noise.buffer = noiseBuffer;
 
-    const metal1 = ctx.createOscillator();
-    const metal2 = ctx.createOscillator();
+    const metal1 = source(ctx.createOscillator());
+    const metal2 = source(ctx.createOscillator());
     metal1.type = 'square';
     metal2.type = 'square';
     metal1.frequency.setValueAtTime(342 * pitchShift, time);
     metal2.frequency.setValueAtTime(523 * pitchShift, time);
 
-    const metalGain = ctx.createGain();
+    const metalGain = own(ctx.createGain());
     metalGain.gain.setValueAtTime(0.09 * velGain, time);
     metalGain.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
 
-    const hpf = ctx.createBiquadFilter();
+    const hpf = own(ctx.createBiquadFilter());
     hpf.type = 'highpass';
     const baseCut = Math.max(3500, Math.min(11000, (mixer.filterCutoffHz || 6800) * pitchShift));
     hpf.frequency.setValueAtTime(isOpenHat ? baseCut * 0.82 : baseCut, time);
@@ -1036,7 +1058,7 @@ function scheduleTrackVoiceAtTime(
       ? (0.14 + velGain * 0.22) * (0.75 + autoNorm * 0.5)
       : (0.032 + velGain * 0.048) * (0.8 + autoNorm * 0.4);
 
-    const voiceGain = ctx.createGain();
+    const voiceGain = own(ctx.createGain());
     voiceGain.gain.setValueAtTime(0.001, time);
     voiceGain.gain.linearRampToValueAtTime(0.32 * velGain, time + 0.002);
     voiceGain.gain.exponentialRampToValueAtTime(0.001, time + decayTime);
@@ -1059,10 +1081,10 @@ function scheduleTrackVoiceAtTime(
     // 7. DUB TECHNO ATMOSPHERIC PAD (Warm Detuned Saw/Triangle + Slow LPF Sweep)
     // =========================================================================
     const rootFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    const voiceGain = ctx.createGain();
+    const osc1 = source(ctx.createOscillator());
+    const osc2 = source(ctx.createOscillator());
+    const filter = own(ctx.createBiquadFilter());
+    const voiceGain = own(ctx.createGain());
 
     osc1.type = 'sawtooth';
     osc1.frequency.setValueAtTime(rootFreq, time);
@@ -1101,11 +1123,11 @@ function scheduleTrackVoiceAtTime(
     // 8. HYPNOTIC WAVETABLE MINOR CHORD STAB (3 Detuned Oscillators + Filter Env)
     // =========================================================================
     const rootFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
-    const oscRoot = ctx.createOscillator();
-    const oscDetune = ctx.createOscillator();
-    const oscChord = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    const voiceGain = ctx.createGain();
+    const oscRoot = source(ctx.createOscillator());
+    const oscDetune = source(ctx.createOscillator());
+    const oscChord = source(ctx.createOscillator());
+    const filter = own(ctx.createBiquadFilter());
+    const voiceGain = own(ctx.createGain());
 
     oscRoot.type = 'sawtooth';
     oscRoot.frequency.setValueAtTime(rootFreq, time);
@@ -1118,7 +1140,7 @@ function scheduleTrackVoiceAtTime(
     oscChord.frequency.setValueAtTime(rootFreq * Math.pow(2, 3 / 12), time);
     oscChord.detune.setValueAtTime(-7, time);
 
-    const chordSubGain = ctx.createGain();
+    const chordSubGain = own(ctx.createGain());
     chordSubGain.gain.setValueAtTime(0.48, time);
 
     const macroBoost = (humanization.macroTransition / 127) * 1400;
@@ -1155,6 +1177,23 @@ function scheduleTrackVoiceAtTime(
     oscDetune.stop(time + releaseTime + 0.02);
     oscChord.stop(time + releaseTime + 0.02);
   }
+  if (offline) bus.offlineRetirements.push({ at: latestStop + 1, nodes });
+  let remaining = sources.length;
+  const retire = () => {
+    voiceEnvelopeGain.gain.cancelScheduledValues?.(ctx.currentTime);
+    voiceEnvelopeGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.004);
+    for (const node of sources) { try { node.stop(ctx.currentTime + 0.025); } catch { /* already stopped */ } }
+  };
+  bus.activeVoices.add(retire);
+  for (const node of sources) node.onended = () => {
+    remaining--;
+    if (remaining === 0) {
+      // onended delivery depends on main-thread timing. Offline cleanup happens only
+      // at deterministic audio-clock boundaries, preserving reproducible filter tails.
+      if (!offline) for (const owned of nodes) owned.disconnect();
+      bus.activeVoices.delete(retire);
+    }
+  };
 }
 
 /**
@@ -1182,102 +1221,61 @@ function scheduleMetronomeClick(
 /**
  * Encodes a stereo AudioBuffer into an uncompressed 16-bit, 24-bit PCM, or 32-bit Float RIFF WAVE (.wav) Blob.
  */
-function encodeAudioBufferToWavBlob(
-  buffer: AudioBuffer,
+export async function encodeAudioBufferToWavBlob(
+  buffer: { numberOfChannels: number; sampleRate: number; length: number; getChannelData: (channel: number) => Float32Array },
   bitDepth: 16 | 24 | 32 = 24,
   onProgress?: (progressPercent: number) => void
-): Blob {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const numFrames = buffer.length;
-  const bytesPerSample = bitDepth === 32 ? 4 : bitDepth === 24 ? 3 : 2;
-  const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = numFrames * blockAlign;
-  const totalSize = 44 + dataSize;
-  const formatTag = bitDepth === 32 ? 3 : 1; // 3 = IEEE Float, 1 = PCM
-
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
-
-  const writeAscii = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
-  };
-
-  writeAscii(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeAscii(8, 'WAVE');
-
-  writeAscii(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, formatTag, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitDepth, true);
-
-  writeAscii(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  const left = buffer.getChannelData(0);
-  const right = numChannels > 1 ? buffer.getChannelData(1) : left;
-
-  const progressStepFrames = Math.max(1, Math.floor(numFrames / 10));
-  let offset = 44;
-
-  if (bitDepth === 32) {
-    for (let i = 0; i < numFrames; i++) {
-      view.setFloat32(offset, left[i], true);
-      offset += 4;
-      if (numChannels > 1) {
-        view.setFloat32(offset, right[i], true);
-        offset += 4;
-      }
-      if (onProgress && i > 0 && i % progressStepFrames === 0) {
-        onProgress(Math.min(99, Math.round((i / numFrames) * 100)));
-      }
-    }
-  } else if (bitDepth === 24) {
-    const writeInt24LE = (pos: number, sampleNorm: number) => {
-      const clamped = Math.max(-1, Math.min(1, sampleNorm));
-      const intVal = Math.round(clamped < 0 ? clamped * 8388608 : clamped * 8388607);
-      view.setUint8(pos, intVal & 0xff);
-      view.setUint8(pos + 1, (intVal >> 8) & 0xff);
-      view.setUint8(pos + 2, (intVal >> 16) & 0xff);
-    };
-
-    for (let i = 0; i < numFrames; i++) {
-      writeInt24LE(offset, left[i]);
-      offset += 3;
-      if (numChannels > 1) {
-        writeInt24LE(offset, right[i]);
-        offset += 3;
-      }
-      if (onProgress && i > 0 && i % progressStepFrames === 0) {
-        onProgress(Math.min(99, Math.round((i / numFrames) * 100)));
-      }
-    }
-  } else {
-    for (let i = 0; i < numFrames; i++) {
-      const sL = Math.max(-1, Math.min(1, left[i]));
-      const sR = Math.max(-1, Math.min(1, right[i]));
-      view.setInt16(offset, sL < 0 ? sL * 0x8000 : sL * 0x7fff, true);
-      offset += 2;
-      if (numChannels > 1) {
-        view.setInt16(offset, sR < 0 ? sR * 0x8000 : sR * 0x7fff, true);
-        offset += 2;
-      }
-      if (onProgress && i > 0 && i % progressStepFrames === 0) {
-        onProgress(Math.min(99, Math.round((i / numFrames) * 100)));
-      }
-    }
+): Promise<Blob> {
+  if (buffer.numberOfChannels !== 2 || ![16, 24, 32].includes(bitDepth)) {
+    throw new Error('ENCODE_FORMAT: stereo PCM16/24 or Float32 required');
   }
-
-  onProgress?.(100);
-  return new Blob([arrayBuffer], { type: 'audio/wav' });
+  const frames = buffer.length;
+  const bytes = bitDepth / 8;
+  const dataSize = frames * 2 * bytes;
+  if (!Number.isSafeInteger(dataSize) || dataSize <= 0 || dataSize > 0xffffffff - 36) {
+    throw new Error('ENCODE_SIZE: output exceeds RIFF limits');
+  }
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  const ascii = (at: number, str: string) => [...str].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  ascii(0, 'RIFF'); view.setUint32(4, 36 + dataSize, true); ascii(8, 'WAVE');
+  ascii(12, 'fmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, bitDepth === 32 ? 3 : 1, true);
+  view.setUint16(22, 2, true); view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * 2 * bytes, true);
+  view.setUint16(32, 2 * bytes, true); view.setUint16(34, bitDepth, true);
+  ascii(36, 'data'); view.setUint32(40, dataSize, true);
+  const channels = [buffer.getChannelData(0), buffer.getChannelData(1)];
+  const parts: BlobPart[] = [header];
+  let peak = 0;
+  // Yield between bounded allocations so the Android UI and bridge remain responsive.
+  for (let start = 0; start < frames; start += 65536) {
+    const end = Math.min(frames, start + 65536);
+    const block = new ArrayBuffer((end - start) * 2 * bytes);
+    const out = new DataView(block);
+    let offset = 0;
+    for (let i = start; i < end; i++) for (const channel of channels) {
+      const raw = channel[i];
+      if (!Number.isFinite(raw)) throw new Error(`ENCODE_NONFINITE: frame ${i}`);
+      peak = Math.max(peak, Math.abs(raw));
+      const sample = Math.max(-1, Math.min(1, raw));
+      if (bitDepth === 32) out.setFloat32(offset, sample, true);
+      else if (bitDepth === 16) out.setInt16(offset, Math.round(sample * (sample < 0 ? 32768 : 32767)), true);
+      else {
+        const value = Math.round(sample * (sample < 0 ? 8388608 : 8388607));
+        out.setUint8(offset, value & 255); out.setUint8(offset + 1, (value >> 8) & 255);
+        out.setUint8(offset + 2, (value >> 16) & 255);
+      }
+      offset += bytes;
+    }
+    parts.push(block);
+    onProgress?.(end / frames * 100);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  if (peak <= 1e-8) throw new Error('ENCODE_SILENT: no audible samples; check clips and mute/solo');
+  const blob = new Blob(parts, { type: 'audio/wav' });
+  if (blob.size !== dataSize + 44) throw new Error('ENCODE_SIZE: WAV length mismatch');
+  return blob;
 }
 
 /**
@@ -1447,85 +1445,135 @@ export function synthesizeDeterministicStereoPcm(
 
 /**
  * Synthesizes the project to stereo Float32Array buffers at 44.1kHz, 48kHz, or 96kHz.
- * Uses OfflineAudioContext when available for single-segment browser renders, and deterministic
- * sample-accurate synthesis for segmented 96kHz memory-budgeted renders or headless test environments.
+ * Uses one continuous OfflineAudioContext with audio-clock scheduling windows.
+ * Missing capability or insufficient memory is an explicit failure; synthesis never changes silently.
  */
+let activeOfflineRender: OfflineAudioContext | null = null;
+
 export async function synthesizeProjectToStereoFloatBuffers(
   project: AbletonProjectState,
   humanization: HumanizationConfig,
   masterBus: MasterBusConfig,
   sampleRate: 44100 | 48000 | 96000 = 44100,
   totalBars?: number,
-  segmentCount = 1
-): Promise<{
-  left: Float32Array;
-  right: Float32Array;
-  sampleRate: number;
-  durationSeconds: number;
-}> {
-  const effectiveBars = totalBars || project.arrangementLengthBars || 16;
-
-  if (typeof OfflineAudioContext !== 'undefined' && segmentCount <= 1 && effectiveBars <= 32) {
-    try {
-      const totalBeats = effectiveBars * 4;
-      const beatsPerSecond = project.tempo / 60;
-      const tailSeconds = 2.0;
-      const durationSeconds = totalBeats / beatsPerSecond + tailSeconds;
-      const totalSamples = Math.ceil(durationSeconds * sampleRate);
-
-      const offlineCtx = new OfflineAudioContext(2, totalSamples, sampleRate);
-      const bus = buildAudioBusGraph(offlineCtx, project.tempo, masterBus, false);
-      const noiseBuffer = createNoiseBuffer(offlineCtx);
-
-      project.tracks.forEach((track) => {
-        const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
-        if (vcaComp.effectivelyMuted) return;
-
-        track.clips.forEach((clip) => {
-          clip.notes.forEach((note) => {
-            if (note.time < 0 || note.time >= totalBeats) return;
-            const whenSec = note.time / beatsPerSecond;
-            scheduleTrackVoiceAtTime(
-              offlineCtx,
-              bus,
-              noiseBuffer,
-              track,
-              note,
-              whenSec,
-              beatsPerSecond,
-              humanization,
-              project
-            );
-          });
-        });
-      });
-
-      const renderedBuffer = await offlineCtx.startRendering();
-      const left = new Float32Array(renderedBuffer.getChannelData(0));
-      const right =
-        renderedBuffer.numberOfChannels > 1
-          ? new Float32Array(renderedBuffer.getChannelData(1))
-          : new Float32Array(left);
-
-      return { left, right, sampleRate, durationSeconds };
-    } catch {
-      // Fallback to deterministic stereo PCM synthesis
+  _segmentCount = 1,
+  onProgress?: (completedFrames: number, totalFrames: number) => void,
+  workingBytesPerFrame = 32
+): Promise<{ left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number }> {
+  const bars = totalBars ?? project.arrangementLengthBars ?? 16;
+  if (!Number.isFinite(project.tempo) || project.tempo <= 0 || !Number.isInteger(bars) || bars < 1 || bars > 256) {
+    throw new Error('RENDER_INPUT: positive tempo and 1–256 whole bars required');
+  }
+  // One continuous context retains delay, convolver, compressor and sustaining voices.
+  // Bounded scheduling windows are NOT independent PCM segments.
+  const tail = Math.max(2.4, masterBus.reverbDecaySec || 0, 8);
+  const durationSeconds = bars * 4 * 60 / project.tempo + tail;
+  const frames = Math.ceil(durationSeconds * sampleRate);
+  // PCM + encoded output + mastering copies; reject before allocating, never swap engines.
+  if (frames * workingBytesPerFrame > 256 * 1024 * 1024) {
+    throw new Error('RENDER_MEMORY: estimated working set exceeds 256 MiB; reduce length or sample rate');
+  }
+  if (typeof OfflineAudioContext === 'undefined') {
+    throw new Error('RENDER_UNSUPPORTED: OfflineAudioContext unavailable; use a supported WebView/browser');
+  }
+  if (activeOfflineRender) throw new Error('RENDER_BUSY: an earlier render is still active; restart the app after a stalled export');
+  const ctx = new OfflineAudioContext(2, frames, sampleRate);
+  activeOfflineRender = ctx;
+  let started = false;
+  let cancelled = false;
+  try {
+  const bus = buildAudioBusGraph(ctx, project.tempo, masterBus, false);
+  const noise = createNoiseBuffer(ctx);
+  const masterPoints = [...(masterBus.masterAutomationPoints || [])].sort((a, b) => a.beat - b.beat);
+  if (masterPoints.length) {
+    bus.masterGain.gain.setValueAtTime(dbToGain(masterBus.masterVolumeDb + (evaluateAutomationAtBeat(masterPoints, 0, bars * 4) - 0.55) * 8), 0);
+    for (const point of masterPoints) if (point.beat > 0 && point.beat <= bars * 4) {
+      bus.masterGain.gain.linearRampToValueAtTime(dbToGain(masterBus.masterVolumeDb + (point.value - 0.55) * 8), point.beat * 60 / project.tempo);
     }
   }
-
-  return synthesizeDeterministicStereoPcm(
-    project,
-    humanization,
-    masterBus,
-    sampleRate,
-    effectiveBars
-  );
+  const bps = project.tempo / 60;
+  const events: { track: AbletonTrack; note: MidiNoteEvent; time: number }[] = [];
+  for (const track of project.tracks) {
+    if (composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []).effectivelyMuted) continue;
+    for (const clip of track.clips) for (const note of clip.notes) {
+      if (!Number.isFinite(note.time) || !Number.isFinite(note.pitch) || !Number.isFinite(note.duration) || !Number.isFinite(note.velocity)) {
+        throw new Error('RENDER_NOTE: non-finite note data');
+      }
+      if (note.time >= 0 && note.time < bars * 4 && note.time >= clip.startTime && note.time < clip.startTime + clip.length && shouldPlayNote(note)) {
+        events.push({ track, note, time: note.time / bps });
+      }
+    }
+  }
+  events.sort((a, b) => a.time - b.time);
+  let cursor = 0;
+  const scheduleUntil = (end: number) => {
+    while (cursor < events.length && events[cursor].time < end) {
+      const e = events[cursor++];
+      scheduleTrackVoiceAtTime(ctx, bus, noise, e.track, e.note, e.time, bps, humanization, project);
+    }
+  };
+  // Align suspension times to render quanta to avoid scheduling notes in the past.
+  const windowFrames = Math.ceil(sampleRate * 2 / 128) * 128;
+  let boundary = windowFrames;
+  scheduleUntil(boundary / sampleRate);
+  onProgress?.(0, frames);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let resetDeadline = () => {};
+  const deadline = new Promise<never>((_, reject) => {
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { cancelled = true; reject(new Error('RENDER_TIMEOUT: no completed audio window for 60 seconds; restart the app before retrying')); }, 60000);
+    };
+    arm();
+    resetDeadline = arm;
+  });
+  let rendered: AudioBuffer;
+  try {
+    const pump = async () => {
+      let suspended = boundary < frames ? ctx.suspend(boundary / sampleRate) : null;
+      started = true;
+      const rendering = ctx.startRendering();
+      rendering.then(() => { if (activeOfflineRender === ctx) activeOfflineRender = null; }, () => { if (activeOfflineRender === ctx) activeOfflineRender = null; });
+      // Observe rejection immediately, including while awaiting a suspend boundary.
+      const failed = rendering.then(() => new Promise<never>(() => {}), (error) => Promise.reject(error));
+      while (suspended) {
+        await Promise.race([suspended, failed]);
+        if (cancelled) throw new Error('RENDER_CANCELLED: timed-out context cannot resume');
+        onProgress?.(Math.min(frames, Math.round(ctx.currentTime * sampleRate)), frames);
+        resetDeadline();
+        bus.offlineRetirements = bus.offlineRetirements.filter(retirement => {
+          if (retirement.at > ctx.currentTime) return true;
+          for (const node of retirement.nodes) node.disconnect();
+          return false;
+        });
+        boundary += windowFrames;
+        scheduleUntil(Math.min(frames, boundary) / sampleRate);
+        suspended = boundary < frames ? ctx.suspend(boundary / sampleRate) : null;
+        await ctx.resume();
+        if (cancelled) throw new Error('RENDER_CANCELLED: timed-out context cannot continue');
+      }
+      return await rendering;
+    };
+    rendered = await Promise.race([pump(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+  onProgress?.(frames, frames);
+  return { left: rendered.getChannelData(0), right: rendered.getChannelData(1), sampleRate, durationSeconds: frames / sampleRate };
+  } catch (error) {
+    cancelled = true;
+    if (!started) activeOfflineRender = null;
+    else if (ctx.state === 'running') {
+      const stopAt = (Math.floor(ctx.currentTime * sampleRate / 128) + 2) * 128 / sampleRate;
+      if (stopAt < durationSeconds) void ctx.suspend(stopAt).catch(() => {});
+    }
+    // OfflineAudioContext has no close/cancel API. A stalled context retains the guard
+    // until it settles or app restart, preventing two full PCM allocations after retry.
+    throw error;
+  }
 }
 
-/**
- * Renders the complete arrangement (16 to 256 bars) to a lossless 44.1kHz 16-bit, 24-bit, or 32-bit Float Stereo .WAV Blob.
- * Accepts an optional progress callback emitting percentage completion (0 to 100).
- */
+/** Continuous shared-graph export. Progress measures rendered and encoded frames. */
 export async function renderArrangementToWavBlob(
   project: AbletonProjectState,
   humanization: HumanizationConfig,
@@ -1534,112 +1582,16 @@ export async function renderArrangementToWavBlob(
   bitDepthOrOnProgress: 16 | 24 | 32 | ((progressPercent: number) => void) = 24,
   onProgress?: (progressPercent: number) => void
 ): Promise<{ blob: Blob; durationSeconds: number; sampleRate: number; bitDepth: number }> {
-  const bitDepth: 16 | 24 | 32 = typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
-  const progressCb: ((progressPercent: number) => void) | undefined =
-    typeof bitDepthOrOnProgress === 'function' ? bitDepthOrOnProgress : onProgress;
-
-  let lastReportedPct = -1;
-  const reportProgress = (pct: number) => {
-    if (!progressCb) return;
-    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
-    if (clamped >= lastReportedPct) {
-      lastReportedPct = clamped;
-      progressCb(clamped);
-    }
-  };
-
-  reportProgress(0);
-
-  const effectiveBars = totalBars || project.arrangementLengthBars || 16;
-  const sampleRate = 44100;
-  const totalBeats = effectiveBars * 4;
-  const beatsPerSecond = project.tempo / 60;
-  const tailSeconds = 2.4;
-  const durationSeconds = totalBeats / beatsPerSecond + tailSeconds;
-  const totalSamples = Math.ceil(durationSeconds * sampleRate);
-
-  // Try OfflineAudioContext for short arrangements (<= 32 bars) in standard browser environments
-  if (typeof OfflineAudioContext !== 'undefined' && effectiveBars <= 32) {
-    try {
-      const offlineCtx = new OfflineAudioContext(2, totalSamples, sampleRate);
-      const bus = buildAudioBusGraph(offlineCtx, project.tempo, masterBus, false);
-      const noiseBuffer = createNoiseBuffer(offlineCtx);
-      reportProgress(10);
-
-      const trackTotal = Math.max(1, project.tracks.length);
-      project.tracks.forEach((track, tIdx) => {
-        const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
-        if (vcaComp.effectivelyMuted) {
-          reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
-          return;
-        }
-
-        track.clips.forEach((clip) => {
-          clip.notes.forEach((note) => {
-            if (note.time < 0 || note.time >= totalBeats) return;
-            const whenSec = note.time / beatsPerSecond;
-            scheduleTrackVoiceAtTime(
-              offlineCtx,
-              bus,
-              noiseBuffer,
-              track,
-              note,
-              whenSec,
-              beatsPerSecond,
-              humanization,
-              project
-            );
-          });
-        });
-        reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
-      });
-
-      reportProgress(55);
-
-      // Race OfflineAudioContext.startRendering against a 12-second watchdog timeout to avoid Android freeze
-      const renderPromise = offlineCtx.startRendering();
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000));
-      const renderedBuffer = await Promise.race([renderPromise, timeoutPromise]);
-
-      if (renderedBuffer && renderedBuffer instanceof AudioBuffer) {
-        reportProgress(75);
-        const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth, (encPct) => {
-          reportProgress(75 + Math.round((encPct / 100) * 25));
-        });
-        reportProgress(100);
-        return { blob, durationSeconds, sampleRate, bitDepth };
-      }
-    } catch {
-      // Fallback below to chunked deterministic PCM synthesis
-    }
-  }
-
-  // Robust chunked deterministic PCM synthesis for long arrangements (>32 bars) or restricted mobile WebViews
-  reportProgress(10);
-  const synth = synthesizeDeterministicStereoPcm(
-    project,
-    humanization,
-    masterBus,
-    sampleRate,
-    effectiveBars,
-    undefined,
-    (synthPct) => {
-      reportProgress(10 + Math.round((synthPct / 100) * 65));
-    }
-  );
-  reportProgress(75);
-  // Create minimal AudioBuffer-compatible wrapper for encodeAudioBufferToWavBlob
-  const fakeBuffer = {
-    numberOfChannels: 2,
-    sampleRate,
-    length: synth.left.length,
-    getChannelData: (ch: number) => (ch === 0 ? synth.left : synth.right),
-  } as unknown as AudioBuffer;
-  const blob = encodeAudioBufferToWavBlob(fakeBuffer, bitDepth, (encPct) => {
-    reportProgress(75 + Math.round((encPct / 100) * 25));
-  });
-  reportProgress(100);
-  return { blob, durationSeconds: synth.durationSeconds, sampleRate, bitDepth };
+  const bitDepth = typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
+  const progress = typeof bitDepthOrOnProgress === 'function' ? bitDepthOrOnProgress : onProgress;
+  progress?.(0);
+  const pcm = await synthesizeProjectToStereoFloatBuffers(project, humanization, masterBus, 44100, totalBars, 1,
+    (done, total) => progress?.(Math.floor(done / total * 75)), 8 + (bitDepth / 8) * 4);
+  const blob = await encodeAudioBufferToWavBlob({ numberOfChannels: 2, sampleRate: pcm.sampleRate,
+    length: pcm.left.length, getChannelData: (channel) => channel === 0 ? pcm.left : pcm.right }, bitDepth,
+    (done) => progress?.(75 + Math.floor(done * 0.25)));
+  progress?.(100);
+  return { blob, durationSeconds: pcm.durationSeconds, sampleRate: pcm.sampleRate, bitDepth };
 }
 
 export interface MidiSixteenthHeatmapBin {
@@ -2460,6 +2412,7 @@ export class ParametricWebAudioEngine {
   }
 
   public stop() {
+    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
     this.isPlaying = false;
     this.lastSchedulerPerfMs = 0;
     if (this.schedulerTimerId !== null) {
@@ -2477,6 +2430,7 @@ export class ParametricWebAudioEngine {
   }
 
   public seek(beat: number) {
+    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
     const maxBeats = this.getMaxArrangementBeats();
     const clamped = Math.max(0, Math.min(maxBeats - 0.01, beat));
     this.currentBeat = clamped;
@@ -2677,9 +2631,6 @@ export class ParametricWebAudioEngine {
     }
     this.lastSchedulerPerfMs = nowPerf;
 
-    if (this.scheduledNoteKeys.size > 2048) {
-      this.scheduledNoteKeys.clear();
-    }
 
     const nowAudio = this.ctx.currentTime;
     const beatsPerSecond = this.project.tempo / 60;
@@ -2808,6 +2759,23 @@ export class ParametricWebAudioEngine {
       });
     });
 
+    // Evaluate master automation curve if present
+    if (
+      this.masterBus.masterAutomationPoints &&
+      this.masterBus.masterAutomationPoints.length > 0 &&
+      this.bus
+    ) {
+      const autoVal = evaluateAutomationAtBeat(
+        this.masterBus.masterAutomationPoints,
+        exactBeatNow,
+        maxBeats
+      );
+      const masterTrim = (autoVal - 0.55) * 8.0;
+      const targetGain = dbToGain((this.masterBus.masterVolumeDb || 0) + masterTrim);
+      this.bus.masterGain.gain.setTargetAtTime(targetGain, nowAudio, 0.02);
+    }
+
+
     if (this.playbackState === 'recovering') {
       this.playbackState = 'playing';
     }
@@ -2895,22 +2863,6 @@ export class ParametricWebAudioEngine {
       this.smoothedLufs = this.smoothedLufs * 0.96 + instantLufs * 0.04;
     }
 
-    // Evaluate master automation curve if present
-    if (
-      this.masterBus.masterAutomationPoints &&
-      this.masterBus.masterAutomationPoints.length > 0 &&
-      this.bus
-    ) {
-      const autoVal = evaluateAutomationAtBeat(
-        this.masterBus.masterAutomationPoints,
-        this.currentBeat,
-        maxBeats
-      );
-      const masterTrim = (autoVal - 0.55) * 8.0;
-      const targetGain = dbToGain((this.masterBus.masterVolumeDb || 0) + masterTrim);
-      this.bus.masterGain.gain.setTargetAtTime(targetGain, nowAudio, 0.02);
-    }
-
     if (this.onPlayheadUpdate) {
       this.onPlayheadUpdate(
         this.currentBeat,
@@ -2926,3 +2878,4 @@ export class ParametricWebAudioEngine {
 }
 
 export const synthEngine = new ParametricWebAudioEngine();
+

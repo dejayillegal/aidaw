@@ -114,7 +114,7 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
   const peakHoldPct = dbToPct(peakHoldDb);
 
   return (
-    <div className="h-12 bg-[#0E1217] border-b border-[#1E2530] px-3 flex items-center justify-between font-mono select-none shrink-0 z-30">
+    <div className="min-h-12 overflow-x-auto gap-3 bg-[#0E1217] border-b border-[#1E2530] px-3 flex items-center justify-between font-mono select-none shrink-0 z-30">
       {/* LEFT: TRANSPORT PLAYBACK CONTROLS */}
       <div className="flex items-center gap-1.5 shrink-0">
         <button
@@ -359,3 +359,4 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
     </div>
   );
 };
+

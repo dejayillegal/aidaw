@@ -1,0 +1,9 @@
+{
+  "applicationId": "com.parametricals.technodaw",
+  "candidate": { "versionCode": 2, "versionName": "7.2.0" },
+  "production": {
+    "approved": false,
+    "lastPublishedVersionCode": null,
+    "certificateSha256": null
+  }
+}

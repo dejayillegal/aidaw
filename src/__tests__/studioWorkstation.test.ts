@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 // @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
@@ -511,4 +512,11 @@ describe('Parametric ALS Studio Workstation & SoundCraft Architecture v1.1 Gates
     expect(project.memoryLocations?.some((l) => l.number === 4 && l.beat === 32)).toBe(true);
     expect(project.rawXml).toContain('Breakdown Drop');
   });
+});
+
+
+vi.mock('../engine/webAudioSynth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../engine/webAudioSynth')>();
+  return { ...actual, synthesizeProjectToStereoFloatBuffers: vi.fn(async (...args: Parameters<typeof actual.synthesizeProjectToStereoFloatBuffers>) =>
+    actual.synthesizeDeterministicStereoPcm(args[0], args[1], args[2], args[3], args[4])) };
 });

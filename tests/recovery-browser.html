@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>DAW recovery browser regression</title></head>
+<body>
+<p>Real Chromium Web Audio export regression. No audio mocks.</p>
+<script type="module">
+import { buildStarterAbletonXml, parseAlsXmlString } from '/src/engine/alsXmlEngine.ts';
+import { renderArrangementToWavBlob, synthesizeProjectToStereoFloatBuffers } from '/src/engine/webAudioSynth.ts';
+import { executeMasterExport20 } from '/src/engine/masteringEngine.ts';
+
+const humanization = {
+  microTimingMaxShiftBeats: 0.015, swingStrength: 0, velocityVariancePct: 0.08,
+  ghostVelocityMin: 20, ghostVelocityMax: 45, lfoRateHz: 0.1, lfoDepth: 0.4,
+  cutoffHz: 145, macroTransition: 42,
+};
+const masterBus = {
+  masterVolumeDb: 0, glueCompressionDrive: 0.35, reverbDecaySec: 3.2,
+  reverbReturnLevel: 0.45, delayFeedback: 0.42, delayReturnLevel: 0.4,
+  subBassMonoCutoffHz: 120,
+};
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const ascii = (bytes, at, size) => String.fromCharCode(...new Uint8Array(bytes, at, size));
+let referencePcm;
+const sha256 = async (bytes) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+  .map((b) => b.toString(16).padStart(2, '0')).join('');
+
+async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDuration, minimumMusicSeconds) {
+  const bytes = await blob.arrayBuffer();
+  const view = new DataView(bytes);
+  assert(ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WAVE', 'RIFF/WAVE header invalid');
+  assert(view.getUint32(4, true) === bytes.byteLength - 8, 'RIFF byte length mismatch');
+  assert(view.getUint16(20, true) === (expectedBitDepth === 32 ? 3 : 1), 'WAV format mismatch');
+  assert(view.getUint16(22, true) === 2, 'WAV is not stereo');
+  assert(view.getUint32(24, true) === expectedSampleRate, 'WAV sample rate mismatch');
+  assert(view.getUint16(34, true) === expectedBitDepth, 'WAV bit depth mismatch');
+  const frames = view.getUint32(40, true) / (2 * expectedBitDepth / 8);
+  assert(frames * 2 * expectedBitDepth / 8 + 44 === bytes.byteLength, 'WAV data size mismatch');
+  assert(Math.abs(frames / expectedSampleRate - expectedDuration) <= 1 / expectedSampleRate, 'Encoded duration mismatch');
+  assert(frames / expectedSampleRate >= minimumMusicSeconds, 'Full arrangement was truncated');
+
+  // Decode in Chromium's real audio decoder, independently of the application's encoder.
+  const ctx = new AudioContext({ sampleRate: expectedSampleRate });
+  try {
+    const decoded = await ctx.decodeAudioData(bytes.slice(0));
+    assert(decoded.numberOfChannels === 2, 'Decoded channels mismatch');
+    assert(decoded.sampleRate === expectedSampleRate, 'Decoded sample rate mismatch');
+    assert(Math.abs(decoded.duration - frames / expectedSampleRate) <= 1 / expectedSampleRate, 'Decoded duration mismatch');
+    const pcmCopy = decoded.getChannelData(0);
+    let repeatMaxAbsoluteError = 0, repeatRmsError = 0;
+    if (referencePcm && referencePcm.length === pcmCopy.length) {
+      for (let i = 0; i < pcmCopy.length; i++) {
+        const difference = pcmCopy[i] - referencePcm[i];
+        repeatMaxAbsoluteError = Math.max(repeatMaxAbsoluteError, Math.abs(difference));
+        repeatRmsError += difference * difference;
+      }
+      repeatRmsError = Math.sqrt(repeatRmsError / pcmCopy.length);
+      assert(repeatMaxAbsoluteError < 0.001 && repeatRmsError < 0.0001, 'Repeated render differs audibly');
+    }
+    referencePcm = new Float32Array(pcmCopy);
+    let peak = 0;
+    let nonzero = 0;
+    let lastMusicalQuarterPeak = 0;
+    for (let ch = 0; ch < 2; ch++) {
+      const pcm = decoded.getChannelData(ch);
+      const lateStart = Math.floor(minimumMusicSeconds * 0.75 * expectedSampleRate);
+      const musicEnd = Math.min(pcm.length, Math.floor(minimumMusicSeconds * expectedSampleRate));
+      for (let i = 0; i < pcm.length; i++) {
+        assert(Number.isFinite(pcm[i]), `Non-finite decoded frame ${i}`);
+        const value = Math.abs(pcm[i]);
+        peak = Math.max(peak, value);
+        if (value > 1e-6) nonzero++;
+        if (i >= lateStart && i < musicEnd) lastMusicalQuarterPeak = Math.max(lastMusicalQuarterPeak, value);
+      }
+    }
+    assert(peak > 1e-5 && nonzero > 100, 'Export is silent');
+    assert(lastMusicalQuarterPeak > 1e-5, 'Final musical quarter is silent; late tracks may be missing');
+    return { sizeBytes: bytes.byteLength, frames, sampleRate: decoded.sampleRate,
+      bitDepth: expectedBitDepth, durationSeconds: decoded.duration, peak, nonzero,
+      lastMusicalQuarterPeak, repeatMaxAbsoluteError, repeatRmsError, sha256: await sha256(bytes) };
+  } finally { await ctx.close(); }
+}
+
+window.recovery = {
+  async runTimeoutGuardCase() {
+    const NativeContext = window.OfflineAudioContext;
+    const nativeTimeout = window.setTimeout;
+    let allocations = 0;
+    window.OfflineAudioContext = class extends NativeContext {
+      constructor(...args) { super(...args); allocations++; }
+      startRendering() { return new Promise(() => {}); }
+    };
+    window.setTimeout = (callback, delay, ...args) => nativeTimeout(callback, delay === 60000 ? 10 : delay, ...args);
+    const { xml } = buildStarterAbletonXml('berghain-134', 777, 4);
+    const project = parseAlsXmlString(xml);
+    try {
+      let timedOut = false, blocked = false;
+      try { await synthesizeProjectToStereoFloatBuffers(project, humanization, masterBus, 44100, 4); }
+      catch (error) { timedOut = error.message.includes('RENDER_TIMEOUT'); }
+      try { await synthesizeProjectToStereoFloatBuffers(project, humanization, masterBus, 44100, 4); }
+      catch (error) { blocked = error.message.includes('RENDER_BUSY'); }
+      assert(timedOut && blocked && allocations === 1, 'Stalled export allowed a second context allocation');
+      return { timedOut, retryBlocked: blocked, allocations };
+    } finally { window.OfflineAudioContext = NativeContext; window.setTimeout = nativeTimeout; }
+  },
+  async runAudioCase({ bars, master = false, seed = 777 }) {
+    const started = performance.now();
+    const { xml } = buildStarterAbletonXml('berghain-134', seed, bars);
+    const project = parseAlsXmlString(xml);
+    project.arrangementLengthBars = bars;
+    const musicalDuration = bars * 4 * 60 / project.tempo;
+    const progress = [];
+    let lastPrinted = -1;
+    const result = master
+      ? await executeMasterExport20(project, humanization, masterBus, {
+          id: 'recovery-master-48k24', version: 2, name: 'Recovery 48 kHz 24-bit', sampleRate: 48000,
+          bitDepth: 24, sampleFormat: 'pcm_int', targetIntegratedLufs: -10,
+          truePeakCeilingDbtp: -1, normalize: true, dither: 'none', createdAt: '2026-11-01T00:00:00.000Z',
+        })
+      : await renderArrangementToWavBlob(project, humanization, masterBus, bars, 24, (pct) => {
+          assert(Number.isFinite(pct) && pct >= 0 && pct <= 100, 'Invalid export progress');
+          assert(!progress.length || pct >= progress.at(-1), 'Export progress regressed');
+          progress.push(pct);
+          const stage = Math.floor(pct / 25);
+          if (stage !== lastPrinted) { console.log(`RECOVERY_STAGE ${bars} bars ${pct}%`); lastPrinted = stage; }
+        });
+    if (!master) {
+      assert(progress[0] === 0 && progress.at(-1) === 100, 'Export progress never completed');
+      assert(new Set(progress.filter((pct) => pct > 0 && pct < 75)).size >= 2,
+        'No measurable completed render windows were reported');
+    }
+    const expectedDuration = master ? result.report.durationSeconds : result.durationSeconds;
+    const verified = await inspectWav(result.blob, master ? 48000 : 44100, 24, expectedDuration, musicalDuration);
+    if (master) assert(result.report.wavHeaderValid && !result.report.segmentedRenderUsed,
+      'Master export did not report a valid continuous rendering');
+    return { bars, seed, master, musicalDuration, ...verified,
+      progressEvents: progress.length, wallTimeMs: Math.round(performance.now() - started) };
+  },
+};
+</script>
+</body></html>

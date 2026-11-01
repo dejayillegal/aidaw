@@ -1,3 +1,4 @@
+import { saveExportBlob } from '../services/fileExportService';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -46,17 +47,6 @@ interface BulkQueueAndExportModalProps {
   onSyncActiveProjectFromQueue: (updatedProject: AbletonProjectState) => void;
 }
 
-function triggerBrowserDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
 export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = ({
   isOpen,
   onClose,
@@ -68,6 +58,11 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
   onSwitchToQueueProject,
   onSyncActiveProjectFromQueue,
 }) => {
+  const [exportError, setExportError] = useState<string | null>(null);
+  const triggerBrowserDownload = async (blob: Blob, filename: string) => {
+    try { setExportError(null); return await saveExportBlob(blob, filename); }
+    catch (error) { setExportError(error instanceof Error ? error.message : 'File save failed'); throw error; }
+  };
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<'queue' | 'master_export'>('queue');
   const [presets, setPresets] = useState<MasterExportPreset[]>(() =>
@@ -235,7 +230,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
       );
 
       for (const itemRes of exportedList) {
-        triggerBrowserDownload(itemRes.wavBlob, itemRes.exportedWavFilename);
+        await triggerBrowserDownload(itemRes.wavBlob, itemRes.exportedWavFilename);
         if (itemRes.queueId === activeQueueId && itemRes.record.workingProjectState) {
           onSyncActiveProjectFromQueue(itemRes.record.workingProjectState);
         }
@@ -245,6 +240,8 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
       if (exportedList.length > 0 && exportedList[exportedList.length - 1].verification) {
         setLastExportReport(exportedList[exportedList.length - 1].verification!);
       }
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Batch export failed');
     } finally {
       setIsBatchRunning(false);
     }
@@ -259,6 +256,8 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
         targetLufs,
         truePeakCeiling
       );
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Batch export failed');
     } finally {
       setIsBatchRunning(false);
     }
@@ -296,13 +295,13 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
           );
 
           if (result.alsGzipBytes && result.record.exportedAlsFilename) {
-            triggerBrowserDownload(
+            await triggerBrowserDownload(
               new Blob([result.alsGzipBytes as unknown as BlobPart], { type: 'application/gzip' }),
               result.record.exportedAlsFilename
             );
           }
           if (result.wavArrayBuffer && result.record.exportedWavFilename) {
-            triggerBrowserDownload(
+            await triggerBrowserDownload(
               new Blob([result.wavArrayBuffer], { type: 'audio/wav' }),
               result.record.exportedWavFilename
             );
@@ -313,6 +312,8 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
           }
         }
       }
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Batch export failed');
     } finally {
       setIsBatchRunning(false);
     }
@@ -331,7 +332,9 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
       const filename = `Techno_Master_${currentWorkingPreset.sampleRate / 1000}k_${
         currentWorkingPreset.bitDepth
       }b_${currentWorkingPreset.sampleFormat === 'ieee_float' ? 'Float' : 'PCM'}.wav`;
-      triggerBrowserDownload(res.blob, filename);
+      await triggerBrowserDownload(res.blob, filename);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Master export failed');
     } finally {
       setIsSingleExporting(false);
     }
@@ -348,6 +351,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 font-mono">
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        {exportError && <div role="alert" className="p-3 text-red-300 bg-red-950/50">{exportError}</div>}
         {/* Top Modal Header */}
         <div className="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -606,11 +610,11 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                             {item.isMidiExport && item.exportedMidiBlob ? (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  triggerBrowserDownload(
+                                onClick={async () =>
+                                  await triggerBrowserDownload(
                                     item.exportedMidiBlob!,
                                     item.exportedMidiFilename || item.originalFilename
-                                  )
+                                  ).catch(() => {})
                                 }
                                 className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold flex items-center gap-1"
                               >
@@ -630,7 +634,7 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                                 )}
                                 <button
                                   type="button"
-                                  onClick={() =>
+                                  onClick={async () =>
                                     projectQueueService.calibrateQueueItem(
                                       item.queueId,
                                       humanization,
@@ -647,11 +651,11 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                                   <button
                                     type="button"
                                     data-testid={`download-queued-wav-${item.queueId}`}
-                                    onClick={() =>
-                                      triggerBrowserDownload(
+                                    onClick={async () =>
+                                      await triggerBrowserDownload(
                                         item.exportedWavBlob!,
                                         item.exportedWavFilename!
-                                      )
+                                      ).catch(() => {})
                                     }
                                     className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold flex items-center gap-1"
                                   >
@@ -728,13 +732,13 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                               currentWorkingPreset
                             );
                             if (res.alsGzipBytes && res.record.exportedAlsFilename) {
-                              triggerBrowserDownload(
+                              await triggerBrowserDownload(
                                 new Blob([res.alsGzipBytes as unknown as BlobPart], { type: 'application/gzip' }),
                                 res.record.exportedAlsFilename
                               );
                             }
                             if (res.wavArrayBuffer && res.record.exportedWavFilename) {
-                              triggerBrowserDownload(
+                              await triggerBrowserDownload(
                                 new Blob([res.wavArrayBuffer], { type: 'audio/wav' }),
                                 res.record.exportedWavFilename
                               );
@@ -1160,3 +1164,4 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
     </div>
   );
 };
+

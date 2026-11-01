@@ -248,6 +248,8 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   }, []);
 
   const isCompact = windowWidth < 768;
+  const inlineLeft = leftDockOpen && windowWidth >= 900;
+  const inlineRight = rightDockOpen && windowWidth >= 1280;
   const effectiveLeftWidth = isCompact ? Math.min(leftDockWidth, 180) : leftDockWidth;
   const effectiveRightWidth = isCompact ? 260 : 320;
 
@@ -491,15 +493,16 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
 
       {/* CSS Grid Tri-Pane Workstation: [left-dock] auto [center-viewport] 1fr [right-dock] auto */}
       <div
-        className="flex-1 grid min-w-0 min-h-0 overflow-hidden"
+        className="relative flex-1 grid min-w-0 min-h-0 overflow-hidden"
         style={{
-          gridTemplateColumns: `${leftDockOpen ? `${effectiveLeftWidth}px` : '0px'} minmax(0, 1fr) ${
-            rightDockOpen ? `${effectiveRightWidth}px` : '0px'
+          gridTemplateColumns: `${inlineLeft ? `${effectiveLeftWidth}px` : '0px'} minmax(0, 1fr) ${
+            inlineRight ? `${effectiveRightWidth}px` : '0px'
           }`,
         }}
       >
         {/* Left Track & Group Tree Dock */}
         <aside
+          style={{ gridColumn: 1, gridRow: 1, width: inlineLeft ? effectiveLeftWidth : 'min(85vw, 320px)', position: inlineLeft ? 'relative' : 'absolute', insetBlock: 0, left: 0, zIndex: inlineLeft ? undefined : 40 }}
           className={`${
             leftDockOpen ? 'flex' : 'hidden'
           } bg-[#0C0F15] border-r border-[#1C222C] flex-col overflow-hidden select-none relative`}
@@ -676,9 +679,11 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
         <div
           className="grid min-w-0 min-h-0 overflow-hidden"
           style={{
+            gridColumn: 2,
+            gridRow: 1,
             gridTemplateRows: bottomDockOpen
-              ? `minmax(240px, 1fr) ${bottomDockHeight}px`
-              : 'minmax(240px, 1fr)',
+              ? `minmax(0, 1fr) min(${bottomDockHeight}px, 45%)`
+              : 'minmax(0, 1fr)',
           }}
         >
           {/* Arrangement Canvas */}
@@ -858,6 +863,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
 
         {/* Right Inspector & AI Engine Dock */}
         <aside
+          style={{ gridColumn: 3, gridRow: 1, width: inlineRight ? effectiveRightWidth : 'min(85vw, 320px)', position: inlineRight ? 'relative' : 'absolute', insetBlock: 0, right: 0, zIndex: inlineRight ? undefined : 41 }}
           className={`${
             rightDockOpen ? 'flex' : 'hidden'
           } w-80 bg-[#0C0F15] border-l border-[#1C222C] flex-col overflow-hidden`}
@@ -899,3 +905,4 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
     </div>
   );
 };
+

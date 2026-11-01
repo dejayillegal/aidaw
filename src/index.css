@@ -67,7 +67,7 @@ html.theme-light .bg-\[\#141923\],
 html.theme-light .bg-\[\#121722\],
 html.theme-light .bg-\[\#151B24\],
 html.theme-light .bg-\[\#161C24\],
-html.theme-light .bg-[#18202D] {
+html.theme-light .bg-\[\#18202D\] {
   background-color: #F8FAFC !important;
   color: #0F172A !important;
 }
@@ -137,4 +137,22 @@ input[type="range"].studio-slider::-webkit-slider-thumb {
 input[type="range"].studio-slider::-webkit-slider-thumb:hover {
   background: #FBBF24;
   transform: scale(1.1);
+}
+
+
+/* Dynamic viewport and safe areas cover rotation, unfolded displays and gesture navigation. */
+.studio-shell {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.studio-modal-overlay {
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+.studio-modal-overlay > div { max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+@media (pointer: coarse) {
+  .studio-modal-overlay button { min-height: 44px; min-width: 44px; }
 }

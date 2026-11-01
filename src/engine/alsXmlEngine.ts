@@ -2200,8 +2200,7 @@ export function parseAbletonXmlDom(
   }
 
   const detectedBars = Math.round(maxEndBeatDetected / 4);
-  const arrangementLengthBars: 16 | 32 | 64 | 128 =
-    detectedBars >= 96 ? 128 : detectedBars >= 48 ? 64 : detectedBars >= 24 ? 32 : 16;
+  const arrangementLengthBars = Math.max(1, Math.ceil(maxEndBeatDetected / 4) || 16);
 
   // Parse existing Ableton <Locators> if present, otherwise seed default Memory Locations
   const locatorEls = Array.from(xmlDoc.querySelectorAll('Locators > Locators > Locator'));
@@ -4107,4 +4106,5 @@ export function validateAlsStructuralIntegrity(
     details: errors.join('; '),
   };
 }
+
 

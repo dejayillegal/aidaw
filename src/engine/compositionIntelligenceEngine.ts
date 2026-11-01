@@ -296,234 +296,66 @@ export function analyzeProjectMusicalProfile(project: AbletonProjectState): Musi
  */
 export function generateSectionArrangementPlan(
   formId: MacroArrangementFormId,
-  totalBars = 16
+  totalBars = 16,
+  seed = 0
 ): ArrangementSectionNode[] {
-  const scaleMult = Math.max(1, Math.round(totalBars / 16));
-  const mapStart = (bar16: number) => (bar16 - 1) * scaleMult + 1;
-  const mapEnd = (bar16: number) => bar16 * scaleMult;
-
-  if (formId === 'industrial_assault') {
-    const s1End = mapEnd(4);
-    const s2Start = mapStart(5);
-    const s2End = mapEnd(8);
-    const s3Start = mapStart(9);
-    const s3End = mapEnd(11);
-    const s4Start = mapStart(12);
-    const s4End = mapEnd(16);
-
-    return [
-      {
-        id: 'sec_1',
-        name: `Bars 1–${s1End}: Industrial Pressure`,
-        role: 'Intro',
-        startBar: 1,
-        endBar: s1End,
-        targetEnergy: 0.72,
-        activeArchetypes: ['kick', 'rumble', 'percussion', 'acid'],
-        sectionEvent: 'Immediate 3/16 Collision metallic drive + sub rumble lock',
-      },
-      {
-        id: 'sec_2',
-        name: `Bars ${s2Start}–${s2End}: Full Mechanical Grid`,
-        role: 'Hypnotic_Lock',
-        startBar: s2Start,
-        endBar: s2End,
-        targetEnergy: 0.88,
-        activeArchetypes: ['kick', 'rumble', 'percussion', 'hats', 'synth', 'acid', 'ride'],
-        sectionEvent: '909 offbeat hats + 303 acid + dissonant synth stabs enter with ratchets',
-      },
-      {
-        id: 'sec_3',
-        name: `Bars ${s3Start}–${s3End}: Fractured Tension Cut`,
-        role: 'Breakdown',
-        startBar: s3Start,
-        endBar: s3End,
-        targetEnergy: 0.45,
-        activeArchetypes: ['percussion', 'synth', 'hats', 'acid', 'pad'],
-        sectionEvent: 'Sub-bass dropout + high-resonance 303 & pad sweep + echo feedback swell',
-      },
-      {
-        id: 'sec_4',
-        name: `Bars ${s4Start}–${s4End}: Overdrive Climax`,
-        role: 'Peak_Drop',
-        startBar: s4Start,
-        endBar: s4End,
-        targetEnergy: 0.98,
-        activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'],
-        sectionEvent: `Full 8-track return + 909 Ride cymbal + bar ${s4End} turnaround fill`,
-      },
-    ];
+  if (!Number.isInteger(totalBars) || totalBars < 1 || totalBars > 1000000 || !Number.isFinite(seed)) {
+    throw new Error('Arrangement requires 1–1000000 whole bars and a finite seed');
   }
-
-  if (formId === 'deep_dub_evolution') {
-    const s1End = mapEnd(4);
-    const s2Start = mapStart(5);
-    const s2End = mapEnd(8);
-    const s3Start = mapStart(9);
-    const s3End = mapEnd(12);
-    const s4Start = mapStart(13);
-    const s4End = mapEnd(16);
-
-    return [
-      {
-        id: 'sec_1',
-        name: `Bars 1–${s1End}: Dub Space Atmosphere`,
-        role: 'Intro',
-        startBar: 1,
-        endBar: s1End,
-        targetEnergy: 0.42,
-        activeArchetypes: ['kick', 'synth', 'hats', 'pad'],
-        sectionEvent: 'Filtered Dorian chord pad + stabs + 3/16 ping-pong echo tail',
-      },
-      {
-        id: 'sec_2',
-        name: `Bars ${s2Start}–${s2End}: Rolling Sub Entry`,
-        role: 'Groove_Establish',
-        startBar: s2Start,
-        endBar: s2End,
-        targetEnergy: 0.68,
-        activeArchetypes: ['kick', 'rumble', 'synth', 'hats', 'pad'],
-        sectionEvent: 'Warm Operator sine sub enters with deep kick sidechain',
-      },
-      {
-        id: 'sec_3',
-        name: `Bars ${s3Start}–${s3End}: Hypnotic Chord Inversion`,
-        role: 'Hypnotic_Lock',
-        startBar: s3Start,
-        endBar: s3End,
-        targetEnergy: 0.82,
-        activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'],
-        sectionEvent: 'First-inversion dub chords + polyrhythmic counter-rhythm + 909 Ride',
-      },
-      {
-        id: 'sec_4',
-        name: `Bars ${s4Start}–${s4End}: Echo Wash & Deconstruction`,
-        role: 'Outro',
-        startBar: s4Start,
-        endBar: s4End,
-        targetEnergy: 0.60,
-        activeArchetypes: ['kick', 'rumble', 'synth', 'hats', 'pad'],
-        sectionEvent: 'Echo feedback ramp to 82% + gradual lowpass filter closure',
-      },
-    ];
+  const all: TechnoArchetype[] = ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'];
+  const openingChoices: TechnoArchetype[][] = formId === 'deep_dub_evolution'
+    ? [['pad', 'synth'], ['pad', 'percussion'], ['kick', 'pad']]
+    : formId === 'industrial_assault'
+    ? [['kick', 'percussion'], ['rumble', 'acid'], ['percussion', 'hats']]
+    : [['kick', 'hats'], ['pad', 'percussion'], ['kick', 'rumble'], ['synth', 'hats']];
+  const opening = openingChoices[Math.floor(seededRandom(seed + 31) * openingChoices.length)];
+  const roles: ArrangementSectionNode['role'][] = totalBars < 6
+    ? ['Intro', 'Peak_Drop', 'Outro'].slice(0, totalBars) as ArrangementSectionNode['role'][]
+    : ['Intro', 'Groove_Establish', 'Tension_Riser', 'Breakdown', 'Peak_Drop', 'Outro'];
+  // Longer seeded forms can develop through an earlier drop and second build.
+  if (seed !== 0 && totalBars >= 64 && seededRandom(seed + 91) > 0.45) {
+    roles.splice(3, 0, 'Peak_Drop', 'Hypnotic_Lock');
+    roles.splice(roles.length - 2, 0, 'Tension_Riser');
   }
-
-  if (formId === 'asymmetric_experimental') {
-    const s1End = mapEnd(3);
-    const s2Start = mapStart(4);
-    const s2End = mapEnd(8);
-    const s3Start = mapStart(9);
-    const s3End = mapEnd(11);
-    const s4Start = mapStart(12);
-    const s4End = mapEnd(16);
-
-    return [
-      {
-        id: 'sec_1',
-        name: `Bars 1–${s1End}: Polymetric Cell`,
-        role: 'Intro',
-        startBar: 1,
-        endBar: s1End,
-        targetEnergy: 0.58,
-        activeArchetypes: ['kick', 'percussion', 'hats', 'acid'],
-        sectionEvent: 'Asymmetric phrase boundary with 7/16 & 13/16 Euclidean polyrhythms',
-      },
-      {
-        id: 'sec_2',
-        name: `Bars ${s2Start}–${s2End}: Sub & Acid Interlock`,
-        role: 'Groove_Establish',
-        startBar: s2Start,
-        endBar: s2End,
-        targetEnergy: 0.84,
-        activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'pad'],
-        sectionEvent: 'Evolving motif family with displaced offbeat accents & 303 slides',
-      },
-      {
-        id: 'sec_3',
-        name: `Bars ${s3Start}–${s3End}: Tension Suspension`,
-        role: 'Tension_Riser',
-        startBar: s3Start,
-        endBar: s3End,
-        targetEnergy: 0.52,
-        activeArchetypes: ['rumble', 'percussion', 'synth', 'acid', 'pad'],
-        sectionEvent: 'Kick mute suspension + rising diode filter cutoff automation',
-      },
-      {
-        id: 'sec_4',
-        name: `Bars ${s4Start}–${s4End}: Asymmetric Peak Return`,
-        role: 'Peak_Drop',
-        startBar: s4Start,
-        endBar: s4End,
-        targetEnergy: 0.95,
-        activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'],
-        sectionEvent: `Full 8-track polymetric convergence + bar ${s4End} ratchet fill`,
-      },
-    ];
-  }
-
-  // Default: hypnotic_longform & detroit_mechanical
-  const s1End = mapEnd(4);
-  const s2Start = mapStart(5);
-  const s2End = mapEnd(8);
-  const s3Start = mapStart(9);
-  const s3End = mapEnd(12);
-  const s4Start = mapStart(13);
-  const s4End = mapEnd(16);
-
-  return [
-    {
-      id: 'sec_1',
-      name: `Bars 1–${s1End}: Groove Foundation`,
-      role: 'Groove_Establish',
-      startBar: 1,
-      endBar: s1End,
-      targetEnergy: 0.56,
-      activeArchetypes: ['kick', 'rumble', 'hats', 'pad'],
-      sectionEvent: 'Phase-locked 909 kick + rolling sub-bass + sparse ghost hats',
-    },
-    {
-      id: 'sec_2',
-      name: `Bars ${s2Start}–${s2End}: Motif Call & Response`,
-      role: 'Hypnotic_Lock',
-      startBar: s2Start,
-      endBar: s2End,
-      targetEnergy: 0.78,
-      activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'pad'],
-      sectionEvent: 'Euclidean percussion, 303 acid & hypnotic synth motif enter',
-    },
-    {
-      id: 'sec_3',
-      name: `Bars ${s3Start}–${s3End}: Tension Filter Riser`,
-      role: 'Tension_Riser',
-      startBar: s3Start,
-      endBar: s3End,
-      targetEnergy: 0.70,
-      activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'pad'],
-      sectionEvent: `Filter cutoff & delay send ramp upward toward Bar ${s4Start} drop`,
-    },
-    {
-      id: 'sec_4',
-      name: `Bars ${s4Start}–${s4End}: Warehouse Peak Drop`,
-      role: 'Peak_Drop',
-      startBar: s4Start,
-      endBar: s4End,
-      targetEnergy: 0.96,
-      activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'],
-      sectionEvent: `Peak 8-track density + 909 Ride + bar ${s4End} turnaround fill`,
-    },
-  ];
+  const weights = roles.map((role, i) => {
+    const base = role === 'Peak_Drop' ? 2 : role === 'Tension_Riser' ? 0.7 : 1.2;
+    return base * (0.75 + seededRandom(seed + i * 131 + 17) * 0.5);
+  });
+  // Allocate all bars exactly; every section receives at least one bar.
+  const remaining = totalBars - roles.length;
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  const lengths = weights.map(w => 1 + Math.floor(remaining * w / weightSum));
+  for (let extra = totalBars - lengths.reduce((a, b) => a + b, 0), i = 0; extra > 0; extra--, i++) lengths[i % lengths.length]++;
+  let startBar = 1;
+  return roles.map((role, i) => {
+    const endBar = startBar + lengths[i] - 1;
+    const active: TechnoArchetype[] = role === 'Intro' ? opening
+      : role === 'Breakdown' ? ['pad', 'synth', 'acid', 'percussion']
+      : role === 'Outro' ? ['kick', 'hats', 'percussion']
+      : role === 'Tension_Riser' ? ['hats', 'percussion', 'acid', 'synth']
+      : role === 'Groove_Establish' ? ['kick', 'rumble', 'percussion', 'hats'] : all;
+    const energy = role === 'Intro' ? 0.3 : role === 'Breakdown' ? 0.25 : role === 'Outro' ? 0.35 : role === 'Peak_Drop' ? 0.98 : role === 'Tension_Riser' ? 0.8 : 0.65;
+    const section: ArrangementSectionNode = {
+      id: `sec_${i + 1}`, name: `${role.replace(/_/g, ' ')} · Bars ${startBar}–${endBar}`,
+      role, startBar, endBar, targetEnergy: energy, activeArchetypes: [...active],
+      sectionEvent: role === 'Tension_Riser' ? 'Low-end withdrawal, filter rise and phrase fill'
+        : role === 'Peak_Drop' ? 'Kick and bass re-entry with full orchestration'
+        : role === 'Breakdown' ? 'Harmonic space with sustaining effect tails'
+        : role === 'Outro' ? 'Withdraw melodic layers for DJ mix-out' : 'Develop the shared rhythmic motif',
+    };
+    startBar = endBar + 1;
+    return section;
+  });
 }
 
-/**
- * Generates context-sensitive automation breakpoints aligned to the active MacroArrangementForm and `totalBars`.
- */
 export function generateContextualAutomationPoints(
   archetype: TechnoArchetype,
   formId: MacroArrangementFormId,
   seed: number,
-  totalBars = 16
+  totalBars = 16,
+  sectionPlan?: ArrangementSectionNode[]
 ): AutomationPoint[] {
-  const sections = generateSectionArrangementPlan(formId, totalBars);
+  const sections = sectionPlan || generateSectionArrangementPlan(formId, totalBars, seed);
   const totalBeats = totalBars * 4;
   const points: AutomationPoint[] = [];
   const jitter = (seededRandom(seed + 77) - 0.5) * 0.08;
@@ -666,7 +498,8 @@ export function composeProjectConditionedLayerNotes(
   humanization: HumanizationConfig,
   compositionSeed: number,
   humanizationSeed: number,
-  totalBarsOverride?: number
+  totalBarsOverride?: number,
+  sectionPlan?: ArrangementSectionNode[]
 ): {
   notes: MidiNoteEvent[];
   sessionClips: AbletonMidiClip[];
@@ -677,7 +510,7 @@ export function composeProjectConditionedLayerNotes(
   const profile = analyzeProjectMusicalProfile(project);
   const strategy =
     COMPOSITION_STRATEGIES.find((s) => s.id === strategyId) || COMPOSITION_STRATEGIES[0];
-  const sections = generateSectionArrangementPlan(formId, totalBars);
+  const sections = sectionPlan || generateSectionArrangementPlan(formId, totalBars, compositionSeed);
 
   const maxShift = humanization.microTimingMaxShiftBeats;
   const velVar = humanization.velocityVariancePct;
@@ -1114,7 +947,10 @@ export function composeProjectConditionedLayerNotes(
   const reasoning = `Strategy "${strategy.name}" (${formId.replace(/_/g, ' ')}) · ${totalBars} Bars · Conditioned on ${project.rootKey} ${project.scale} @ ${project.tempo} BPM · Interlocked with ${profile.kickOnsetSteps.length} kick steps · Novelty ${Math.round(((bestNovelty?.rhythmicNovelty || 0.85) + (bestNovelty?.arrangementNovelty || 0.85)) * 50)}%.`;
 
   return {
-    notes: finalSwungNotes,
+    notes: finalSwungNotes.filter(note => {
+      const bar = Math.floor(Math.max(0, note.quantizedTime ?? note.time) / 4) + 1;
+      return sections.some(sec => bar >= sec.startBar && bar <= sec.endBar && sec.activeArchetypes.includes(archetype));
+    }).map(note => ({ ...note, time: Math.max(0, Math.min(totalBars * 4 - 0.001, note.time)) })),
     sessionClips: finalSwungSessionClips,
     novelty: bestNovelty || evaluateGenerationNovelty(finalSwungNotes, project, archetype, profile),
     reasoning,
@@ -2022,111 +1858,14 @@ export function decomposeNotesIntoSectionClips(
   const totalBeats = safeTotalBars * 4;
 
   // For short arrangements (<= 16 bars), split into 4-bar phrase clips where notes exist
-  const defaultSections: { name: string; role: string; startBar: number; endBar: number; activeArchetypes: TechnoArchetype[] }[] =
-    sections && sections.length > 0
-      ? sections.map((s) => ({
-          name: s.name,
-          role: s.role,
-          startBar: s.startBar,
-          endBar: s.endBar,
-          activeArchetypes: s.activeArchetypes,
-        }))
-      : safeTotalBars <= 16
-      ? [
-          {
-            name: 'Phrase_A',
-            role: 'Intro',
-            startBar: 1,
-            endBar: Math.min(safeTotalBars, 4),
-            activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'],
-          },
-          ...(safeTotalBars > 4
-            ? [
-                {
-                  name: 'Phrase_B',
-                  role: 'Groove_Establish',
-                  startBar: 5,
-                  endBar: Math.min(safeTotalBars, 8),
-                  activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'] as TechnoArchetype[],
-                },
-              ]
-            : []),
-          ...(safeTotalBars > 8
-            ? [
-                {
-                  name: 'Phrase_C',
-                  role: 'Hypnotic_Lock',
-                  startBar: 9,
-                  endBar: Math.min(safeTotalBars, 12),
-                  activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'] as TechnoArchetype[],
-                },
-              ]
-            : []),
-          ...(safeTotalBars > 12
-            ? [
-                {
-                  name: 'Phrase_D',
-                  role: 'Peak_Drop',
-                  startBar: 13,
-                  endBar: safeTotalBars,
-                  activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'] as TechnoArchetype[],
-                },
-              ]
-            : []),
-        ]
-      : [
-          {
-            name: 'Intro_Pulse',
-            role: 'Intro',
-            startBar: 1,
-            endBar: Math.min(safeTotalBars, 16),
-            activeArchetypes: ['kick', 'rumble', 'hats', 'pad', 'percussion', 'synth', 'acid', 'ride'],
-          },
-          {
-            name: 'Groove_Establish',
-            role: 'Groove_Establish',
-            startBar: 17,
-            endBar: Math.min(safeTotalBars, 32),
-            activeArchetypes: ['kick', 'rumble', 'percussion', 'hats', 'synth'],
-          },
-          {
-            name: 'Hypnotic_Lock',
-            role: 'Hypnotic_Lock',
-            startBar: 33,
-            endBar: Math.min(safeTotalBars, 64),
-            activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid'],
-          },
-          {
-            name: 'Breakdown_Tension',
-            role: 'Breakdown',
-            startBar: 65,
-            endBar: Math.min(safeTotalBars, 80),
-            activeArchetypes: ['synth', 'acid', 'pad', 'percussion'],
-          },
-          {
-            name: 'Peak_Warehouse_Drop',
-            role: 'Peak_Drop',
-            startBar: 81,
-            endBar: Math.min(safeTotalBars, 112),
-            activeArchetypes: ['kick', 'rumble', 'percussion', 'synth', 'hats', 'acid', 'ride', 'pad'],
-          },
-          {
-            name: 'DJ_Mix_Outro',
-            role: 'Outro',
-            startBar: 113,
-            endBar: safeTotalBars,
-            activeArchetypes: ['kick', 'rumble', 'hats', 'percussion'],
-          },
-        ];
+  const defaultSections = sections?.length ? sections : generateSectionArrangementPlan('hypnotic_longform', safeTotalBars);
 
   const clips: AbletonMidiClip[] = [];
 
   for (let sIdx = 0; sIdx < defaultSections.length; sIdx++) {
     const sec = defaultSections[sIdx];
     if (sec.startBar > safeTotalBars) continue;
-    // Always keep clip 0 (Intro) populated if notes exist there so legacy tests inspecting track.clips[0].notes pass,
-    // while creating genuine section dropouts in later sections when the archetype rests!
-    if (sIdx > 0 && !sec.activeArchetypes.includes(archetype)) {
+    if (!sec.activeArchetypes.includes(archetype)) {
       continue;
     }
 
@@ -2135,7 +1874,7 @@ export function decomposeNotesIntoSectionClips(
     const clipLen = Math.max(4, endBeat - startBeat);
 
     const sectionNotes = allNotes.filter(
-      (n) => n.time >= startBeat - 0.05 && n.time < endBeat - 0.01
+      (n) => n.time >= startBeat && n.time < endBeat
     );
     if (sectionNotes.length === 0) continue;
 
@@ -2149,22 +1888,6 @@ export function decomposeNotesIntoSectionClips(
       sectionRole: sec.role,
       revision: 1,
     });
-  }
-
-  if (clips.length === 0) {
-    const fallbackLen = Math.min(64, totalBeats);
-    return [
-      {
-        id: `clip_${archetype}_1`,
-        name: `${trackName}_Phrase_01`,
-        startTime: 0,
-        endTime: fallbackLen,
-        length: fallbackLen,
-        notes: allNotes.filter((n) => n.time < fallbackLen),
-        sectionRole: 'Intro',
-        revision: 1,
-      },
-    ];
   }
 
   return clips;
@@ -2191,6 +1914,7 @@ export function generateSectionArrangementProposal(
   }
 ): SectionArrangementProposal {
   const bars = options?.targetBars || project.arrangementLengthBars || 16;
+  const sections = options?.sections || generateSectionArrangementPlan('hypnotic_longform', bars);
   const proposedTracks: AbletonTrack[] = project.tracks.map((track) => {
     if (track.locked || track.clips.length === 0) return { ...track };
     const allNotes = track.clips.flatMap((c) => c.notes);
@@ -2199,7 +1923,7 @@ export function generateSectionArrangementProposal(
       track.archetype,
       allNotes,
       bars,
-      options?.sections
+      sections
     );
     return {
       ...track,
@@ -2209,15 +1933,8 @@ export function generateSectionArrangementProposal(
 
   return {
     proposedTracks,
-    totalSections: 6,
-    sections: [
-      { name: 'Intro_Pulse', startBar: 1, endBar: Math.min(bars, 16), role: 'Intro' },
-      { name: 'Groove_Establish', startBar: 17, endBar: Math.min(bars, 32), role: 'Groove_Establish' },
-      { name: 'Hypnotic_Lock', startBar: 33, endBar: Math.min(bars, 64), role: 'Hypnotic_Lock' },
-      { name: 'Breakdown_Tension', startBar: 65, endBar: Math.min(bars, 80), role: 'Breakdown' },
-      { name: 'Peak_Warehouse_Drop', startBar: 81, endBar: Math.min(bars, 112), role: 'Peak_Drop' },
-      { name: 'DJ_Mix_Outro', startBar: 113, endBar: bars, role: 'Outro' },
-    ],
+    totalSections: sections.length,
+    sections: sections.map(({ name, startBar, endBar, role }) => ({ name, startBar, endBar, role })),
     summary: `Generated section arrangement proposal for ${project.tracks.length} tracks across ${bars} bars.`,
   };
 }
@@ -2745,5 +2462,6 @@ export function createUserTrackFromRole(
     ],
   };
 }
+
 
 

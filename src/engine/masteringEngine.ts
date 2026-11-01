@@ -759,7 +759,7 @@ export function applyTwoPassMasteringToBuffers(
 
 /**
  * Master Export Engine 2.0:
- * Renders the project with 96 kHz memory budgeting (segmented rendering with preserved tails when exceeding budget),
+ * Renders the project with 96 kHz memory budgeting (continuous rendering with an explicit working-set budget),
  * performs two-pass ITU-R BS.1770 mastering, encodes verified PCM / IEEE Float WAV, and returns full verification telemetry.
  */
 export async function executeMasterExport20(
@@ -781,12 +781,9 @@ export async function executeMasterExport20(
   const totalDurationSeconds = totalBeats / beatsPerSecond + tailSeconds;
   const totalFrames = Math.ceil(totalDurationSeconds * preset.sampleRate);
 
-  // Memory budgeting: if totalFrames > 4,800,000 (~100s at 48kHz or ~50s at 96kHz), use segmented rendering with tail overlap
-  const MAX_SINGLE_BUFFER_FRAMES = 4_800_000;
-  const segmentedRenderUsed = totalFrames > MAX_SINGLE_BUFFER_FRAMES;
-  const segmentCount = segmentedRenderUsed
-    ? Math.ceil(totalFrames / MAX_SINGLE_BUFFER_FRAMES)
-    : 1;
+  // One continuous shared graph; scheduling windows preserve DSP state, not independent renders.
+  const segmentedRenderUsed = false;
+  const segmentCount = 1;
 
   const { left: rawLeft, right: rawRight } = await synthesizeProjectToStereoFloatBuffers(
     project,
@@ -1004,6 +1001,7 @@ export async function runStageBAudioMeasurement(
     };
   }
 
+  try {
   // Render representative 4-bar audio path for fast, accurate BS.1770 measurement
   const measureBars = Math.min(project.arrangementLengthBars || 16, 4);
   const sampleRate = 44100;
@@ -1043,6 +1041,13 @@ export async function runStageBAudioMeasurement(
     clippingSampleCount: metrics.clippingSampleCount,
     renderDurationSeconds: durationSeconds,
   };
+  } catch (error) {
+    return { available: false, status: 'unavailable',
+      unavailableReason: `Audio Measurement Unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      integratedLufs: null, samplePeakDbfs: null, truePeakDbtp: null, crestFactorDb: null,
+      headroomDb: null, clippingSampleCount: 0, renderDurationSeconds: 0 };
+  }
+
 }
 
 /**
@@ -1357,3 +1362,4 @@ export async function applyAndVerifyStageECalibration(
     verificationReport: verification,
   };
 }
+

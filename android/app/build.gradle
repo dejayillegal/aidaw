@@ -1,5 +1,22 @@
 apply plugin: 'com.android.application'
 
+def releasePolicy = new groovy.json.JsonSlurper().parse(file('../release-policy.json'))
+def metadata = new groovy.json.JsonSlurper().parse(file('../../public/apk-metadata.json'))
+if (metadata.versionCode != releasePolicy.candidate.versionCode || metadata.versionName != releasePolicy.candidate.versionName || metadata.applicationId != releasePolicy.applicationId) {
+    throw new GradleException('Metadata differs from the release candidate ledger')
+}
+if (!(metadata.versionCode instanceof Number) || metadata.versionCode <= 0 || !metadata.versionName) {
+    throw new GradleException('Invalid release version identity')
+}
+// Unknown release history is deliberately not replaced with an invented approval.
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.name.toLowerCase().contains('release') }) {
+        if (!releasePolicy.production.approved || releasePolicy.production.lastPublishedVersionCode == null || metadata.versionCode <= releasePolicy.production.lastPublishedVersionCode) {
+            throw new GradleException('Production approval and monotonic release history required')
+        }
+    }
+}
+
 android {
     namespace = "com.parametricals.technodaw"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -24,14 +41,14 @@ android {
     }
     signingConfigs {
         debug {
-            // Android Gradle Plugin default debug signing uses standard debug.keystore
-            // with alias 'androiddebugkey' and password 'android', guaranteeing stable
-            // signing certificate across builds to eliminate INSTALL_FAILED_UPDATE_INCOMPATIBLE.
-            if (file('debug.keystore').exists()) {
-                storeFile file('debug.keystore')
-                storePassword 'android'
-                keyAlias 'androiddebugkey'
-                keyPassword 'android'
+            // Default debug keys are machine-specific, NOT a stable distribution lineage.
+            // CI/distributors supply an existing persistent key; verifier pins its certificate.
+            def configuredKey = System.getenv('ANDROID_DEBUG_KEYSTORE')
+            if (configuredKey) {
+                storeFile file(configuredKey)
+                storePassword System.getenv('ANDROID_DEBUG_STORE_PASSWORD') ?: 'android'
+                keyAlias System.getenv('ANDROID_DEBUG_KEY_ALIAS') ?: 'androiddebugkey'
+                keyPassword System.getenv('ANDROID_DEBUG_KEY_PASSWORD') ?: 'android'
             }
         }
     }
@@ -74,3 +91,4 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+

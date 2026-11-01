@@ -8,7 +8,9 @@
   "sizeBytes": 391344,
   "targetSdk": 36,
   "minSdk": 24,
-  "verificationStatus": "verified",
+  "verificationStatus": "unqualified",
   "buildSystem": "Gradle/Capacitor",
-  "buildTimestamp": "2026-11-01T18:23:05.061Z"
+  "buildTimestamp": "2026-11-01T18:23:05.061Z",
+  "certificatePinned": false,
+  "installLaunchVerified": false
 }
