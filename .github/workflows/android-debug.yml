@@ -10,7 +10,7 @@ on:
 jobs:
   build-apk:
     name: Build & Verify Android Debug APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout Repository
@@ -30,6 +30,12 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - name: Use runner Android SDK instead of a checked-in machine path
+        run: rm -f android/local.properties
 
       - name: Install Node Dependencies
         run: npm ci

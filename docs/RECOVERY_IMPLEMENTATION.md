@@ -45,3 +45,7 @@ Progress now measures completed audio windows and encoded frames. The native sav
 `android/release-policy.json` records the existing candidate identity, not an invented production approval. Production remains blocked until approved version history and signing inputs are established. `public/apk-metadata.json` is marked unqualified; server and downloader refuse to advertise it as a verified update. Distribution requires `ANDROID_DEBUG_CERT_SHA256` plus the corresponding persistent keystore configured through Gradle. No new production key is generated.
 
 The composition changes repair form/orchestration defects. A complete progression/voice-leading system, authored transition assets, expert listening evaluation, broad seed coherence evaluation, and broad Ableton10/11/12 unknown-subtree round-trip certification remain work under the contract. This PR must not be described as full Ableton parity or a commercially qualified DAW.
+
+## CI follow-up
+
+The first PR run failed before dependency installation because setup-android's default requested the retired `tools` package. The workflow now selects platform-tools, Android36 and build-tools36 explicitly, uses Ubuntu24.04, and removes a checked-in machine-specific `local.properties` before Gradle. This addresses the observed setup failure; subsequent CI status must still be checked.
