@@ -1,0 +1,1103 @@
+GOOGLE AI STUDIO — PARAMETRIC ALS v7.4
+
+ZERO-STALE-BUILD RECOVERY · ANDROID WAV EXPORT RECONSTRUCTION · VERIFIED APP ICON · AUDIO STABILITY · PRODUCTION HARDENING
+
+MANDATORY SOURCE-CODE IMPLEMENTATION DIRECTIVE
+
+Repository: https://github.com/dejayillegal/aidaw
+
+Latest inspected baseline: "07a76d9292170d37472a2a6d63184f1238fcc00d"
+
+Failed Android CI: https://github.com/dejayillegal/aidaw/actions/runs/41321499091
+
+User-reported defects:
+
+1. Android WAV export remains stuck at 55%.
+2. No playable WAV is generated or saved.
+3. The installed Android application still has no correct branded launcher icon.
+4. Previous implementation attempts have not resolved these failures.
+5. Existing functional DAW capabilities must be preserved.
+6. Android audio playback and responsive usability must remain part of final release qualification.
+
+YOUR JOB IS TO FIX THE ACTUAL PRODUCT, NOT JUST REVISE THE STATUS MESSAGE.
+
+---
+
+0. NON-NEGOTIABLE EXECUTION CONTRACT
+
+Act as an integrated Principal Engineering and Release QA team specializing in:
+
+- Android/Capacitor
+- Native Android Storage Access Framework
+- Real-Time Audio and DSP
+- OfflineAudioContext
+- WAV/RF64 Encoding
+- AudioWorklet
+- Streaming Audio Rendering
+- MIDI and DAW Architecture
+- React/TypeScript
+- ALS Project Preservation
+- App Asset Generation
+- Android Gradle Packaging
+- Automated Device Testing
+- Release Artifact Provenance
+- Performance and Memory Engineering
+
+Absolute requirements
+
+FIRST: Inspect the latest commit and actual source.
+
+SECOND: Reproduce the WAV and icon failures using appropriate tests and runtime evidence.
+
+THIRD: Implement the root-cause fixes.
+
+FOURTH: Compile a fresh APK using Gradle.
+
+FIFTH: Install that exact APK.
+
+SIXTH: Generate, save, locate, reopen and play a WAV file from the installed Android application.
+
+SEVENTH: Verify the native launcher icon and application branding.
+
+EIGHTH: Run full regression tests and report actual results.
+
+Do not return another implementation plan in place of code changes.
+
+Do not mark failures resolved because TypeScript compilation succeeds.
+
+Do not claim that a generated WAV Blob means a WAV file was saved on Android.
+
+Do not claim icon completion merely because SVG or PNG files exist in the repository.
+
+Do not use stale APKs.
+
+Do not discard existing functional features.
+
+All reported Android fixes must be validated against the final source commit and the final built APK.
+
+---
+
+1. P0 — FIX THE 55% WAV EXPORT STALL AT ITS ROOT
+
+Current confirmed implementation
+
+File:
+
+"src/engine/webAudioSynth.ts"
+
+Function:
+
+"renderArrangementToWavBlob()"
+
+The actual flow:
+
+1. Initializes "OfflineAudioContext".
+2. Schedules all project notes.
+3. Reports progress up to 55%.
+4. Starts a timer that estimates progress based on elapsed wall-clock time.
+5. Awaits "offlineCtx.startRendering()".
+6. Reports 75% if rendering finishes.
+7. Encodes the entire WAV.
+8. Reports 100%.
+
+The latest update has not removed the underlying monolithic rendering dependency.
+
+Critical defect
+
+A progress timer does not resolve:
+
+- Unfinished offline rendering
+- Unsupported Android WebView behavior
+- Excessive AudioNode scheduling
+- Renderer-process memory exhaustion
+- Main-thread blocking
+- Large single-buffer allocation
+- Native export/save failure
+
+The application can still remain stuck with no usable file.
+
+Required investigation
+
+Instrument every step using structured diagnostic events:
+
+"EXPORT_CREATED"
+
+"PROJECT_VALIDATED"
+
+"AUDIO_GRAPH_CREATED"
+
+"VOICE_SCHEDULING_STARTED"
+
+"VOICE_SCHEDULING_COMPLETED"
+
+"OFFLINE_RENDER_STARTED"
+
+"OFFLINE_RENDER_COMPLETED"
+
+"PCM_ENCODING_STARTED"
+
+"PCM_ENCODING_COMPLETED"
+
+"ANDROID_SAVE_STARTED"
+
+"ANDROID_SAVE_COMPLETED"
+
+"OUTPUT_VERIFIED"
+
+"EXPORT_SUCCEEDED"
+
+Also implement:
+
+"EXPORT_FAILED"
+
+"EXPORT_CANCELLED"
+
+"EXPORT_RESOURCE_EXHAUSTED"
+
+"EXPORT_UNSUPPORTED"
+
+Each event must include:
+
+- Job ID
+- Project revision
+- Event time
+- Duration
+- Processing stage
+- Source track count
+- Note count
+- Target sample rate
+- Output frames
+- Estimated memory
+- Error code where relevant
+
+Do not claim completion without reaching "OUTPUT_VERIFIED".
+
+---
+
+2. REPLACE THE CURRENT EXPORT WITH A BOUNDED RENDER ENGINE
+
+Create a dedicated audio export architecture.
+
+Suggested modules:
+
+"src/engine/render/RenderJobService.ts"
+
+"src/engine/render/RenderCapabilityService.ts"
+
+"src/engine/render/RenderSegmentPlanner.ts"
+
+"src/engine/render/RenderProcessor.ts"
+
+"src/engine/render/RenderProgressTracker.ts"
+
+"src/engine/render/RenderCancellation.ts"
+
+"src/engine/render/WavStreamingEncoder.ts"
+
+"src/engine/render/RenderVerification.ts"
+
+Adapt to existing modules rather than introducing unnecessary duplication.
+
+2.1 Establish resource limits
+
+Before rendering, calculate:
+
+- Number of tracks
+- Active notes
+- Simultaneous voices
+- Song duration
+- Sample rate
+- Target channels
+- Bit depth
+- Expected output bytes
+- Estimated peak working memory
+- Per-segment memory budget
+- DSP processing complexity
+
+Example
+
+For stereo Float32 PCM:
+
+"PCM memory = frames × channels × 4 bytes"
+
+Do not forget:
+
+- DSP internal buffers
+- AudioNode allocation
+- Source WAV data
+- Mastering passes
+- Encoder buffers
+- Copies created by browser APIs
+
+A 128-bar song may require significantly more memory than the final WAV file size.
+
+2.2 True segmentation
+
+The previous Master Export implementation claims segmented rendering while still requesting full-length arrays.
+
+This must be corrected.
+
+Create actual segment-specific rendering.
+
+For every segment:
+
+1. Determine exact start frame and end frame.
+2. Retrieve overlapping musical events.
+3. Restore required DSP processor state.
+4. Render only the segment and necessary boundaries.
+5. Preserve effect tails.
+6. Commit output PCM to the destination stream.
+7. Release temporary audio buffers.
+8. Update genuine job progress.
+9. Proceed to the next segment.
+
+Do not allocate the entire complete-song Float32 buffer on constrained Android devices.
+
+Do not merely pass a "segmentCount" value into a function that still renders the complete project.
+
+2.3 Audio continuity
+
+Preserve:
+
+- MIDI note attacks
+- Note releases
+- Sustaining voices
+- Reverb tails
+- Delay feedback
+- Sidechain pumping
+- Filter state
+- Automation interpolation
+- Track mixing
+- Master processing
+- Stereo phase
+
+If a processor cannot maintain state across segments, use an explicit supported strategy with overlap and validated seams, or mark that processing mode unsupported.
+
+Do not silently change the sound of the arrangement.
+
+2.4 Render fallback
+
+A fallback renderer must not be presented as equivalent unless it is.
+
+If the existing deterministic PCM renderer lacks real EQ, delay, compressor, instrument or automation parity:
+
+- Identify the missing capabilities.
+- Label the export mode accurately.
+- Preserve supported DSP behavior.
+- Do not present approximate output as the original Ableton-equivalent master.
+
+The default Android export must use a verified rendering mode.
+
+2.5 Progress
+
+Replace the misleading 55–74% wall-clock estimate.
+
+For measurable segmentation:
+
+"completed segment frames / total planned frames"
+
+For an unobservable monolithic API:
+
+Display a named indeterminate stage with elapsed time.
+
+Do not fabricate percentages.
+
+2.6 Failure protection
+
+Handle:
+
+- Start rendering rejection
+- Unexpected AudioContext state
+- WebView crash/restart
+- Allocation failure
+- Processor exception
+- User cancellation
+- Destination write failure
+- Insufficient storage
+- App backgrounding
+- Project switched during rendering
+
+Use bounded resource policies.
+
+Do not allow repeated export attempts to accumulate abandoned audio contexts or large buffers.
+
+Cancellation must stop future work and release owned resources. Do not falsely claim that an in-flight Web API has been cancelled if it cannot actually be interrupted.
+
+---
+
+3. P0 — REPLACE BROWSER-ONLY WAV DOWNLOAD WITH REAL ANDROID SAVING
+
+Existing defect
+
+"src/App.tsx" currently exports using:
+
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = exportName;
+a.click();
+URL.revokeObjectURL(url);
+
+This does not verify that Android wrote any file.
+
+The app then reports export success based on Blob size.
+
+Mandatory correction
+
+Implement a platform-aware "ExportDestinationService".
+
+Detect:
+
+- Browser
+- PWA
+- Android Capacitor
+
+Browser
+
+Use a supported browser save strategy, retaining a fallback for browsers without File System Access APIs.
+
+Clean up object URLs at an appropriate point after the download action rather than revoking synchronously.
+
+Android
+
+Use a correctly integrated native Android save workflow.
+
+Recommended approach:
+
+- Android Storage Access Framework
+- "ACTION_CREATE_DOCUMENT"
+- "ActivityResultLauncher"
+- "ContentResolver.openOutputStream()" or supported seekable file descriptor
+- Safe MIME type
+- User-selected destination
+
+For WAV:
+
+"audio/wav"
+
+Do not depend on direct filesystem paths inside restricted Android storage.
+
+Do not require broad storage permissions when the system document picker is sufficient.
+
+Save transaction
+
+1. User selects WAV export.
+2. Render job completes and validates the PCM/WAV data.
+3. Show Android document destination picker.
+4. User selects destination.
+5. Write bytes.
+6. Flush and close file descriptor.
+7. Check for write failure.
+8. Reopen/inspect saved document where permissions permit.
+9. Verify file size and header.
+10. Report final URI, size and status.
+
+If the user cancels the picker, the result is "cancelled", not "success".
+
+Critical data-integrity rule
+
+Do not mark export complete just because "Blob" exists.
+
+Mark export complete only after the save has succeeded.
+
+For large WAV files, support bounded-memory output rather than unnecessarily materializing an enormous Blob.
+
+Where WAV headers require final sizes, use a suitable seekable temporary file, finalization step or a supported streaming format.
+
+Do not expose a partially written WAV as completed.
+
+---
+
+4. P0 — VALIDATE THE EXPORTED AUDIO FILE
+
+Every generated file must pass real verification.
+
+WAV structure
+
+Verify:
+
+- "RIFF/WAVE", or an explicitly supported large-file WAV format
+- Format tag
+- Channel count
+- Sample rate
+- Bit depth
+- Frame count
+- Duration
+- Chunk sizes
+- Correct data alignment
+
+PCM quality
+
+Verify:
+
+- Finite samples
+- Non-silent audio where source music is expected
+- Correct stereo channel output
+- No unexplained missing tracks
+- No large discontinuities at segment boundaries
+- No uncontrolled clipping
+- No unexpected truncation
+- Correct arrangement duration
+
+Reopen test
+
+After saving from Android:
+
+1. Open the saved WAV.
+2. Decode it.
+3. Inspect its metadata.
+4. Play a portion using an actual supported audio playback path.
+5. Compare its duration and track content with expected output.
+
+Required test fixtures
+
+- Single kick track
+- Single bass track
+- Eight-track techno project
+- Sixteen-track project
+- Four-bar project
+- Sixteen-bar project
+- Sixty-four-bar project
+- 128-bar arrangement
+- Muted-track project
+- Solo-track project
+- Project with reverb/delay
+- Project with automation
+- Empty arrangement
+- Unsupported device project
+- Insufficient-storage scenario
+
+For supported cases, output must be complete and usable.
+
+For unsupported cases, fail with a clear reason.
+
+---
+
+5. P0 — FIX THE STALE APK / WEB BUILD / ASSET PROBLEM
+
+Confirmed source defect
+
+"scripts/build-debug-apk.mjs" still accepts a previous APK from:
+
+- "android/app/build/outputs/apk/debug/"
+- "public/"
+- "dist/"
+
+It may copy that artifact to other locations and mark it verified.
+
+This creates the risk of distributing an old APK despite newer source changes.
+
+Required fix
+
+Delete this fallback architecture.
+
+The source APK must be generated from the current Gradle invocation.
+
+If Gradle fails:
+
+THE BUILD MUST FAIL.
+
+No previously existing APK may be substituted.
+
+Build isolation
+
+Create a reproducible build process.
+
+Use a clean build workspace or isolated artifact staging directory.
+
+Do not indiscriminately wipe user projects or development data.
+
+Ensure that stale assets cannot be bundled into the new Android application.
+
+Build provenance
+
+For the current build, generate:
+
+- Git commit SHA
+- Application ID
+- Version code
+- Version name
+- Build variant
+- APK SHA-256
+- Signing certificate fingerprint
+- CI run ID
+- Build timestamp
+- Verification status
+
+The verified Gradle output must be the sole source of the downloadable APK.
+
+CI
+
+Fix the latest failed Android SDK setup step.
+
+Do not infer that Gradle or installation passes when the workflow never reaches those stages.
+
+The release gate requires the final commit to pass:
+
+- Dependency installation
+- TypeScript
+- Unit tests
+- Web build
+- Capacitor sync
+- Gradle build
+- APK signing verification
+- APK installation
+- App launch
+- Offline rendering smoke test
+
+If the build environment lacks Android SDK or device access, report that as blocked and use a real configured CI runner.
+
+Do not publish a synthetic substitute.
+
+---
+
+6. P0 — MAKE THE ANDROID ICON ACTUALLY APPEAR
+
+Existing situation
+
+The repository contains:
+
+- "public/icon.svg"
+- PWA PNG icons
+- Android mipmap resources
+- Android adaptive icon XML
+- Splash resources
+- "scripts/generate-png-icons.js"
+
+But the user reports that the installed Android application still has no correct icon.
+
+Required investigation
+
+Verify:
+
+1. Which APK is actually installed.
+2. Which application ID is installed.
+3. What launcher Activity resolves for that package.
+4. What icon resource the manifest references.
+5. Whether the installed APK includes that resource.
+6. Whether adaptive foreground and background resources are valid.
+7. Whether a stale APK has been distributed.
+8. Whether old launcher icon caches are being mistaken for the new build.
+9. Whether the application label and package metadata are correct.
+
+Required branding implementation
+
+Create an original professional Parametric ALS identity.
+
+Brand direction:
+
+- Industrial black
+- Amber and cyan signal accents
+- Parametric EQ / wave modulation concept
+- MIDI arrangement geometry
+- Strong identifiable symbol
+- No copied Ableton trademark iconography
+
+Produce a consistent branded system:
+
+- Master vector artwork
+- Android adaptive foreground
+- Android adaptive background
+- Android monochrome themed icon
+- Android launcher mipmap sizes
+- Round launcher icon
+- App splash
+- PWA 192 icon
+- PWA 512 icon
+- Maskable icon
+- Apple touch icon
+- Valid favicon ICO
+- In-app header logo
+- Settings/About branding
+
+Critical source correction
+
+The current PNG generator writes PNG-encoded bytes to "favicon.ico".
+
+Fix this.
+
+Generate a real ICO-format asset containing appropriate icon sizes, or use a valid icon-generation pipeline.
+
+Do not simply change the filename extension.
+
+Android resource verification
+
+Inspect:
+
+"android/app/src/main/AndroidManifest.xml"
+
+"android/app/src/main/res/mipmap-*"
+
+"android/app/src/main/res/mipmap-anydpi-v26/"
+
+"android/app/src/main/res/drawable*/"
+
+"android/app/src/main/res/values/"
+
+Verify that the latest icon is packaged into the installed APK.
+
+Required launcher test
+
+- Install fresh APK.
+- Verify application label.
+- Open home-screen launcher.
+- Capture screenshot of icon.
+- Open Android app info.
+- Confirm icon.
+- Launch app.
+- Confirm splash and UI branding.
+
+Also test upgrade behavior with an existing installation.
+
+Preserve app data during compatible upgrades.
+
+Do not automatically uninstall existing packages to refresh icons.
+
+---
+
+7. P1 — REMOVE STALE WEB ASSETS AND CACHE CONFUSION
+
+Audit:
+
+- "public/"
+- "dist/"
+- "android/app/src/main/assets/public/"
+- "sw.js"
+- Workbox caches
+- PWA manifest
+- APK metadata
+- Old JavaScript bundles
+- Old CSS bundles
+- Old icons
+- Old APK files
+
+Important
+
+The Android assets tree currently contains stale APK content and numerous AI Studio paste/screenshot files.
+
+Determine whether each asset is actually required at runtime.
+
+Do not bundle development artifacts, pasted prompts, obsolete APKs or unnecessary screenshots into the production app.
+
+Asset rules
+
+- Vite emits current assets.
+- Capacitor sync packages current output.
+- Android receives current assets.
+- WebView opens local bundled content.
+- No stale service worker overrides new resources.
+- File hashes correspond to the final commit.
+- Branding assets match the final asset manifest.
+
+Do not delete real user project storage.
+
+Do not destroy valid source files during cleanup.
+
+Cache invalidation
+
+Implement version-aware cache migration.
+
+Only purge application-owned obsolete caches.
+
+Preserve IndexedDB/OPFS user projects and application data.
+
+For native Capacitor, review whether PWA service-worker registration is appropriate; prevent stale web bundles from controlling native packaged content.
+
+---
+
+8. P1 — COMPLETE MOBILE AND FOLDABLE USABILITY
+
+The Android layout must remain fully functional.
+
+The prior compact-width implementation reduces dock widths but can still retain multiple simultaneous panels.
+
+That is not sufficient for constrained landscape windows.
+
+Implement an adaptive workspace layout:
+
+- Compact single-workspace mode
+- Collapsible Track List
+- Full-screen Arrangement
+- Full-screen Mixer
+- Full-screen Piano Roll
+- Full-screen AI Composer
+- Settings as an accessible sheet/dialog
+- Overflow navigation for hidden toolbar actions
+- Responsive export interface
+
+Preserve:
+
+- Transport state
+- Playhead
+- Track selection
+- Clip selection
+- Project state
+- Audio graph
+- Undo history
+- Zoom and scroll
+
+No controls may be inaccessible after the Settings or Inspector region.
+
+Test:
+
+- Phone portrait
+- Phone landscape
+- Folded display
+- Unfolded display
+- Tablet portrait/landscape
+- Multi-window resizing
+
+Use actual available window size, not only device type.
+
+---
+
+9. P1 — PRESERVE EVERYTHING ALREADY FUNCTIONAL
+
+Before modifying modules, produce a regression baseline.
+
+Do not break:
+
+- ALS import
+- Existing projects
+- Track creation
+- MIDI clips
+- MIDI note editing
+- Arrangement
+- Continuous zoom where working
+- Play/Stop/Loop
+- AI Composer
+- Underground subgenre profiles
+- Musical templates
+- Humanization
+- Velocity randomization where implemented
+- Solo/mute
+- Mixer
+- DSP effects
+- Device Rack
+- Automation
+- Session Matrix
+- Project Queue
+- Master Export
+- WAV/MIDI/ALS export
+- Undo/Redo
+- Project persistence
+- Touch controls
+- PWA
+
+Core rule
+
+Do not simplify the application to make WAV export pass.
+
+Fix the export and Android integration within the existing advanced DAW.
+
+All old passing tests must remain valid unless a test encodes demonstrably incorrect behavior; such tests must be corrected with an explicit explanation.
+
+---
+
+10. AUDIO AND DSP REGRESSION QUALIFICATION
+
+The WAV renderer must agree with the actual supported DAW audio engine.
+
+Test:
+
+- Kick transient
+- Sub-bass
+- Rumble
+- Acid
+- Hats
+- Percussion
+- Synth chords
+- Instrument envelopes
+- Filter automation
+- Track faders
+- Pan
+- Solo
+- Mute
+- Sidechain
+- Sends
+- Reverb
+- Delay
+- Master dynamics
+
+Do not omit unsupported devices silently.
+
+Provide a render-capability report.
+
+Do not advertise BS.1770 or true-peak compliance without validated measurement algorithms.
+
+Crackling investigation
+
+Capture actual playback evidence.
+
+Distinguish:
+
+- CPU overload
+- Buffer starvation
+- AudioContext suspension
+- Excessive voice creation
+- Gain discontinuities
+- Master clipping
+- Filter instability
+- DSP NaNs
+- Android audio routing
+- Bluetooth latency
+
+Repair the measured cause rather than changing arbitrary thresholds.
+
+---
+
+11. REAL END-TO-END ANDROID TESTS
+
+TC-001 — First launch
+
+Install APK and confirm branded launcher icon, splash and startup.
+
+TC-002 — Four-bar WAV export
+
+Create a four-bar kick pattern.
+
+Render and save WAV to Android storage.
+
+Verify the saved file.
+
+TC-003 — Eight-track WAV export
+
+Load the eight-track techno template.
+
+Render a sixteen-bar WAV.
+
+Confirm all intended tracks are audible.
+
+TC-004 — Long arrangement
+
+Render a 128-bar arrangement using bounded resources.
+
+Verify completion and duration.
+
+TC-005 — Export cancellation
+
+Cancel an active render.
+
+Verify cleanup and no published partial WAV.
+
+TC-006 — Save failure
+
+Reject destination or simulate insufficient storage.
+
+Confirm correct error and preserved project.
+
+TC-007 — Repeated export
+
+Render three consecutive WAVs.
+
+Confirm no unbounded memory growth.
+
+TC-008 — Master export
+
+Execute Master Export 2.0.
+
+Validate measured output and destination write.
+
+TC-009 — Project preservation
+
+Save, close and reopen the project.
+
+Verify clips, tracks and mixer state.
+
+TC-010 — Foldable layout
+
+Open Settings, Export, Mixer and AI Composer in folded and unfolded windows.
+
+TC-011 — Branding
+
+Confirm native icon and label in Android launcher and app info.
+
+TC-012 — Fresh build
+
+Confirm current APK originates from current Gradle build, not stale public/dist output.
+
+TC-013 — Audio playback
+
+Play the project and verify actual non-silent output.
+
+TC-014 — Mixer interaction
+
+Adjust fader during a sustained note and verify real output change.
+
+TC-015 — Offline operation
+
+Disable networking, relaunch, create music and export WAV.
+
+TC-016 — CI artifact equivalence
+
+Confirm SHA-256 of distributed APK matches approved CI artifact.
+
+All tests must have executable evidence.
+
+No "PASS" simply because a test case was written.
+
+---
+
+12. MANDATORY RELEASE PIPELINE
+
+Use dependency and implementation order.
+
+PHASE A — Reproduce and instrument
+
+- Inspect latest SHA.
+- Capture 55% stall.
+- Capture Android export logs.
+- Identify installed APK.
+- Inspect existing icon resources.
+- Record baseline tests.
+
+PHASE B — Repair renderer
+
+- Create real RenderJobService.
+- Remove fabricated intermediate percentages.
+- Implement bounded PCM processing.
+- Implement actual segmentation.
+- Preserve DSP continuity.
+- Add resource cleanup.
+
+PHASE C — Repair Android saving
+
+- Implement native document picker.
+- Write actual file.
+- Reopen and validate.
+- Correct cancellation/failure behavior.
+
+PHASE D — Repair APK and cache
+
+- Remove stale APK fallback.
+- Fix CI.
+- Enforce current Gradle output.
+- Correct service-worker/native asset handling.
+- Verify APK identity.
+
+PHASE E — Repair icon and branding
+
+- Create actual artwork.
+- Generate correct native/web assets.
+- Package in Gradle.
+- Verify installed launcher.
+
+PHASE F — Finish mobile UX
+
+- Fix constrained layout.
+- Fix Settings visibility.
+- Verify folded/unfolded transitions.
+- Preserve project/audio state.
+
+PHASE G — Full regressions
+
+- Audio
+- MIDI
+- ALS
+- Mixer
+- Composer
+- Exports
+- Native Android
+- Browser
+- Layout
+- Performance
+
+PHASE H — Final qualification
+
+- Clean build
+- Real APK install
+- WAV save
+- WAV reopen
+- Audio playback
+- Icon screenshot
+- CI completion
+- Release evidence
+
+---
+
+13. REQUIRED FINAL REPORT
+
+Provide:
+
+1. Original SHA.
+2. Final SHA.
+3. Modified files.
+4. Exact root cause of the WAV stall.
+5. Details of rendering architecture change.
+6. Device memory measurements.
+7. Render times for tested fixtures.
+8. PCM/WAV validation results.
+9. Saved Android WAV destination.
+10. Saved file size and checksum.
+11. Successful reopening/playback result.
+12. Icon artwork filenames.
+13. Android icon resource verification.
+14. Screenshot of installed launcher icon.
+15. Screenshot of adaptive DAW layout.
+16. Current CI URL and result.
+17. Gradle APK path.
+18. APK SHA-256 and signer fingerprint.
+19. Android installation result.
+20. Regression test summary.
+21. Tests actually executed on Android.
+22. Tests executed only in browser or mocks.
+23. Unverified features.
+24. Remaining defects.
+25. Final release-gate status.
+
+Every claim must be grounded in actual evidence.
+
+---
+
+14. REJECTION CONDITIONS
+
+The implementation is rejected if any of these are true:
+
+- WAV remains frozen at 55%.
+- Progress moves but no file is produced.
+- WAV Blob exists but Android never writes it.
+- A zero-byte or invalid WAV is saved.
+- Android file picker cannot complete the save.
+- Export reports success without file verification.
+- Full buffers are still allocated for long songs despite claimed segmentation.
+- Audio falls back to incomplete DSP without notice.
+- App icon is missing or stale on the installed APK.
+- Favicon is a mislabeled PNG.
+- Gradle build fails but an old APK is published.
+- CI is red and a release is declared verified.
+- Existing projects or working features regress.
+- Android tests are claimed from JSDOM mocks.
+- User data is automatically deleted.
+- A fake 100% completion report is substituted for runtime proof.
+
+---
+
+15. FINAL COMMAND
+
+The problem is not a missing progress animation. The problem is that Android WAV generation, saving and release verification are not reliably completed.
+
+Fix the underlying audio renderer.
+
+Fix native file output.
+
+Remove stale APK substitution.
+
+Fix the actual installed app icon.
+
+Preserve all existing functional DAW features.
+
+Verify audio playback and saved output on an Android emulator and physical device when available.
+
+Ship only the exact APK built and validated from the final commit.
+
+FINAL ACCEPTANCE WORKFLOW
+
+On the installed Android app:
+
+Open Parametric ALS → Create 8-bar music → Press Play → Hear audio → Open Mixer → Adjust volume → Export WAV → Select Android destination → Save file → Reopen WAV → Hear complete music → Close and reopen app → Confirm project persists → Verify branded launcher icon.
+
+If any stage fails, identify and repair the failure before declaring the release complete.
+
+IMPLEMENT PARAMETRIC ALS v7.4. DO NOT RETURN ANOTHER PLAN. DO NOT CERTIFY UNVERIFIED WORK.
+
+END OF MASTER IMPLEMENTATION DIRECTIVE.

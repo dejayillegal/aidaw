@@ -33,7 +33,7 @@ function dbToGain(db: number): number {
 export function evaluateAutomationAtBeat(
   points: AutomationPoint[] | undefined,
   beat: number,
-  maxBeats = 512
+  maxBeats = 2048
 ): number {
   if (!points || points.length === 0) return 0.55;
   const sorted = [...points].sort((a, b) => a.beat - b.beat);
@@ -1180,21 +1180,22 @@ function scheduleMetronomeClick(
 }
 
 /**
- * Encodes a stereo AudioBuffer into an uncompressed 24-bit PCM (or 16-bit PCM) RIFF WAVE (.wav) Blob.
+ * Encodes a stereo AudioBuffer into an uncompressed 16-bit, 24-bit PCM, or 32-bit Float RIFF WAVE (.wav) Blob.
  */
 function encodeAudioBufferToWavBlob(
   buffer: AudioBuffer,
-  bitDepth: 16 | 24 = 24,
+  bitDepth: 16 | 24 | 32 = 24,
   onProgress?: (progressPercent: number) => void
 ): Blob {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const numFrames = buffer.length;
-  const bytesPerSample = bitDepth === 24 ? 3 : 2;
+  const bytesPerSample = bitDepth === 32 ? 4 : bitDepth === 24 ? 3 : 2;
   const blockAlign = numChannels * bytesPerSample;
   const byteRate = sampleRate * blockAlign;
   const dataSize = numFrames * blockAlign;
   const totalSize = 44 + dataSize;
+  const formatTag = bitDepth === 32 ? 3 : 1; // 3 = IEEE Float, 1 = PCM
 
   const arrayBuffer = new ArrayBuffer(totalSize);
   const view = new DataView(arrayBuffer);
@@ -1211,7 +1212,7 @@ function encodeAudioBufferToWavBlob(
 
   writeAscii(12, 'fmt ');
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
+  view.setUint16(20, formatTag, true);
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
@@ -1224,9 +1225,22 @@ function encodeAudioBufferToWavBlob(
   const left = buffer.getChannelData(0);
   const right = numChannels > 1 ? buffer.getChannelData(1) : left;
 
-  const progressStepFrames = Math.max(1, Math.floor(numFrames / 4));
+  const progressStepFrames = Math.max(1, Math.floor(numFrames / 10));
   let offset = 44;
-  if (bitDepth === 24) {
+
+  if (bitDepth === 32) {
+    for (let i = 0; i < numFrames; i++) {
+      view.setFloat32(offset, left[i], true);
+      offset += 4;
+      if (numChannels > 1) {
+        view.setFloat32(offset, right[i], true);
+        offset += 4;
+      }
+      if (onProgress && i > 0 && i % progressStepFrames === 0) {
+        onProgress(Math.min(99, Math.round((i / numFrames) * 100)));
+      }
+    }
+  } else if (bitDepth === 24) {
     const writeInt24LE = (pos: number, sampleNorm: number) => {
       const clamped = Math.max(-1, Math.min(1, sampleNorm));
       const intVal = Math.round(clamped < 0 ? clamped * 8388608 : clamped * 8388607);
@@ -1509,7 +1523,7 @@ export async function synthesizeProjectToStereoFloatBuffers(
 }
 
 /**
- * Renders the complete arrangement (16 to 128 bars) to a lossless 44.1kHz / 24-bit Stereo .WAV Blob.
+ * Renders the complete arrangement (16 to 256 bars) to a lossless 44.1kHz 16-bit, 24-bit, or 32-bit Float Stereo .WAV Blob.
  * Accepts an optional progress callback emitting percentage completion (0 to 100).
  */
 export async function renderArrangementToWavBlob(
@@ -1517,10 +1531,10 @@ export async function renderArrangementToWavBlob(
   humanization: HumanizationConfig,
   masterBus: MasterBusConfig,
   totalBars?: number,
-  bitDepthOrOnProgress: 16 | 24 | ((progressPercent: number) => void) = 24,
+  bitDepthOrOnProgress: 16 | 24 | 32 | ((progressPercent: number) => void) = 24,
   onProgress?: (progressPercent: number) => void
 ): Promise<{ blob: Blob; durationSeconds: number; sampleRate: number; bitDepth: number }> {
-  const bitDepth: 16 | 24 = typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
+  const bitDepth: 16 | 24 | 32 = typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
   const progressCb: ((progressPercent: number) => void) | undefined =
     typeof bitDepthOrOnProgress === 'function' ? bitDepthOrOnProgress : onProgress;
 
@@ -1544,67 +1558,63 @@ export async function renderArrangementToWavBlob(
   const durationSeconds = totalBeats / beatsPerSecond + tailSeconds;
   const totalSamples = Math.ceil(durationSeconds * sampleRate);
 
-  if (typeof OfflineAudioContext !== 'undefined') {
-    const offlineCtx = new OfflineAudioContext(2, totalSamples, sampleRate);
-    const bus = buildAudioBusGraph(offlineCtx, project.tempo, masterBus, false);
-    const noiseBuffer = createNoiseBuffer(offlineCtx);
-    reportProgress(10);
-
-    const trackTotal = Math.max(1, project.tracks.length);
-    project.tracks.forEach((track, tIdx) => {
-      const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
-      if (vcaComp.effectivelyMuted) {
-        reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
-        return;
-      }
-
-      track.clips.forEach((clip) => {
-        clip.notes.forEach((note) => {
-          if (note.time < 0 || note.time >= totalBeats) return;
-          const whenSec = note.time / beatsPerSecond;
-          scheduleTrackVoiceAtTime(
-            offlineCtx,
-            bus,
-            noiseBuffer,
-            track,
-            note,
-            whenSec,
-            beatsPerSecond,
-            humanization,
-            project
-          );
-        });
-      });
-      reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
-    });
-
-    reportProgress(55);
-    let renderedBuffer: AudioBuffer | null = null;
-    const renderStartTime = performance.now();
-    const renderInterval = setInterval(() => {
-      const elapsedSec = (performance.now() - renderStartTime) / 1000;
-      const estimatedPcmPct = 55 + Math.min(19, (elapsedSec / Math.max(0.5, durationSeconds * 0.15)) * 19);
-      reportProgress(estimatedPcmPct);
-    }, 100);
-
+  // Try OfflineAudioContext for short arrangements (<= 32 bars) in standard browser environments
+  if (typeof OfflineAudioContext !== 'undefined' && effectiveBars <= 32) {
     try {
-      renderedBuffer = await offlineCtx.startRendering();
-    } catch {
-      renderedBuffer = null;
-    } finally {
-      clearInterval(renderInterval);
-    }
+      const offlineCtx = new OfflineAudioContext(2, totalSamples, sampleRate);
+      const bus = buildAudioBusGraph(offlineCtx, project.tempo, masterBus, false);
+      const noiseBuffer = createNoiseBuffer(offlineCtx);
+      reportProgress(10);
 
-    if (renderedBuffer) {
-      reportProgress(75);
-      const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth, (encPct) => {
-        reportProgress(75 + Math.round((encPct / 100) * 25));
+      const trackTotal = Math.max(1, project.tracks.length);
+      project.tracks.forEach((track, tIdx) => {
+        const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
+        if (vcaComp.effectivelyMuted) {
+          reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
+          return;
+        }
+
+        track.clips.forEach((clip) => {
+          clip.notes.forEach((note) => {
+            if (note.time < 0 || note.time >= totalBeats) return;
+            const whenSec = note.time / beatsPerSecond;
+            scheduleTrackVoiceAtTime(
+              offlineCtx,
+              bus,
+              noiseBuffer,
+              track,
+              note,
+              whenSec,
+              beatsPerSecond,
+              humanization,
+              project
+            );
+          });
+        });
+        reportProgress(10 + Math.round(((tIdx + 1) / trackTotal) * 45));
       });
-      reportProgress(100);
-      return { blob, durationSeconds, sampleRate, bitDepth };
+
+      reportProgress(55);
+
+      // Race OfflineAudioContext.startRendering against a 12-second watchdog timeout to avoid Android freeze
+      const renderPromise = offlineCtx.startRendering();
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000));
+      const renderedBuffer = await Promise.race([renderPromise, timeoutPromise]);
+
+      if (renderedBuffer && renderedBuffer instanceof AudioBuffer) {
+        reportProgress(75);
+        const blob = encodeAudioBufferToWavBlob(renderedBuffer, bitDepth, (encPct) => {
+          reportProgress(75 + Math.round((encPct / 100) * 25));
+        });
+        reportProgress(100);
+        return { blob, durationSeconds, sampleRate, bitDepth };
+      }
+    } catch {
+      // Fallback below to chunked deterministic PCM synthesis
     }
   }
 
+  // Robust chunked deterministic PCM synthesis for long arrangements (>32 bars) or restricted mobile WebViews
   reportProgress(10);
   const synth = synthesizeDeterministicStereoPcm(
     project,
@@ -1697,7 +1707,7 @@ export function computeSelectedTrackAnalysisData(
   totalBars = 16,
   resolutionBins = 256
 ): SelectedTrackAnalysisData {
-  const effectiveBars = Math.max(4, Math.min(128, totalBars || project.arrangementLengthBars || 16));
+  const effectiveBars = Math.max(4, Math.min(256, totalBars || project.arrangementLengthBars || 16));
   const totalBeats = effectiveBars * 4;
   const totalSixteenths = effectiveBars * 16;
 

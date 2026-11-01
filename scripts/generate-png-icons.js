@@ -171,17 +171,65 @@ function createPng(width, height, isMaskable = false) {
   return Buffer.concat([signature, ihdrChunk, idatChunk, iendChunk]);
 }
 
-// Generate PNG icons
+function createIcoFromPng(pngBuf, width, height) {
+  const header = Buffer.alloc(22);
+  header.writeUInt16LE(0, 0); // Reserved
+  header.writeUInt16LE(1, 2); // Type 1 = ICO
+  header.writeUInt16LE(1, 4); // 1 image
+  header.writeUInt8(width >= 256 ? 0 : width, 6);
+  header.writeUInt8(height >= 256 ? 0 : height, 7);
+  header.writeUInt8(0, 8); // Colors
+  header.writeUInt8(0, 9); // Reserved
+  header.writeUInt16LE(1, 10); // Color planes
+  header.writeUInt16LE(32, 12); // Bits per pixel
+  header.writeUInt32LE(pngBuf.length, 14); // Image byte size
+  header.writeUInt32LE(22, 18); // Image data offset
+  return Buffer.concat([header, pngBuf]);
+}
+
+// Generate Web / PWA icons
 const icons = [
   { file: 'pwa-192x192.png', size: 192, maskable: false },
   { file: 'pwa-512x512.png', size: 512, maskable: false },
   { file: 'pwa-maskable-512x512.png', size: 512, maskable: true },
   { file: 'apple-touch-icon.png', size: 180, maskable: false },
-  { file: 'favicon.ico', size: 64, maskable: false },
+  { file: 'icon.png', size: 512, maskable: false },
 ];
 
 for (const { file, size, maskable } of icons) {
   const png = createPng(size, size, maskable);
   fs.writeFileSync(path.join(publicDir, file), png);
   console.log(`Generated ${file} (${size}x${size})`);
+}
+
+// Generate valid binary ICO format favicon.ico
+const faviconPng = createPng(64, 64, false);
+const faviconIco = createIcoFromPng(faviconPng, 64, 64);
+fs.writeFileSync(path.join(publicDir, 'favicon.ico'), faviconIco);
+console.log('Generated favicon.ico (64x64 valid binary ICO format)');
+
+// Generate Android Mipmap launcher icons
+const mipmapTargets = [
+  { dir: 'mipmap-mdpi', size: 48 },
+  { dir: 'mipmap-hdpi', size: 72 },
+  { dir: 'mipmap-xhdpi', size: 96 },
+  { dir: 'mipmap-xxhdpi', size: 144 },
+  { dir: 'mipmap-xxxhdpi', size: 192 },
+];
+
+const resDir = path.resolve(__dirname, '../android/app/src/main/res');
+if (fs.existsSync(resDir)) {
+  for (const { dir, size } of mipmapTargets) {
+    const targetFolder = path.join(resDir, dir);
+    if (!fs.existsSync(targetFolder)) fs.mkdirSync(targetFolder, { recursive: true });
+
+    const launcherPng = createPng(size, size, false);
+    const roundPng = createPng(size, size, false);
+    const fgPng = createPng(size, size, true);
+
+    fs.writeFileSync(path.join(targetFolder, 'ic_launcher.png'), launcherPng);
+    fs.writeFileSync(path.join(targetFolder, 'ic_launcher_round.png'), roundPng);
+    fs.writeFileSync(path.join(targetFolder, 'ic_launcher_foreground.png'), fgPng);
+    console.log(`Generated Android ${dir} launcher icons (${size}x${size})`);
+  }
 }
