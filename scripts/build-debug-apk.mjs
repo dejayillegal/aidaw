@@ -24,8 +24,9 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 export const APP_ID = 'com.parametricals.technodaw';
 export const APP_NAME = 'Parametric ALS DAW';
-export const VERSION_NAME = '7.2.0';
-export const VERSION_CODE = 2;
+const releaseMetadata = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'public/apk-metadata.json'), 'utf8'));
+export const VERSION_NAME = releaseMetadata.versionName;
+export const VERSION_CODE = releaseMetadata.versionCode;
 export const TARGET_SDK = 36;
 export const MIN_SDK = 24;
 
@@ -97,7 +98,10 @@ export function runGradleAssemble() {
   const isWindows = process.platform === 'win32';
   const gradlewCmd = isWindows ? 'gradlew.bat' : './gradlew';
 
-  if (prereqs.hasJava && prereqs.hasGradleWrapper) {
+  if (!prereqs.hasJava || !prereqs.hasGradleWrapper) {
+    throw new Error('JDK and Gradle wrapper are mandatory; refusing stale APK fallback');
+  }
+  {
     console.log('[Orchestrator] Step 3: Invoking Gradle assembleDebug...');
     if (!isWindows) {
       try {
@@ -110,10 +114,6 @@ export function runGradleAssemble() {
       cwd: path.join(ROOT_DIR, 'android'),
       stdio: 'inherit',
     });
-  } else {
-    console.log(
-      '[Orchestrator] Note: Java/JDK not detected in this runtime environment. Checking for existing Gradle APK artifact...'
-    );
   }
 }
 
@@ -131,20 +131,10 @@ export function publishArtifacts() {
   fs.mkdirSync(path.join(ROOT_DIR, 'dist'), { recursive: true });
   fs.mkdirSync(path.join(ROOT_DIR, 'android/app/build/outputs/apk/debug'), { recursive: true });
 
-  let sourceApk = null;
-  if (fs.existsSync(gradleApk) && fs.statSync(gradleApk).size > 1024) {
-    sourceApk = gradleApk;
-  } else if (fs.existsSync(publicApk) && fs.statSync(publicApk).size > 1024) {
-    sourceApk = publicApk;
-  } else if (fs.existsSync(distApk) && fs.statSync(distApk).size > 1024) {
-    sourceApk = distApk;
+  if (!fs.existsSync(gradleApk) || fs.statSync(gradleApk).size <= 1024) {
+    throw new Error('Fresh Gradle-generated APK missing; refusing stale distribution artifacts');
   }
-
-  if (!sourceApk) {
-    throw new Error(
-      'No valid Android Debug APK found. Please run ./gradlew assembleDebug with JDK 17+ installed.'
-    );
-  }
+  const sourceApk = gradleApk;
 
   const apkBuf = fs.readFileSync(sourceApk);
   const sha256Hex = computeSha256(apkBuf);
@@ -152,9 +142,6 @@ export function publishArtifacts() {
   // Sync to all distribution targets
   fs.writeFileSync(publicApk, apkBuf);
   fs.writeFileSync(distApk, apkBuf);
-  if (sourceApk !== gradleApk) {
-    fs.writeFileSync(gradleApk, apkBuf);
-  }
 
   // Write SHA-256 checksum files
   const shaContent = `${sha256Hex}  parametric-techno-daw-debug.apk\n`;
@@ -231,7 +218,7 @@ export function orchestrateGradleBuild(options = {}) {
 
   runGradleAssemble();
   const published = publishArtifacts();
-  verifyApkArtifact();
+  if (!verifyApkArtifact()) throw new Error('APK verification failed; build is not releasable');
 
   return published;
 }
