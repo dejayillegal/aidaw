@@ -153,7 +153,9 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  void downloadDebugApk('parametric-techno-daw-debug.apk');
+                  void downloadDebugApk('parametric-techno-daw-debug.apk').catch(error => {
+                    window.alert(error instanceof Error ? error.message : 'APK download failed.');
+                  });
                   closeMenu();
                 }}
                 className="w-full text-left px-3 py-1.5 hover:bg-emerald-500/20 text-emerald-300 flex items-center justify-between font-semibold"
@@ -432,3 +434,4 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
     </div>
   );
 };
+

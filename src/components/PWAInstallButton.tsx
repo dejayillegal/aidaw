@@ -20,6 +20,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ className = 
       await downloadDebugApk('parametric-techno-daw-debug.apk');
       setApkDone(true);
       setTimeout(() => setApkDone(false), 2500);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'APK download failed.');
     } finally {
       setDownloadingApk(false);
     }
@@ -41,7 +43,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ className = 
         ) : (
           <>
             <Download className="w-3 h-3 text-emerald-400" />
-            <span>{downloadingApk ? 'Building APK...' : 'Download Debug APK'}</span>
+            <span>{downloadingApk ? 'Downloading APK...' : 'Download Debug APK'}</span>
           </>
         )}
       </button>
@@ -110,5 +112,6 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ className = 
     </div>
   );
 };
+
 
 

@@ -110,6 +110,8 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onCl
     setDownloadingApk(true);
     try {
       await downloadDebugApk('parametric-techno-daw-debug.apk');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'APK download failed.');
     } finally {
       setDownloadingApk(false);
     }
@@ -546,5 +548,6 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onCl
     </div>
   );
 };
+
 
 
