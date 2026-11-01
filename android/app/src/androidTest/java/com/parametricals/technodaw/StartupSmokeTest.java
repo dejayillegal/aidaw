@@ -4,6 +4,8 @@ import static org.junit.Assert.*;
 import android.app.Activity;
 import android.content.Intent;
 import android.webkit.WebView;
+import android.view.View;
+import android.view.ViewGroup;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import java.util.concurrent.CountDownLatch;
@@ -15,6 +17,18 @@ import org.junit.runner.RunWith;
 /** Runs against the installed APK, including its actual bundled production JS. */
 @RunWith(AndroidJUnit4.class)
 public class StartupSmokeTest {
+    private WebView findWebView(View view) {
+        if (view instanceof WebView) return (WebView) view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                WebView found = findWebView(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private String evaluate(Activity activity, WebView webView, String script) throws Exception {
         CountDownLatch ready = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
@@ -35,7 +49,10 @@ public class StartupSmokeTest {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         Activity activity = instrumentation.startActivitySync(intent);
         try {
-            WebView webView = ((MainActivity) activity).getBridge().getWebView();
+            AtomicReference<WebView> reference = new AtomicReference<>();
+            instrumentation.runOnMainSync(() -> reference.set(findWebView(activity.getWindow().getDecorView())));
+            WebView webView = reference.get();
+            assertNotNull("Capacitor WebView missing", webView);
             boolean rendered = false;
             for (int attempt = 0; attempt < 120; attempt++) {
                 String state = evaluate(activity, webView,
