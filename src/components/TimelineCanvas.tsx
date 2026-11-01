@@ -19,6 +19,9 @@ import { SelectedTrackAnalysisStrip } from './SelectedTrackAnalysisStrip';
 import {
   Activity,
   Bookmark,
+  Download,
+  FileAudio,
+  Flame,
   Layers,
   Repeat,
   Sliders,
@@ -49,6 +52,8 @@ interface TimelineCanvasProps {
   onChangeEditMode?: (mode: TimelineEditMode) => void;
   onDropMemoryLocationAtPlayhead?: () => void;
   onOpenCompingAndTransientModal?: () => void;
+  onOpenHumanizationHeatmap?: () => void;
+  onExportClipToMidi?: (trackId: string, clipId: string) => void;
   onApplyNoteEditModeOperation?: (
     trackId: string,
     noteId: string,
@@ -82,6 +87,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   onChangeEditMode,
   onDropMemoryLocationAtPlayhead,
   onOpenCompingAndTransientModal,
+  onOpenHumanizationHeatmap,
+  onExportClipToMidi,
   onApplyNoteEditModeOperation,
 }) => {
   const arrangementCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -722,6 +729,33 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         ctx.fillStyle = isBar ? '#CBD5E1' : '#64748B';
         ctx.font = '500 9px "JetBrains Mono", monospace';
         ctx.fillText(`${barNum}.${beatInBar}`, x + 3, 10);
+
+        if (isBar) {
+          const barIntensity = humanization.barVarianceIntensity?.[barNum] ?? 1.0;
+          const barWidthPx = (4 / visibleBeats) * gridWidth;
+          // Draw subtle heatmap header tint and variance badge
+          const heatColor =
+            barIntensity < 0.45
+              ? 'rgba(6, 182, 212, 0.08)'
+              : barIntensity < 0.95
+              ? 'rgba(16, 185, 129, 0.07)'
+              : barIntensity < 1.35
+              ? 'rgba(245, 158, 11, 0.08)'
+              : 'rgba(244, 63, 94, 0.12)';
+          ctx.fillStyle = heatColor;
+          ctx.fillRect(x, 0, barWidthPx, rollHeight);
+
+          ctx.fillStyle =
+            barIntensity < 0.45
+              ? '#22D3EE'
+              : barIntensity < 0.95
+              ? '#34D399'
+              : barIntensity < 1.35
+              ? '#FBBF24'
+              : '#FB7185';
+          ctx.font = '600 8px "JetBrains Mono", monospace';
+          ctx.fillText(`VAR ${(barIntensity * 100).toFixed(0)}%`, x + 36, 10);
+        }
       }
     }
 
@@ -1622,6 +1656,30 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 font-mono">
+          {onOpenHumanizationHeatmap && (
+            <button
+              type="button"
+              onClick={onOpenHumanizationHeatmap}
+              className="px-2 py-0.5 text-[10px] rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-semibold flex items-center gap-1 transition-colors"
+              title="Open Visual MIDI Humanization Heatmap to adjust per-bar micro-timing variance"
+            >
+              <Flame className="w-3 h-3" />
+              <span>Humanization Heatmap</span>
+            </button>
+          )}
+
+          {onExportClipToMidi && selectedTrack && selectedTrack.clips[0] && (
+            <button
+              type="button"
+              onClick={() => onExportClipToMidi(selectedTrack.id, selectedTrack.clips[0].id)}
+              className="px-2 py-0.5 text-[10px] rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold flex items-center gap-1 transition-colors"
+              title="Export active MIDI clip as .mid file to Project Queue & Browser Download"
+            >
+              <Download className="w-3 h-3" />
+              <span>Export Clip (.MID)</span>
+            </button>
+          )}
+
           {/* Note Grid Division Selector (1/4, 1/8, 1/16, 1/32) */}
           <div className="flex items-center bg-[#0B0D11] border border-[#252D3D] rounded p-0.5 text-[10px]">
             <span className="px-1.5 text-slate-400">GRID:</span>

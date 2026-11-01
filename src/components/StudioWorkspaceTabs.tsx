@@ -98,6 +98,13 @@ export const StudioWorkspaceTabs: React.FC<StudioWorkspaceTabsProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => onApplyLayoutPreset('session')}
+              className="px-1.5 py-0.5 rounded bg-[#12161F] hover:bg-zinc-800 text-zinc-300"
+            >
+              Session
+            </button>
+            <button
+              type="button"
               onClick={() => onApplyLayoutPreset('mastering')}
               className="px-1.5 py-0.5 rounded bg-[#12161F] hover:bg-zinc-800 text-zinc-300"
             >

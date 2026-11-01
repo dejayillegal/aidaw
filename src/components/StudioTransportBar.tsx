@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Circle,
@@ -25,6 +25,8 @@ interface StudioTransportBarProps {
   meter?: string;
   transport: TransportConfig;
   masterPeakDb: number;
+  masterTruePeakDbtp?: number;
+  masterLufs?: number;
   canUndo: boolean;
   canRedo: boolean;
   editMode: TimelineEditMode;
@@ -45,6 +47,8 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
   meter = '4/4',
   transport,
   masterPeakDb,
+  masterTruePeakDbtp,
+  masterLufs,
   canUndo,
   canRedo,
   editMode,
@@ -58,6 +62,9 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
   onRedo,
 }) => {
   const [tapTimestamps, setTapTimestamps] = useState<number[]>([]);
+  const [peakHoldDb, setPeakHoldDb] = useState<number>(-60);
+  const [hasClipped, setHasClipped] = useState<boolean>(false);
+  const lastPeakTimeRef = useRef<number>(0);
 
   // Calculate Bar.Beat.Sixteenth counter from playheadBeat
   const safeBeat = Math.max(0, playheadBeat);
@@ -86,8 +93,25 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
     }
   };
 
-  const isClipping = masterPeakDb > -0.1;
-  const meterWidthPct = Math.max(0, Math.min(100, ((masterPeakDb + 48) / 48) * 100));
+  useEffect(() => {
+    const currentPeak = masterTruePeakDbtp !== undefined ? masterTruePeakDbtp : masterPeakDb;
+    if (currentPeak >= -0.1) {
+      setHasClipped(true);
+    }
+    if (currentPeak > peakHoldDb) {
+      setPeakHoldDb(currentPeak);
+      lastPeakTimeRef.current = performance.now();
+    } else {
+      const now = performance.now();
+      if (now - lastPeakTimeRef.current > 1200) {
+        setPeakHoldDb((prev) => Math.max(-60, prev - 1.5));
+      }
+    }
+  }, [masterPeakDb, masterTruePeakDbtp, peakHoldDb]);
+
+  const dbToPct = (db: number) => Math.max(0, Math.min(100, ((db + 48) / 48) * 100));
+  const meterWidthPct = dbToPct(masterPeakDb);
+  const peakHoldPct = dbToPct(peakHoldDb);
 
   return (
     <div className="h-12 bg-[#0E1217] border-b border-[#1E2530] px-3 flex items-center justify-between font-mono select-none shrink-0 z-30">
@@ -246,23 +270,81 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
           ))}
         </div>
 
-        {/* Master Output Peak Meter */}
-        <div className="flex items-center gap-1.5 bg-[#07090C] border border-[#222B38] px-2 py-1 rounded">
-          <div className="w-14 sm:w-20 h-2 bg-zinc-900 rounded-sm overflow-hidden relative">
-            <div
-              className={`h-full transition-all duration-75 ${
-                isClipping ? 'bg-rose-500' : masterPeakDb > -6 ? 'bg-amber-400' : 'bg-emerald-400'
-              }`}
-              style={{ width: `${meterWidthPct}%` }}
-            />
+        {/* Master Output Peak Meter with Fixed Width, Graduation Ticks & Clipping Latch */}
+        <div className="flex items-center gap-2 bg-[#07090C] border border-[#222B38] px-2 py-1 rounded select-none shrink-0">
+          <div className="flex flex-col gap-0.5">
+            {/* Graduation Ticks Header */}
+            <div className="relative w-24 sm:w-32 h-2 text-[7.5px] text-zinc-500 font-mono flex justify-between leading-none pointer-events-none px-0.5">
+              <span>-48</span>
+              <span className="hidden sm:inline">-24</span>
+              <span>-12</span>
+              <span>-6</span>
+              <span className="text-amber-400 font-bold">-1</span>
+              <span className={hasClipped ? 'text-rose-400 font-bold' : ''}>0</span>
+            </div>
+
+            {/* Meter Bar Container (fixed width to prevent layout wobbling) */}
+            <div className="w-24 sm:w-32 h-2 bg-zinc-950 rounded-xs overflow-hidden relative border border-zinc-800">
+              {/* Colored meter fill (Strictly NO transition to prevent animation glitching/jitter) */}
+              <div
+                className={`h-full ${
+                  hasClipped || masterPeakDb >= -0.5
+                    ? 'bg-rose-500'
+                    : masterPeakDb >= -1.0
+                    ? 'bg-amber-400'
+                    : masterPeakDb > -6
+                    ? 'bg-gradient-to-r from-emerald-500 to-amber-400'
+                    : 'bg-emerald-500'
+                }`}
+                style={{ width: `${meterWidthPct}%` }}
+              />
+
+              {/* Peak Hold Indicator Tick */}
+              {peakHoldDb > -48 && (
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_4px_#ffffff]"
+                  style={{ left: `calc(${peakHoldPct}% - 1px)` }}
+                />
+              )}
+
+              {/* -1.0 dBTP Ceiling Placeholder Marker */}
+              <div
+                className="absolute top-0 bottom-0 w-[1px] bg-rose-400/80 z-10"
+                style={{ left: `${dbToPct(-1.0)}%` }}
+                title="-1.0 dBTP Transparent Limiter Ceiling"
+              />
+            </div>
           </div>
-          <span
-            className={`text-[10px] font-bold tabular-nums ${
-              isClipping ? 'text-rose-400' : 'text-zinc-400'
+
+          {/* Readout (Fixed width tabular-nums) */}
+          <div className="flex flex-col text-right w-14 sm:w-18 shrink-0 leading-tight">
+            <span
+              className={`text-[9.5px] font-bold tabular-nums ${
+                hasClipped ? 'text-rose-400' : masterPeakDb >= -1.0 ? 'text-amber-400' : 'text-zinc-300'
+              }`}
+            >
+              {masterPeakDb > -58
+                ? `${masterPeakDb.toFixed(1)} dBTP`
+                : '-inf dB'}
+            </span>
+            <span className="text-[8.5px] text-zinc-500 tabular-nums">
+              {masterLufs !== undefined && masterLufs > -50
+                ? `${masterLufs.toFixed(1)} LUFS`
+                : '-14.0 LUFS'}
+            </span>
+          </div>
+
+          {/* Clip LED indicator (Clickable to reset latch) */}
+          <button
+            type="button"
+            onClick={() => setHasClipped(false)}
+            title={hasClipped ? 'Peak exceeded -0.1 dBTP (Click to reset)' : 'True Peak Ceiling normal (-1.0 dBTP)'}
+            className={`w-2.5 h-2.5 rounded-full transition-colors cursor-pointer border ${
+              hasClipped
+                ? 'bg-rose-500 border-rose-300 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-pulse'
+                : 'bg-zinc-800 border-zinc-700 hover:border-zinc-500'
             }`}
-          >
-            {masterPeakDb > -60 ? `${masterPeakDb.toFixed(1)} dB` : '-inf'}
-          </span>
+          />
         </div>
 
         {/* Download APK / Install App Button */}

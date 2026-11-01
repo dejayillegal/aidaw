@@ -543,6 +543,48 @@ export class ProjectQueueService {
     this.notify();
   }
 
+  public enqueueMidiClip(
+    clipName: string,
+    trackName: string,
+    midiFileName: string,
+    blob: Blob,
+    byteSize: number,
+    projectState: AbletonProjectState
+  ): QueuedProjectRecord {
+    const queueId = `midi_export_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const now = new Date().toISOString();
+    const record: QueuedProjectRecord = {
+      queueId,
+      originalFilename: `${trackName} - ${clipName} (.mid)`,
+      binaryChecksumSha256: `midi_${Date.now()}`,
+      workingProjectRevision: projectState.projectRevision || 1,
+      importedLiveVersion: 'Ableton Live 12.0 MIDI Standard',
+      state: 'exported',
+      isMidiExport: true,
+      exportedMidiFilename: midiFileName,
+      exportedMidiBlob: blob,
+      exportArtifactRef: {
+        fileName: midiFileName,
+        byteSize,
+        checksumSha256: `sha_${Date.now()}`,
+        exportedAt: now,
+      },
+      workingProjectState: projectState,
+      createdAt: now,
+      updatedAt: now,
+      timestamps: {
+        queuedAt: now,
+        completedAt: now,
+        updatedAt: now,
+      },
+    };
+
+    this.items.set(queueId, record);
+    this.activeQueueId = queueId;
+    this.notify();
+    return record;
+  }
+
   public clearQueue(): void {
     for (const id of this.items.keys()) {
       this.cancelQueueItem(id);

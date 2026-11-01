@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AbletonProjectState,
   AbletonTrack,
@@ -30,8 +30,11 @@ import { XmlInspectorView } from './XmlInspectorView';
 import { PythonFastApiView } from './PythonFastApiView';
 import {
   Disc,
+  Download,
   Eraser,
+  Flame,
   Layers,
+  Sparkles,
   X,
 } from 'lucide-react';
 
@@ -126,6 +129,9 @@ export interface SoundCraftWorkstationProps {
   onCloseBottomDock: () => void;
   onCloseRightDock: () => void;
   onChangeBottomTab: (tab: 'devices' | 'composer' | 'pads' | 'spectrum') => void;
+  onOpenReferenceTrackModal?: () => void;
+  onOpenHumanizationHeatmap?: () => void;
+  onExportClipToMidi?: (trackId: string, clipId: string) => void;
 }
 
 export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
@@ -196,7 +202,44 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   onCloseBottomDock,
   onCloseRightDock,
   onChangeBottomTab,
+  onOpenReferenceTrackModal,
+  onOpenHumanizationHeatmap,
+  onExportClipToMidi,
 }) => {
+  const [leftDockWidth, setLeftDockWidth] = useState<number>(224);
+  const [bottomDockHeight, setBottomDockHeight] = useState<number>(256);
+
+  const handleStartResizeLeft = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = leftDockWidth;
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.max(170, Math.min(360, startWidth + (ev.clientX - startX)));
+      setLeftDockWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const handleStartResizeBottom = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = bottomDockHeight;
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.max(150, Math.min(440, startHeight - (ev.clientY - startY)));
+      setBottomDockHeight(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
   // Auxiliary Inspector Tabs (XML / Python / Architecture)
   if (activeTab === 'xml') {
     return (
@@ -404,123 +447,179 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
         onOpenCompingModal={onOpenCompingModal}
       />
 
-      {/* Tri-Pane Workstation: Left Track Tree + Center Timeline/Editor + Right Inspector */}
-      <div className="flex-1 flex min-w-0 overflow-hidden">
+      {/* CSS Grid Tri-Pane Workstation: [left-dock] auto [center-viewport] 1fr [right-dock] auto */}
+      <div
+        className="flex-1 grid min-w-0 min-h-0 overflow-hidden"
+        style={{
+          gridTemplateColumns: `${leftDockOpen ? `${leftDockWidth}px` : '0px'} minmax(0, 1fr) ${
+            rightDockOpen ? '320px' : '0px'
+          }`,
+        }}
+      >
         {/* Left Track & Group Tree Dock */}
-        {leftDockOpen && (
-          <aside className="w-56 shrink-0 bg-[#0C0F15] border-r border-[#1C222C] flex flex-col overflow-hidden select-none">
-            <div className="h-7 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
-              <span className="font-bold text-zinc-300">TRACKS ({project.tracks.length})</span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={onOpenBulkQueueModal}
-                  className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-1"
-                  title="Bulk Queue"
-                >
-                  <Layers className="w-3 h-3" />
-                  Queue
-                </button>
-                <button
-                  type="button"
-                  onClick={onCloseLeftDock}
-                  className="text-zinc-500 hover:text-zinc-300 text-[10px]"
-                  title="Close Left Dock"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
+        <aside
+          className={`${
+            leftDockOpen ? 'flex' : 'hidden'
+          } bg-[#0C0F15] border-r border-[#1C222C] flex-col overflow-hidden select-none relative`}
+        >
+          <div className="h-7 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
+            <span className="font-bold text-zinc-300">TRACKS ({project.tracks.length})</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onOpenBulkQueueModal}
+                className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                title="Bulk Queue"
+              >
+                <Layers className="w-3 h-3" />
+                Queue
+              </button>
+              <button
+                type="button"
+                onClick={onCloseLeftDock}
+                className="text-zinc-500 hover:text-zinc-300 text-[10px]"
+                title="Close Left Dock"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
+          </div>
 
-            <div className="flex-1 overflow-y-auto divide-y divide-[#151922]">
-              {project.tracks.map((t, idx) => {
-                const isSelected = t.id === selectedTrackId;
-                const isDimmed = soloActive && !t.soloed;
-                return (
-                  <div
-                    key={t.id}
-                    onClick={() => onSelectTrack(t.id)}
-                    className={`px-2.5 py-1.5 flex items-center justify-between cursor-pointer transition-colors text-xs font-mono ${
-                      isSelected
-                        ? 'bg-[#18202D] text-white border-l-2 border-amber-400'
-                        : 'text-zinc-400 hover:bg-[#121620] hover:text-zinc-200'
-                    } ${isDimmed ? 'opacity-40' : ''}`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-[10px] text-zinc-500 font-bold">
-                        {String(idx + 1).padStart(2, '0')}
-                      </span>
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: t.color || '#F59E0B' }}
-                      />
-                      <span className="truncate text-[11px] font-medium">{t.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleSolo(t.id);
-                        }}
-                        className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${
-                          t.soloed
-                            ? 'bg-amber-400 text-slate-950 shadow-[0_0_6px_rgba(245,158,11,0.6)]'
-                            : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
-                        }`}
-                        title="Solo Track"
-                      >
-                        S
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onToggleMute(t.id);
-                        }}
-                        className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${
-                          t.muted
-                            ? 'bg-rose-500 text-white'
-                            : 'text-zinc-500 hover:text-rose-400 hover:bg-zinc-800'
-                        }`}
-                        title="Mute Track"
-                      >
-                        M
-                      </button>
-                    </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-[#151922]">
+            {project.tracks.map((t, idx) => {
+              const isSelected = t.id === selectedTrackId;
+              const isDimmed = soloActive && !t.soloed;
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => onSelectTrack(t.id)}
+                  className={`px-2.5 py-1.5 flex items-center justify-between cursor-pointer transition-colors text-xs font-mono ${
+                    isSelected
+                      ? 'bg-[#18202D] text-white border-l-2 border-amber-400'
+                      : 'text-zinc-400 hover:bg-[#121620] hover:text-zinc-200'
+                  } ${isDimmed ? 'opacity-40' : ''}`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] text-zinc-500 font-bold">
+                      {String(idx + 1).padStart(2, '0')}
+                    </span>
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: t.color || '#F59E0B' }}
+                    />
+                    <span className="truncate text-[11px] font-medium">{t.name}</span>
                   </div>
-                );
-              })}
-            </div>
 
-            {/* Left Dock Bottom Actions */}
-            <div className="p-2 border-t border-[#1C222C] bg-[#080A0D] space-y-1 text-[10px] font-mono">
+                  <div className="flex items-center gap-1 shrink-0">
+                    {onExportClipToMidi && t.clips[0] && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onExportClipToMidi(t.id, t.clips[0].id);
+                        }}
+                        className="w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20"
+                        title="Export Clip as .MID to Queue"
+                      >
+                        <Download className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSolo(t.id);
+                      }}
+                      className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${
+                        t.soloed
+                          ? 'bg-amber-400 text-slate-950 shadow-[0_0_6px_rgba(245,158,11,0.6)]'
+                          : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
+                      }`}
+                      title="Solo Track"
+                    >
+                      S
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMute(t.id);
+                      }}
+                      className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${
+                        t.muted
+                          ? 'bg-rose-500 text-white'
+                          : 'text-zinc-500 hover:text-rose-400 hover:bg-zinc-800'
+                      }`}
+                      title="Mute Track"
+                    >
+                      M
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Left Dock Bottom Actions */}
+          <div className="p-2 border-t border-[#1C222C] bg-[#080A0D] space-y-1 text-[10px] font-mono">
+            {onOpenReferenceTrackModal && (
               <button
                 type="button"
-                onClick={() => onExportLosslessWav(24)}
-                disabled={isExportingWav}
-                className="w-full py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded flex items-center justify-center gap-1 font-bold transition-colors disabled:opacity-50"
+                onClick={onOpenReferenceTrackModal}
+                className="w-full py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded flex items-center justify-center gap-1 font-bold transition-colors"
               >
-                <Disc className="w-3 h-3" />
-                Export 24-Bit WAV
+                <Sparkles className="w-3 h-3" />
+                Reference Track AI
               </button>
+            )}
+            {onOpenHumanizationHeatmap && (
               <button
                 type="button"
-                onClick={onClearArrangement}
-                className="w-full py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded flex items-center justify-center gap-1 transition-colors"
+                onClick={onOpenHumanizationHeatmap}
+                className="w-full py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded flex items-center justify-center gap-1 font-bold transition-colors"
               >
-                <Eraser className="w-3 h-3" />
-                Clear Arrangement
+                <Flame className="w-3 h-3" />
+                Humanization Heatmap
               </button>
-            </div>
-          </aside>
-        )}
+            )}
+            <button
+              type="button"
+              onClick={() => onExportLosslessWav(24)}
+              disabled={isExportingWav}
+              className="w-full py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded flex items-center justify-center gap-1 font-bold transition-colors disabled:opacity-50"
+            >
+              <Disc className="w-3 h-3" />
+              Export 24-Bit WAV
+            </button>
+            <button
+              type="button"
+              onClick={onClearArrangement}
+              className="w-full py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded flex items-center justify-center gap-1 transition-colors"
+            >
+              <Eraser className="w-3 h-3" />
+              Clear Arrangement
+            </button>
+          </div>
 
-        {/* Multitrack Arrangement Canvas + Resizable Lower Editor */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Interactive Left Dock Resize Handle */}
+          <div
+            onPointerDown={handleStartResizeLeft}
+            className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-amber-400/50 transition-colors z-20"
+            title="Drag to resize track tree panel"
+          />
+        </aside>
+
+        {/* Center Viewport: CSS Grid Rows for Arrangement Canvas + Resizable Lower Editor */}
+        <div
+          className="grid min-w-0 min-h-0 overflow-hidden"
+          style={{
+            gridTemplateRows: bottomDockOpen
+              ? `minmax(240px, 1fr) ${bottomDockHeight}px`
+              : 'minmax(240px, 1fr)',
+          }}
+        >
           {/* Arrangement Canvas */}
-          <div className="flex-1 min-h-[260px] overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             <TimelineCanvas
               project={project}
               selectedTrackId={selectedTrackId}
@@ -543,6 +642,8 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               onChangeEditMode={onChangeEditMode}
               onDropMemoryLocationAtPlayhead={onDropMemoryLocationAtPlayhead}
               onOpenCompingAndTransientModal={onOpenCompingModal}
+              onOpenHumanizationHeatmap={onOpenHumanizationHeatmap}
+              onExportClipToMidi={onExportClipToMidi}
               onApplyNoteEditModeOperation={onApplyNoteEditModeOperation}
               spectrumOverlayMode={spectrumOverlayMode}
               isPlaying={isPlaying}
@@ -551,7 +652,13 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
 
           {/* Resizable Lower Editor Dock */}
           {bottomDockOpen && (
-            <div className="h-64 border-t border-[#1C222C] bg-[#0A0D12] flex flex-col shrink-0 overflow-hidden">
+            <div className="border-t border-[#1C222C] bg-[#0A0D12] flex flex-col min-h-0 overflow-hidden relative">
+              {/* Interactive Bottom Dock Resize Handle */}
+              <div
+                onPointerDown={handleStartResizeBottom}
+                className="h-1 w-full cursor-row-resize hover:bg-amber-400/50 transition-colors shrink-0"
+                title="Drag to resize editor dock"
+              />
               {/* Lower Dock Tab Header */}
               <div className="h-7 bg-[#080A0D] border-b border-[#1C222C] px-3 flex items-center justify-between text-xs font-mono">
                 <div className="flex items-center gap-1 sm:gap-2">
@@ -677,42 +784,44 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
         </div>
 
         {/* Right Inspector & AI Engine Dock */}
-        {rightDockOpen && (
-          <aside className="w-80 shrink-0 bg-[#0C0F15] border-l border-[#1C222C] flex flex-col overflow-hidden">
-            <div className="h-7 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
-              <span className="font-bold text-zinc-300">INSPECTOR &amp; AI</span>
-              <button
-                type="button"
-                onClick={onCloseRightDock}
-                className="text-zinc-500 hover:text-zinc-300 text-[11px]"
-                title="Close Right Dock"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3">
-              <AiComposerIntelligencePanel
-                project={project}
-                selectedTrack={selectedTrack}
-                activeStrategyId={activeStrategyId}
-                activeFormId={activeFormId}
-                compositionSeed={compositionSeed}
-                onSelectStrategy={onSelectStrategy}
-                onSelectForm={onSelectForm}
-                onComposeSingleLayer={onComposeSingleLayer}
-                onComposeAllUnlockedLayers={onComposeAllUnlockedLayers}
-                onApplyMidiTool={onApplyMidiTool}
-                onInjectPolyrhythmClip={onInjectPolyrhythmClip}
-                onApplyChordGridTransform={onApplyChordGridTransform}
-                onLaunchSessionScene={onLaunchSessionScene}
-                onToggleTrackLock={onToggleTrackLock}
-                onSelectTrack={onSelectTrack}
-                onSeekBeat={onSeekBeat}
-                onRandomizeTrackVelocities={onRandomizeTrackVelocities}
-              />
-            </div>
-          </aside>
-        )}
+        <aside
+          className={`${
+            rightDockOpen ? 'flex' : 'hidden'
+          } w-80 bg-[#0C0F15] border-l border-[#1C222C] flex-col overflow-hidden`}
+        >
+          <div className="h-7 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
+            <span className="font-bold text-zinc-300">INSPECTOR &amp; AI</span>
+            <button
+              type="button"
+              onClick={onCloseRightDock}
+              className="text-zinc-500 hover:text-zinc-300 text-[11px]"
+              title="Close Right Dock"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3">
+            <AiComposerIntelligencePanel
+              project={project}
+              selectedTrack={selectedTrack}
+              activeStrategyId={activeStrategyId}
+              activeFormId={activeFormId}
+              compositionSeed={compositionSeed}
+              onSelectStrategy={onSelectStrategy}
+              onSelectForm={onSelectForm}
+              onComposeSingleLayer={onComposeSingleLayer}
+              onComposeAllUnlockedLayers={onComposeAllUnlockedLayers}
+              onApplyMidiTool={onApplyMidiTool}
+              onInjectPolyrhythmClip={onInjectPolyrhythmClip}
+              onApplyChordGridTransform={onApplyChordGridTransform}
+              onLaunchSessionScene={onLaunchSessionScene}
+              onToggleTrackLock={onToggleTrackLock}
+              onSelectTrack={onSelectTrack}
+              onSeekBeat={onSeekBeat}
+              onRandomizeTrackVelocities={onRandomizeTrackVelocities}
+            />
+          </div>
+        </aside>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ import {
   MidiNoteEvent,
   TransportConfig,
 } from '../types/ableton';
-import { composeEffectiveTrackGain } from './channelStripEngine';
+import { composeEffectiveTrackGain, resolveEffectiveAudibility } from './channelStripEngine';
 import { computeDeterministicHash } from './alsXmlEngine';
 
 function midiToFreq(midi: number, transposeSemitones = 0, fineTuneCents = 0): number {
@@ -48,6 +48,32 @@ export function evaluateAutomationAtBeat(
     }
   }
   return 0.55;
+}
+
+/**
+ * Creates a transparent lookahead limiter curve with a hard transparent ceiling at limiterCeilingDbtp (default -1.0 dBTP).
+ * Unity gain (y = x) for signals up to ~ -3.5 dBFS, smoothly curved into ceiling without hard digital square clipping.
+ */
+function createTransparentLimiterCurve(ceilingDbtp = -1.0): Float32Array<ArrayBuffer> {
+  const samples = 2048;
+  const curve = new Float32Array(new ArrayBuffer(samples * 4));
+  const ceilingLinear = Math.min(0.98, Math.max(0.2, Math.pow(10, ceilingDbtp / 20))); // ~0.891 for -1.0 dBTP
+  const kneeLinear = ceilingLinear * 0.72; // ~0.64 (-3.8 dB)
+
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1; // [-1.0, 1.0]
+    const absX = Math.abs(x);
+    if (absX <= kneeLinear) {
+      curve[i] = x;
+    } else {
+      const sign = x >= 0 ? 1 : -1;
+      const overshoot = absX - kneeLinear;
+      const compressionSpan = ceilingLinear - kneeLinear;
+      const compressed = kneeLinear + compressionSpan * Math.tanh(overshoot / Math.max(0.01, compressionSpan));
+      curve[i] = sign * Math.min(ceilingLinear, compressed);
+    }
+  }
+  return curve;
 }
 
 /**
@@ -130,29 +156,34 @@ function buildAudioBusGraph(
   const reverbSendBus = ctx.createGain();
   const delaySendBus = ctx.createGain();
 
+  // Headroom Staging: -6.0 dB (0.501) summing bus pad so 8 tracks do not clip dry summing bus
+  const sumHeadroomGain = ctx.createGain();
+  sumHeadroomGain.gain.value = 0.501;
+  dryBus.connect(sumHeadroomGain);
+
   // Master High-Pass (Sub cleanup at 26 Hz)
   const masterSubHpf = ctx.createBiquadFilter();
   masterSubHpf.type = 'highpass';
   masterSubHpf.frequency.value = 26;
   masterSubHpf.Q.value = 0.707;
+  sumHeadroomGain.connect(masterSubHpf);
 
-  // Master Glue Compressor
+  // Master Glue Compressor (Gentle mastering bus dynamics control, 30ms punch attack)
   const compressor = ctx.createDynamicsCompressor();
-  compressor.threshold.value = -14 - masterBus.glueCompressionDrive * 10;
-  compressor.knee.value = 8;
-  compressor.ratio.value = 2.5 + masterBus.glueCompressionDrive * 3.5;
-  compressor.attack.value = 0.015;
-  compressor.release.value = 0.14;
+  compressor.threshold.value = -18 - (masterBus.glueCompressionDrive || 0.35) * 6;
+  compressor.knee.value = 10;
+  compressor.ratio.value = 2.0 + (masterBus.glueCompressionDrive || 0.35) * 1.5;
+  compressor.attack.value = 0.03;
+  compressor.release.value = 0.1;
 
-  // Soft-clipping Master Limiter/Saturator (-0.3 dBFS brickwall protection)
-  const masterSaturator = ctx.createWaveShaper();
-  masterSaturator.curve = createSaturationCurve(1.1 + masterBus.glueCompressionDrive * 0.8);
-  masterSaturator.oversample = '2x';
+  // Master Brickwall Lookahead Limiter with transparent -1.0 dBTP ceiling (resolves clipping & distortion)
+  const masterLimiter = ctx.createWaveShaper();
+  masterLimiter.curve = createTransparentLimiterCurve(masterBus.limiterCeilingDbtp ?? -1.0);
+  masterLimiter.oversample = '4x';
 
-  // Master Output Gain
+  // Master Output Gain (controlled purely by masterVolumeDb with safe baseline)
   const masterGain = ctx.createGain();
-  masterGain.gain.value =
-    dbToGain(masterBus.masterVolumeDb) * (1 + masterBus.glueCompressionDrive * 0.25);
+  masterGain.gain.value = dbToGain(masterBus.masterVolumeDb || 0);
 
   // Return A: Warehouse Reverb Convolver + Low-Cut (150Hz) + High-Cut (2800Hz)
   const reverbConvolver = ctx.createConvolver();
@@ -210,18 +241,18 @@ function buildAudioBusGraph(
   panR.connect(delayReturnGain);
   delayReturnGain.connect(masterSubHpf);
 
-  dryBus.connect(masterSubHpf);
+  // Mastering signal chain: subHpf -> glue compressor -> lookahead limiter (-1.0 dBTP ceiling) -> masterGain
   masterSubHpf.connect(compressor);
-  compressor.connect(masterSaturator);
-  masterSaturator.connect(masterGain);
+  compressor.connect(masterLimiter);
+  masterLimiter.connect(masterGain);
 
   let analyser: AnalyserNode | undefined;
   if (withAnalyser) {
     analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     analyser.minDecibels = -90;
-    analyser.maxDecibels = -6;
-    analyser.smoothingTimeConstant = 0.8;
+    analyser.maxDecibels = 0;
+    analyser.smoothingTimeConstant = 0.7;
     masterGain.connect(analyser);
     analyser.connect(ctx.destination);
   } else {
@@ -323,27 +354,39 @@ function scheduleTrackVoiceAtTime(
       ? 1.0 - scDepth * 0.88
       : 1.0 - scDepth * 0.12;
 
-  const vcaComp = composeEffectiveTrackGain(
+  const audibility = resolveEffectiveAudibility(
     track,
     project?.tracks || [track],
     project?.vcaGroups || []
   );
-  if (vcaComp.effectivelyMuted) {
-    return;
-  }
 
   const insertMods = computeInsertChainGainMultiplier(track);
   const channelGain = ctx.createGain();
+
+  // Micro-timing variance intensity for the current bar
+  const noteBar = Math.floor(note.time / 4) + 1;
+  const barIntensity = humanization.barVarianceIntensity?.[noteBar] ?? 1.0;
+  const velocityMod = 1 + (barIntensity - 1.0) * 0.15;
+  const modulatedVelGain = Math.min(1.0, velGain * velocityMod);
+
   const trackLinearGain = Math.min(
     insertMods.limiterCeilingLinear,
-    vcaComp.effectiveLinearGain * insertMods.gainMultiplier
+    audibility.effectiveGainLinear * insertMods.gainMultiplier
   );
-  channelGain.gain.setValueAtTime(trackLinearGain * initialDuckGain, time);
-  if (track.archetype !== 'kick' && scDepth > 0.05 && isNearKick) {
-    channelGain.gain.linearRampToValueAtTime(
-      trackLinearGain,
-      time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
-    );
+
+  // Click-free 8ms de-zippering gain ramps managing voice scheduling and solo isolation
+  if (!audibility.isAudible) {
+    channelGain.gain.setValueAtTime(0.0, time);
+  } else {
+    const targetGain = Math.max(0.0001, trackLinearGain * initialDuckGain);
+    channelGain.gain.setValueAtTime(0.0001, time);
+    channelGain.gain.linearRampToValueAtTime(targetGain, time + 0.008);
+    if (track.archetype !== 'kick' && scDepth > 0.05 && isNearKick) {
+      channelGain.gain.linearRampToValueAtTime(
+        trackLinearGain,
+        time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
+      );
+    }
   }
 
   // Optional Spectral Auto-Ducking EQEight Fundamental Notch node
@@ -1584,8 +1627,17 @@ export class ParametricWebAudioEngine {
     subBassMonoCutoffHz: 120,
   };
 
-  private onPlayheadUpdate?: (beat: number, lfoCutoffModHz: number, masterPeakDb: number) => void;
+  private onPlayheadUpdate?: (
+    beat: number,
+    lfoCutoffModHz: number,
+    masterPeakDb: number,
+    truePeakDbtp?: number,
+    lufs?: number
+  ) => void;
   private onPlaybackStopped?: () => void;
+
+  private smoothedTruePeakDbtp = -60;
+  private smoothedLufs = -24;
 
   private getMaxArrangementBeats(): number {
     const bars =
@@ -1598,7 +1650,13 @@ export class ParametricWebAudioEngine {
     humanization: HumanizationConfig,
     transport?: TransportConfig,
     masterBus?: MasterBusConfig,
-    onPlayheadUpdate?: (beat: number, lfoCutoffModHz: number, masterPeakDb: number) => void,
+    onPlayheadUpdate?: (
+      beat: number,
+      lfoCutoffModHz: number,
+      masterPeakDb: number,
+      truePeakDbtp?: number,
+      lufs?: number
+    ) => void,
     onPlaybackStopped?: () => void
   ) {
     const prevTempo = this.project?.tempo;
@@ -1936,13 +1994,6 @@ export class ParametricWebAudioEngine {
     }
 
     this.project.tracks.forEach((track) => {
-      const vcaComp = composeEffectiveTrackGain(
-        track,
-        this.project!.tracks,
-        this.project!.vcaGroups || []
-      );
-      if (vcaComp.effectivelyMuted) return;
-
       track.clips.forEach((clip) => {
         clip.notes.forEach((note) => {
           if (note.probability !== undefined && note.probability < 1.0) {
@@ -2038,6 +2089,9 @@ export class ParametricWebAudioEngine {
     );
 
     let masterPeakDb = -60;
+    let truePeakDbtp = -60;
+    let instantLufs = -24;
+
     if (this.bus?.analyser) {
       const fftSize = this.bus.analyser.fftSize;
       if (this.reusableTimeDomainBuffer.length !== fftSize) {
@@ -2045,17 +2099,75 @@ export class ParametricWebAudioEngine {
       }
       this.bus.analyser.getByteTimeDomainData(this.reusableTimeDomainBuffer);
       let maxPeak = 0;
+      let maxTruePeak = 0;
+      let sumSq = 0;
+
       for (let i = 0; i < fftSize; i++) {
-        const centered = Math.abs((this.reusableTimeDomainBuffer[i] - 128) / 128);
+        const sample = (this.reusableTimeDomainBuffer[i] - 128) / 128;
+        const centered = Math.abs(sample);
         if (centered > maxPeak) maxPeak = centered;
+        sumSq += sample * sample;
+
+        // 4x oversampled parabolic inter-sample true peak estimation
+        if (i > 0 && i < fftSize - 1) {
+          const s0 = Math.abs((this.reusableTimeDomainBuffer[i - 1] - 128) / 128);
+          const s1 = centered;
+          const s2 = Math.abs((this.reusableTimeDomainBuffer[i + 1] - 128) / 128);
+          const denom = 2 * s1 - s0 - s2;
+          if (denom > 0.001) {
+            const peakEst = s1 + (0.125 * Math.pow(s0 - s2, 2)) / denom;
+            if (peakEst > maxTruePeak) maxTruePeak = peakEst;
+          }
+        }
       }
+
+      maxTruePeak = Math.max(maxPeak, maxTruePeak);
       if (maxPeak > 0.0005) {
-        masterPeakDb = Math.max(-48, Math.min(6, 20 * Math.log10(maxPeak)));
+        masterPeakDb = Math.max(-48, Math.min(0, 20 * Math.log10(maxPeak)));
       }
+      if (maxTruePeak > 0.0005) {
+        const ceiling = this.masterBus.limiterCeilingDbtp ?? -1.0;
+        truePeakDbtp = Math.min(ceiling, Math.max(-48, 20 * Math.log10(maxTruePeak)));
+      }
+
+      const rms = Math.sqrt(sumSq / fftSize);
+      if (rms > 0.0001) {
+        instantLufs = Math.max(-48, Math.min(-6, 20 * Math.log10(rms) - 0.691));
+      }
+
+      // Smooth true peak and integrated LUFS with ballistic decay
+      if (truePeakDbtp > this.smoothedTruePeakDbtp) {
+        this.smoothedTruePeakDbtp = truePeakDbtp;
+      } else {
+        this.smoothedTruePeakDbtp = this.smoothedTruePeakDbtp * 0.95 + truePeakDbtp * 0.05;
+      }
+      this.smoothedLufs = this.smoothedLufs * 0.96 + instantLufs * 0.04;
+    }
+
+    // Evaluate master automation curve if present
+    if (
+      this.masterBus.masterAutomationPoints &&
+      this.masterBus.masterAutomationPoints.length > 0 &&
+      this.bus
+    ) {
+      const autoVal = evaluateAutomationAtBeat(
+        this.masterBus.masterAutomationPoints,
+        this.currentBeat,
+        maxBeats
+      );
+      const masterTrim = (autoVal - 0.55) * 8.0;
+      const targetGain = dbToGain((this.masterBus.masterVolumeDb || 0) + masterTrim);
+      this.bus.masterGain.gain.setTargetAtTime(targetGain, nowAudio, 0.02);
     }
 
     if (this.onPlayheadUpdate) {
-      this.onPlayheadUpdate(this.currentBeat, modulatedCutoffHz, masterPeakDb);
+      this.onPlayheadUpdate(
+        this.currentBeat,
+        modulatedCutoffHz,
+        masterPeakDb,
+        this.smoothedTruePeakDbtp,
+        this.smoothedLufs
+      );
     }
 
     this.rafId = requestAnimationFrame(this.runVisualPlayheadLoop);

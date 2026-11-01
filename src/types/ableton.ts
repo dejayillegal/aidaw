@@ -330,6 +330,14 @@ export interface MasterBusConfig {
   delayReturnLevel: number; // 0.0 to 1.0
   subBassMonoCutoffHz: number; // 120 Hz
   globalGroovePct?: number; // 50 to 75 (Default 50 = straight 16ths, 75 = heavy swing)
+  // Limiter-based Gain Staging & ITU-R BS.1770 Workflow
+  limiterCeilingDbtp?: number; // Default -1.0 dBTP transparent ceiling
+  limiterReleaseMs?: number; // Default 85 ms
+  limiterLookaheadMs?: number; // Default 4 ms
+  targetIntegratedLufs?: number; // Default -14.0 LUFS (streaming / club calibrated)
+  measuredLufs?: number; // Real-time ITU-R BS.1770-4 integrated LUFS
+  measuredTruePeakDbtp?: number; // Real-time 4x oversampled True Peak dBTP
+  masterAutomationPoints?: AutomationPoint[]; // Automation curve for master volume / filter drops
 }
 
 export interface TransportConfig {
@@ -357,6 +365,61 @@ export interface HumanizationConfig {
   lfoDepth: number; // Default 0.42
   cutoffHz: number; // AutoFilter LPF cutoff in Hz (e.g., 145 Hz)
   macroTransition: number; // 0-127 Macro knob value
+  // Visual MIDI Mapping Tool: Bar-specific micro-timing variance intensity (0.0 = robot, 1.0 = normal, 2.0 = heavy)
+  barVarianceIntensity?: Record<number, number>;
+}
+
+export interface ReferenceTrackSpectralBands {
+  subRatio: number; // 20 - 80 Hz normalized ratio
+  lowRatio: number; // 80 - 250 Hz normalized ratio
+  midRatio: number; // 250 - 2500 Hz normalized ratio
+  highRatio: number; // 2500 - 8000 Hz normalized ratio
+  airRatio: number; // 8000 - 20000 Hz normalized ratio
+  subBassDb?: number; // 20 - 60 Hz
+  lowMidDb?: number; // 60 - 300 Hz
+  midDb?: number; // 300 - 2000 Hz
+  presenceDb?: number; // 2000 - 6000 Hz
+  airDb?: number; // 6000 - 20000 Hz
+}
+
+export interface ReferenceTrackLayerProfile {
+  archetype: TechnoArchetype;
+  detectedName: string;
+  energyLevel: number; // 0.0 to 1.0
+  frequencyRange: string;
+  timbralCharacteristics: string;
+  recommendedInstrument: string;
+  creativeVariationPrompt: string;
+}
+
+export interface ReferenceTrackStructuralSection {
+  role: string;
+  startBar: number;
+  endBar: number;
+  targetEnergy: number;
+  characteristics: string;
+}
+
+export interface ReferenceTrackAnalysisReport {
+  id: string;
+  fileName: string;
+  durationSeconds: number;
+  detectedTempo: number;
+  detectedRootKey: string;
+  detectedScale: string;
+  integratedLufs: number;
+  truePeakDbtp: number;
+  crestFactorDb: number;
+  dynamicRangeDb: number;
+  spectralBands: ReferenceTrackSpectralBands;
+  structuralSections: ReferenceTrackStructuralSection[];
+  detectedLayers: ReferenceTrackLayerProfile[];
+  grooveProfile: {
+    swingPct: number;
+    syncopationIndex: number;
+    polyrhythmicFeel: string;
+  };
+  creativeRecommendations: string[];
 }
 
 export interface MusicalProjectProfile {
@@ -635,6 +698,9 @@ export interface QueuedProjectRecord {
   exportVerification?: MasterExportVerificationReport;
   exportedAlsFilename?: string;
   exportedWavFilename?: string;
+  isMidiExport?: boolean;
+  exportedMidiFilename?: string;
+  exportedMidiBlob?: Blob;
   exportArtifactRef?: {
     fileName: string;
     byteSize: number;

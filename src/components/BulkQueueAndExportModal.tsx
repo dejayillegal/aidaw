@@ -428,30 +428,48 @@ export const BulkQueueAndExportModal: React.FC<BulkQueueAndExportModalProps> = (
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-center gap-1.5">
-                            {!isActiveWorkstation && item.workingProjectState && (
+                            {item.isMidiExport && item.exportedMidiBlob ? (
                               <button
                                 type="button"
-                                onClick={() => onSwitchToQueueProject(item.queueId)}
-                                className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px]"
+                                onClick={() =>
+                                  triggerBrowserDownload(
+                                    item.exportedMidiBlob!,
+                                    item.exportedMidiFilename || item.originalFilename
+                                  )
+                                }
+                                className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold flex items-center gap-1"
                               >
-                                Load in Timeline
+                                <Download className="w-3 h-3" />
+                                Download .MID
                               </button>
+                            ) : (
+                              <>
+                                {!isActiveWorkstation && item.workingProjectState && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onSwitchToQueueProject(item.queueId)}
+                                    className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px]"
+                                  >
+                                    Load in Timeline
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    projectQueueService.calibrateQueueItem(
+                                      item.queueId,
+                                      humanization,
+                                      masterBus,
+                                      targetLufs,
+                                      truePeakCeiling
+                                    )
+                                  }
+                                  className="px-2 py-0.5 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px]"
+                                >
+                                  Calibrate
+                                </button>
+                              </>
                             )}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                projectQueueService.calibrateQueueItem(
-                                  item.queueId,
-                                  humanization,
-                                  masterBus,
-                                  targetLufs,
-                                  truePeakCeiling
-                                )
-                              }
-                              className="px-2 py-0.5 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px]"
-                            >
-                              Calibrate
-                            </button>
                           </div>
 
                           <div className="flex items-center gap-1">

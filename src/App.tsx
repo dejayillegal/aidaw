@@ -61,6 +61,9 @@ import { SoundCraftMixConsole } from './components/SoundCraftMixConsole';
 import { SoundCraftWorkstation } from './components/SoundCraftWorkstation';
 import { BulkQueueAndExportModal } from './components/BulkQueueAndExportModal';
 import { StudioSettingsModal } from './components/StudioSettingsModal';
+import { ReferenceTrackModal } from './components/ReferenceTrackModal';
+import { MidiHumanizationHeatmapModal } from './components/MidiHumanizationHeatmapModal';
+import { exportClipToMidiFile, downloadMidiFile } from './engine/midiFileExporter';
 import {
   CompingAndTransientModal,
   StudioCommandPalette,
@@ -151,6 +154,16 @@ const DEFAULT_MASTER_BUS: MasterBusConfig = {
   delayFeedback: 0.42,
   delayReturnLevel: 0.4,
   subBassMonoCutoffHz: 120,
+  limiterCeilingDbtp: -1.0,
+  limiterReleaseMs: 85,
+  limiterLookaheadMs: 4,
+  targetIntegratedLufs: -14.0,
+  masterAutomationPoints: [
+    { beat: 0, value: 0.55 },
+    { beat: 32, value: 0.52 },
+    { beat: 48, value: 0.55 },
+    { beat: 64, value: 0.55 },
+  ],
 };
 
 const ARCHETYPE_CATALOG: {
@@ -270,6 +283,8 @@ export default function App() {
   const [playheadBeat, setPlayheadBeat] = useState<number>(0);
   const [modulatedCutoffHz, setModulatedCutoffHz] = useState<number>(145.0);
   const [masterPeakDb, setMasterPeakDb] = useState<number>(-60);
+  const [masterTruePeakDbtp, setMasterTruePeakDbtp] = useState<number>(-60);
+  const [masterLufs, setMasterLufs] = useState<number>(-24);
   const [aiLoadingArchetype, setAiLoadingArchetype] = useState<TechnoArchetype | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>(
     `Ready · ${project.fileName} (${project.tempo} BPM · ${project.rootKey} ${project.scale}).`
@@ -323,6 +338,8 @@ export default function App() {
   const [isBulkQueueModalOpen, setIsBulkQueueModalOpen] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [isCompingModalOpen, setIsCompingModalOpen] = useState<boolean>(false);
+  const [isReferenceModalOpen, setIsReferenceModalOpen] = useState<boolean>(false);
+  const [isHeatmapModalOpen, setIsHeatmapModalOpen] = useState<boolean>(false);
   const [, setCommandBusTick] = useState<number>(0);
 
   const handleApplyLayoutPreset = (
@@ -460,10 +477,12 @@ export default function App() {
       humanization,
       transport,
       masterBus,
-      (beat, cutoffMod, peakDb) => {
+      (beat, cutoffMod, peakDb, truePeakDbtp, lufs) => {
         setPlayheadBeat(beat);
         setModulatedCutoffHz(cutoffMod);
         setMasterPeakDb(peakDb);
+        if (truePeakDbtp !== undefined) setMasterTruePeakDbtp(truePeakDbtp);
+        if (lufs !== undefined) setMasterLufs(lufs);
       },
       () => {
         setIsPlaying(false);
@@ -474,6 +493,37 @@ export default function App() {
       }
     );
   }, [project, humanization, transport, masterBus]);
+
+  const handleExportClipToMidi = useCallback(
+    async (trackId: string, clipId?: string) => {
+      const targetTrack = project.tracks.find((t) => t.id === trackId);
+      if (!targetTrack) return;
+      const targetClip =
+        (clipId ? targetTrack.clips.find((c) => c.id === clipId) : undefined) ||
+        targetTrack.clips[0];
+      if (!targetClip) return;
+
+      const { fileName, blob } = exportClipToMidiFile(
+        targetClip,
+        targetTrack,
+        project.tempo || 134,
+        480
+      );
+      downloadMidiFile(blob, fileName);
+      projectQueueService.enqueueMidiClip(
+        targetClip.name,
+        targetTrack.name,
+        fileName,
+        blob,
+        blob.size,
+        project
+      );
+      setStatusMessage(
+        `Exported MIDI Clip "${fileName}" (${targetClip.notes.length} humanized notes) to Browser & Project Queue.`
+      );
+    },
+    [project]
+  );
 
   useEffect(() => {
     return () => {
@@ -2028,7 +2078,7 @@ export default function App() {
   }, [handleUndo, handleRedo]);
 
   return (
-    <div className="h-dvh w-screen overflow-hidden flex flex-col bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
+    <div className="h-dvh w-screen overflow-hidden grid grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
       {/* 1. TOP 28px SOUNDCRAFT STUDIO MENU BAR */}
       <StudioMenuBar
         projectName={project.fileName}
@@ -2078,6 +2128,8 @@ export default function App() {
         tempo={project.tempo}
         transport={transport}
         masterPeakDb={masterPeakDb}
+        masterTruePeakDbtp={masterTruePeakDbtp}
+        masterLufs={masterLufs}
         canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}
         canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
         editMode={editMode}
@@ -2107,83 +2159,193 @@ export default function App() {
         onApplyLayoutPreset={handleApplyLayoutPreset}
       />
 
+      {/* 4. SOUNDCRAFT PROFESSIONAL DAW WORKSTATION BODY (CSS GRID CELL) */}
+      <div className="min-h-0 min-w-0 flex flex-col overflow-hidden">
+        {activeTab === 'workbench' && (
+          <SoundCraftWorkstation
+            activeTab={activeTab}
+            studioWorkspace={studioWorkspace}
+            activeEditingTool={activeEditingTool}
+            editMode={editMode}
+            spectrumOverlayMode={spectrumOverlayMode}
+            leftDockOpen={leftDockOpen}
+            bottomDockOpen={bottomDockOpen}
+            rightDockOpen={rightDockOpen}
+            bottomEditorTab={bottomEditorTab}
+            project={project}
+            selectedTrack={selectedTrack}
+            selectedTrackId={selectedTrackId}
+            playheadBeat={playheadBeat}
+            modulatedCutoffHz={modulatedCutoffHz}
+            humanization={humanization}
+            transport={transport}
+            masterBus={masterBus}
+            masterPeakDb={masterPeakDb}
+            isPlaying={isPlaying}
+            isExportingWav={isExportingWav}
+            activeTotalBars={activeTotalBars}
+            activeStrategyId={activeStrategyId}
+            activeFormId={activeFormId}
+            compositionSeed={compositionSeed}
+            jitterSeed={jitterSeed}
+            onSelectTrack={handleSelectTrack}
+            onChangeEditMode={setEditMode}
+            onChangeActiveTool={setActiveEditingTool}
+            onChangeSpectrumMode={setSpectrumOverlayMode}
+            onChangeArrangementLength={handleChangeArrangementLength}
+            onDropMemoryLocationAtPlayhead={handleDropMemoryLocationAtPlayhead}
+            onSeekBeat={(beat) => {
+              synthEngine.seek(beat);
+              setPlayheadBeat(beat);
+            }}
+            onToggleNoteInTrack={handleToggleNoteInTrack}
+            onToggleMute={handleToggleMute}
+            onToggleSolo={handleToggleSolo}
+            onUpdateTrackMixer={handleUpdateTrackMixer}
+            onUpdateTrackAutomation={handleUpdateTrackAutomation}
+            onUpdateTransport={handleUpdateTransport}
+            onUpdateMasterBus={handleUpdateMasterBus}
+            onOpenCompingModal={() => setIsCompingModalOpen(true)}
+            onApplyNoteEditModeOperation={handleApplyNoteEditModeOperation}
+            onOpenBulkQueueModal={() => setIsBulkQueueModalOpen(true)}
+            onExecuteProjectCommand={handleExecuteProjectCommand}
+            onExportLosslessWav={handleExportLosslessWav}
+            onClearArrangement={handleClearArrangement}
+            onExportNativeAls={handleExportNativeAls}
+            onRandomizeTrackVelocities={handleRandomizeTrackVelocities}
+            onApplyMidiQuantizeStrength={handleApplyMidiQuantizeStrength}
+            onSelectStrategy={setActiveStrategyId}
+            onSelectForm={setActiveFormId}
+            onComposeSingleLayer={(arch) => handleInjectLayer(arch)}
+            onComposeAllUnlockedLayers={handleInjectAllMissingLayers}
+            onApplyMidiTool={handleApplyMidiTool}
+            onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
+            onApplyChordGridTransform={handleApplyChordGridTransform}
+            onLaunchSessionScene={handleLaunchSessionScene}
+            onToggleTrackLock={handleToggleTrackLock}
+            onUpdateHumanization={handleUpdateHumanization}
+            onUpdateTrackVelocityCurve={handleUpdateTrackVelocityCurve}
+            onApplySpectralAutoDuck={handleApplySpectralAutoDuck}
+            onInjectLibraryDevice={handleInjectLibraryDevice}
+            onApplySmartLeveling={handleApplySmartLeveling}
+            onRehumanizeAll={handleRehumanizeAll}
+            onCloseLeftDock={() => setLeftDockOpen(false)}
+            onCloseBottomDock={() => setBottomDockOpen(false)}
+            onCloseRightDock={() => setRightDockOpen(false)}
+            onChangeBottomTab={setBottomEditorTab}
+            onOpenReferenceTrackModal={() => setIsReferenceModalOpen(true)}
+            onOpenHumanizationHeatmap={() => setIsHeatmapModalOpen(true)}
+            onExportClipToMidi={handleExportClipToMidi}
+          />
+        )}
 
+        {activeTab === 'xml' && (
+          <XmlInspectorView project={project} onDownloadAls={handleExportNativeAls} />
+        )}
 
-      {/* SOUNDCRAFT PROFESSIONAL DAW WORKSTATION BODY */}
-      <SoundCraftWorkstation
-        activeTab={activeTab}
-        studioWorkspace={studioWorkspace}
-        activeEditingTool={activeEditingTool}
-        editMode={editMode}
-        spectrumOverlayMode={spectrumOverlayMode}
-        leftDockOpen={leftDockOpen}
-        bottomDockOpen={bottomDockOpen}
-        rightDockOpen={rightDockOpen}
-        bottomEditorTab={bottomEditorTab}
-        project={project}
-        selectedTrack={selectedTrack}
-        selectedTrackId={selectedTrackId}
-        playheadBeat={playheadBeat}
-        modulatedCutoffHz={modulatedCutoffHz}
-        humanization={humanization}
-        transport={transport}
-        masterBus={masterBus}
-        masterPeakDb={masterPeakDb}
-        isPlaying={isPlaying}
-        isExportingWav={isExportingWav}
-        activeTotalBars={activeTotalBars}
-        activeStrategyId={activeStrategyId}
-        activeFormId={activeFormId}
-        compositionSeed={compositionSeed}
-        jitterSeed={jitterSeed}
-        onSelectTrack={handleSelectTrack}
-        onChangeEditMode={setEditMode}
-        onChangeActiveTool={setActiveEditingTool}
-        onChangeSpectrumMode={setSpectrumOverlayMode}
-        onChangeArrangementLength={handleChangeArrangementLength}
-        onDropMemoryLocationAtPlayhead={handleDropMemoryLocationAtPlayhead}
-        onSeekBeat={(beat) => {
-          synthEngine.seek(beat);
-          setPlayheadBeat(beat);
-        }}
-        onToggleNoteInTrack={handleToggleNoteInTrack}
-        onToggleMute={handleToggleMute}
-        onToggleSolo={handleToggleSolo}
-        onUpdateTrackMixer={handleUpdateTrackMixer}
-        onUpdateTrackAutomation={handleUpdateTrackAutomation}
-        onUpdateTransport={handleUpdateTransport}
-        onUpdateMasterBus={handleUpdateMasterBus}
-        onOpenCompingModal={() => setIsCompingModalOpen(true)}
-        onApplyNoteEditModeOperation={handleApplyNoteEditModeOperation}
-        onOpenBulkQueueModal={() => setIsBulkQueueModalOpen(true)}
-        onExecuteProjectCommand={handleExecuteProjectCommand}
-        onExportLosslessWav={handleExportLosslessWav}
-        onClearArrangement={handleClearArrangement}
-        onExportNativeAls={handleExportNativeAls}
-        onRandomizeTrackVelocities={handleRandomizeTrackVelocities}
-        onApplyMidiQuantizeStrength={handleApplyMidiQuantizeStrength}
-        onSelectStrategy={setActiveStrategyId}
-        onSelectForm={setActiveFormId}
-        onComposeSingleLayer={(arch) => handleInjectLayer(arch)}
-        onComposeAllUnlockedLayers={handleInjectAllMissingLayers}
-        onApplyMidiTool={handleApplyMidiTool}
-        onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
-        onApplyChordGridTransform={handleApplyChordGridTransform}
-        onLaunchSessionScene={handleLaunchSessionScene}
-        onToggleTrackLock={handleToggleTrackLock}
-        onUpdateHumanization={handleUpdateHumanization}
-        onUpdateTrackVelocityCurve={handleUpdateTrackVelocityCurve}
-        onApplySpectralAutoDuck={handleApplySpectralAutoDuck}
-        onInjectLibraryDevice={handleInjectLibraryDevice}
-        onApplySmartLeveling={handleApplySmartLeveling}
-        onRehumanizeAll={handleRehumanizeAll}
-        onCloseLeftDock={() => setLeftDockOpen(false)}
-        onCloseBottomDock={() => setBottomDockOpen(false)}
-        onCloseRightDock={() => setRightDockOpen(false)}
-        onChangeBottomTab={setBottomEditorTab}
-      />
+        {activeTab === 'python' && <PythonFastApiView humanization={humanization} />}
 
-      {/* FOOTER TELEMETRY STATUS BAR */}
+        {activeTab === 'architecture' && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-[#0B0D10]">
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#232934]">
+              <div>
+                <h2 className="text-base sm:text-lg font-display font-semibold text-slate-100">
+                  Parametric AI DAW Engine v4.0 — System Architecture &amp; Native Ableton XML Heuristics
+                </h2>
+                <p className="text-xs text-slate-400 font-mono mt-1">
+                  Full 8-Track Techno Suite · Spectral Auto-Ducking · True Polymeter Euclidean XML · 16–128 Bar Arrangement Engine.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('python')}
+                className="px-3.5 py-2 text-xs font-mono bg-[#171C26] hover:bg-[#222938] text-amber-400 border border-[#2E3748] rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                Inspect FastAPI Python Code
+              </button>
+            </div>
+
+            <div className="bg-[#11151C] border border-[#232934] rounded overflow-hidden">
+              <iframe
+                src="/assets/aistudio/interactive_visual_im_b85db2ad2477683d_287a157b.html"
+                title=".als Ghost Note Processing Architecture"
+                className="w-full h-[520px] sm:h-[640px] border-0"
+              />
+            </div>
+
+            <div className="bg-[#11151C] border border-[#232934] rounded p-4 sm:p-5 space-y-3">
+              <h3 className="text-sm font-display font-semibold text-slate-100">
+                Full 8-Track Techno Suite &amp; Ableton Native Device Mapping Matrix
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs font-mono">
+                  <thead>
+                    <tr className="border-b border-[#232934] text-slate-400">
+                      <th className="py-2.5 pr-4">Track Archetype</th>
+                      <th className="py-2.5 pr-4">Generative MIDI Pattern &amp; Polymeter</th>
+                      <th className="py-2.5 pr-4">Ableton Native Device Chain (XML Injection)</th>
+                      <th className="py-2.5">Spectral Ducking &amp; Automation Target</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1C222D] text-slate-200">
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-amber-400">01. Kick 909</td>
+                      <td className="py-2.5 pr-4">4/4 Anchor + Turnaround Ghost Kicks</td>
+                      <td className="py-2.5 pr-4">DrumGroupDevice (909 Core) → EQEight → DrumBuss</td>
+                      <td className="py-2.5 text-amber-400">Master Sidechain Trigger Source (Id=1)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-sky-400">02. Rumble Sub-Bass</td>
+                      <td className="py-2.5 pr-4">Kick-ducked 16th rolling sub + Phrygian b2 turnaround</td>
+                      <td className="py-2.5 pr-4">Operator (Sine) → Reverb → AutoFilter (LPF) → EQEight → Compressor2</td>
+                      <td className="py-2.5 text-emerald-400">Dynamic EQEight Notch @ Kick Root Hz + 4.8:1 Sidechain</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-lime-400">03. 303 Acid Line</td>
+                      <td className="py-2.5 pr-4">Accented 16th resonant bassline with octave jumps &amp; slides</td>
+                      <td className="py-2.5 pr-4">Analog (303 Diode) → Overdrive → Roar → Compressor2</td>
+                      <td className="py-2.5 text-amber-400">24dB Diode Filter Cutoff &amp; Resonance Sweep</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-orange-400">04. Industrial Perc</td>
+                      <td className="py-2.5 pr-4">True Polymeter Euclidean (7/16, 11/16, 13/16)</td>
+                      <td className="py-2.5 pr-4">Collision → DrumBuss → Erosion → Saturator</td>
+                      <td className="py-2.5 text-amber-400">Transient drive &amp; bandpass resonator drift</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-purple-400">05. Hypnotic Synth</td>
+                      <td className="py-2.5 pr-4">Scale-conditioned motifs with 1/4–1/32 chord spread</td>
+                      <td className="py-2.5 pr-4">Wavetable → Echo (3/16) → AutoPan (3/16)</td>
+                      <td className="py-2.5 text-amber-400">Echo Feedback ramp before peak drops</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-indigo-400">06. Dub Chord Pad</td>
+                      <td className="py-2.5 pr-4">Minor 9th dub chord voicings (Narrow/Close/Wide/Octave)</td>
+                      <td className="py-2.5 pr-4">Drift → ChorusEnsemble → HybridReverb → Compressor2</td>
+                      <td className="py-2.5 text-amber-400">Slow lowpass filter breath &amp; Return A/B send</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-emerald-400">07. Offbeat 909 Hats</td>
+                      <td className="py-2.5 pr-4">8th offbeat open hat + swung 16th ghost groove</td>
+                      <td className="py-2.5 pr-4">Simpler (909) → Overdrive → AutoFilter (HPF)</td>
+                      <td className="py-2.5 text-amber-400">Velocity mapped strictly to envelope decay</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 pr-4 font-semibold text-cyan-400">08. 909 Ride Cymbal</td>
+                      <td className="py-2.5 pr-4">Peak-energy metallic 8th/16th warehouse ride</td>
+                      <td className="py-2.5 pr-4">Simpler (909 Ride) → EQEight (HPF 650Hz) → Saturator → Compressor2</td>
+                      <td className="py-2.5 text-amber-400">High-shelf shimmer &amp; quarter-note kick pump</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 5. FOOTER TELEMETRY STATUS BAR */}
       <StudioStatusBar
         projectName={project.fileName}
         projectRevision={project.projectRevision || project.revision || 1}
@@ -2197,125 +2359,6 @@ export default function App() {
         canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}
         canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
       />
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-          {activeTab === 'xml' && (
-            <XmlInspectorView project={project} onDownloadAls={handleExportNativeAls} />
-          )}
-
-          {activeTab === 'python' && <PythonFastApiView humanization={humanization} />}
-
-          {activeTab === 'architecture' && (
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-[#0B0D10]">
-              <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#232934]">
-                <div>
-                  <h2 className="text-base sm:text-lg font-display font-semibold text-slate-100">
-                    Parametric AI DAW Engine v4.0 — System Architecture &amp; Native Ableton XML Heuristics
-                  </h2>
-                  <p className="text-xs text-slate-400 font-mono mt-1">
-                    Full 8-Track Techno Suite · Spectral Auto-Ducking · True Polymeter Euclidean XML · 16–128 Bar Arrangement Engine.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('python')}
-                  className="px-3.5 py-2 text-xs font-mono bg-[#171C26] hover:bg-[#222938] text-amber-400 border border-[#2E3748] rounded flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  Inspect FastAPI Python Code
-                </button>
-              </div>
-
-              <div className="bg-[#11151C] border border-[#232934] rounded overflow-hidden">
-                <iframe
-                  src="/assets/aistudio/interactive_visual_im_b85db2ad2477683d_287a157b.html"
-                  title=".als Ghost Note Processing Architecture"
-                  className="w-full h-[520px] sm:h-[640px] border-0"
-                />
-              </div>
-
-              <div className="bg-[#11151C] border border-[#232934] rounded p-4 sm:p-5 space-y-3">
-                <h3 className="text-sm font-display font-semibold text-slate-100">
-                  Full 8-Track Techno Suite &amp; Ableton Native Device Mapping Matrix
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs font-mono">
-                    <thead>
-                      <tr className="border-b border-[#232934] text-slate-400">
-                        <th className="py-2.5 pr-4">Track Archetype</th>
-                        <th className="py-2.5 pr-4">Generative MIDI Pattern &amp; Polymeter</th>
-                        <th className="py-2.5 pr-4">Ableton Native Device Chain (XML Injection)</th>
-                        <th className="py-2.5">Spectral Ducking &amp; Automation Target</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#1C222D] text-slate-200">
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-amber-400">01. Kick 909</td>
-                        <td className="py-2.5 pr-4">4/4 Anchor + Turnaround Ghost Kicks</td>
-                        <td className="py-2.5 pr-4">DrumGroupDevice (909 Core) → EQEight → DrumBuss</td>
-                        <td className="py-2.5 text-amber-400">Master Sidechain Trigger Source (Id=1)</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-sky-400">02. Rumble Sub-Bass</td>
-                        <td className="py-2.5 pr-4">Kick-ducked 16th rolling sub + Phrygian b2 turnaround</td>
-                        <td className="py-2.5 pr-4">Operator (Sine) → Reverb → AutoFilter (LPF) → EQEight → Compressor2</td>
-                        <td className="py-2.5 text-emerald-400">Dynamic EQEight Notch @ Kick Root Hz + 4.8:1 Sidechain</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-lime-400">03. 303 Acid Line</td>
-                        <td className="py-2.5 pr-4">Accented 16th resonant bassline with octave jumps &amp; slides</td>
-                        <td className="py-2.5 pr-4">Analog (303 Diode) → Overdrive → Roar → Compressor2</td>
-                        <td className="py-2.5 text-amber-400">24dB Diode Filter Cutoff &amp; Resonance Sweep</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-orange-400">04. Industrial Perc</td>
-                        <td className="py-2.5 pr-4">True Polymeter Euclidean (7/16, 11/16, 13/16)</td>
-                        <td className="py-2.5 pr-4">Collision → DrumBuss → Erosion → Saturator</td>
-                        <td className="py-2.5 text-amber-400">Transient drive &amp; bandpass resonator drift</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-purple-400">05. Hypnotic Synth</td>
-                        <td className="py-2.5 pr-4">Scale-conditioned motifs with 1/4–1/32 chord spread</td>
-                        <td className="py-2.5 pr-4">Wavetable → Echo (3/16) → AutoPan (3/16)</td>
-                        <td className="py-2.5 text-amber-400">Echo Feedback ramp before peak drops</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-indigo-400">06. Dub Chord Pad</td>
-                        <td className="py-2.5 pr-4">Minor 9th dub chord voicings (Narrow/Close/Wide/Octave)</td>
-                        <td className="py-2.5 pr-4">Drift → ChorusEnsemble → HybridReverb → Compressor2</td>
-                        <td className="py-2.5 text-amber-400">Slow lowpass filter breath &amp; Return A/B send</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-emerald-400">07. Offbeat 909 Hats</td>
-                        <td className="py-2.5 pr-4">8th offbeat open hat + swung 16th ghost groove</td>
-                        <td className="py-2.5 pr-4">Simpler (909) → Overdrive → AutoFilter (HPF)</td>
-                        <td className="py-2.5 text-amber-400">Velocity mapped strictly to envelope decay</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 pr-4 font-semibold text-cyan-400">08. 909 Ride Cymbal</td>
-                        <td className="py-2.5 pr-4">Peak-energy metallic 8th/16th warehouse ride</td>
-                        <td className="py-2.5 pr-4">Simpler (909 Ride) → EQEight (HPF 650Hz) → Saturator → Compressor2</td>
-                        <td className="py-2.5 text-amber-400">High-shelf shimmer &amp; quarter-note kick pump</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
 
       {/* Multi-Project Bulk Smart Leveling 2.0 Queue & Master Export 2.0 Modal */}
       <BulkQueueAndExportModal
@@ -2368,6 +2411,51 @@ export default function App() {
           }
         />
       )}
+
+      {/* Reference Track Deep AI Analysis & Counterpart Re-Composition Modal */}
+      <ReferenceTrackModal
+        isOpen={isReferenceModalOpen}
+        onClose={() => setIsReferenceModalOpen(false)}
+        onLoadCounterpartProject={(newProject) => {
+          const enriched = enrichProjectWithAnalysis(newProject, activeFormId);
+          setProject(enriched);
+          const safeBars: 16 | 32 | 64 | 128 =
+            enriched.arrangementLengthBars === 32 ||
+            enriched.arrangementLengthBars === 64 ||
+            enriched.arrangementLengthBars === 128
+              ? enriched.arrangementLengthBars
+              : 16;
+          setTransport((prev) => ({
+            ...prev,
+            arrangementLengthBars: safeBars,
+          }));
+          setMasterBus((prev) => ({
+            ...prev,
+            limiterCeilingDbtp: -1.0,
+            targetIntegratedLufs: -14.0,
+            masterAutomationPoints: [
+              { beat: 0, value: 0.96 },
+              { beat: (safeBars * 4) * 0.5, value: 0.88 },
+              { beat: (safeBars * 4) * 0.75, value: 1.0 },
+              { beat: safeBars * 4, value: 0.95 },
+            ],
+          }));
+          setSelectedTrackId(enriched.tracks[0]?.id || '1');
+          setStatusMessage(
+            `AI Reference Counterpart Loaded: ${enriched.fileName} (${enriched.tempo} BPM · ${enriched.rootKey} ${enriched.scale} · -1.0 dBTP Master Automated).`
+          );
+        }}
+      />
+
+      {/* Visual MIDI Humanization Variance Heatmap & Bar Micro-Timing Inspector Modal */}
+      <MidiHumanizationHeatmapModal
+        isOpen={isHeatmapModalOpen}
+        onClose={() => setIsHeatmapModalOpen(false)}
+        humanization={humanization}
+        arrangementLengthBars={activeTotalBars}
+        currentPlayheadBeat={playheadBeat}
+        onUpdateHumanization={handleUpdateHumanization}
+      />
 
       {/* Studio Settings Modal */}
       <StudioSettingsModal
