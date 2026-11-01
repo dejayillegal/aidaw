@@ -46,6 +46,9 @@ jobs:
       - name: Run Test Suites
         run: npm test
 
+      - name: Test SDK signature output parsing
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
       - name: Install isolated browser test runtime
         run: |
           npm install --no-save --package-lock=false playwright

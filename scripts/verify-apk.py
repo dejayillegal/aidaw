@@ -32,6 +32,24 @@ def run(args):
     return result.stdout
 
 
+def parse_signer_certificate(signature):
+    # New SDKs annotate signer SDK ranges and may repeat one certificate across
+    # schemes. Count identities, not output lines; source-stamp certs are excluded.
+    count = re.search(r'Number of signers:\s*(\d+)', signature)
+    if count and int(count.group(1)) != 1:
+        raise ValueError('Expected exactly one APK signer')
+    fingerprints = set()
+    for line in signature.splitlines():
+        if not line.strip().startswith('Signer'):
+            continue
+        match = re.search(r'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})(?:\s|$)', line)
+        if match:
+            fingerprints.add(match.group(1).lower())
+    if len(fingerprints) != 1:
+        raise ValueError('Expected one signer certificate; SDK output: ' + signature)
+    return fingerprints.pop()
+
+
 def verify_apk(apk_path, metadata_path, certificate=None):
     path = Path(apk_path)
     metadata = json.loads(Path(metadata_path).read_text())
@@ -51,10 +69,7 @@ def verify_apk(apk_path, metadata_path, certificate=None):
         if any(n.endswith('.apk') for n in names):
             raise ValueError('Nested stale APK packaged inside application')
     signature = run([sdk_tool('apksigner'), 'verify', '--verbose', '--print-certs', '--min-sdk-version', str(metadata['minSdk']), str(path)])
-    fingerprints = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)', signature)
-    if len(fingerprints) != 1:
-        raise ValueError('Expected exactly one APK signer')
-    actual_certificate = fingerprints[0].lower()
+    actual_certificate = parse_signer_certificate(signature)
     if certificate and certificate.replace(':', '').lower() != actual_certificate:
         raise ValueError('Signing certificate differs from trusted baseline')
     run([sdk_tool('zipalign'), '-c', '-P', '16', '4', str(path)])
