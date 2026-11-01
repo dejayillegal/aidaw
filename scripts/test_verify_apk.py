@@ -28,4 +28,16 @@ class SignerOutputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_signer_certificate('Verified using v2 scheme: true')
 
+class SdkOutputTests(unittest.TestCase):
+    def test_current_aapt2_minimum_label(self):
+        module.validate_sdk_versions("minSdkVersion:'24'\ntargetSdkVersion:'36'", {'minSdk':24, 'targetSdk':36})
+    def test_legacy_minimum_label(self):
+        module.validate_sdk_versions("sdkVersion:'24'\ntargetSdkVersion:'36'", {'minSdk':24, 'targetSdk':36})
+    def test_mismatch_is_rejected(self):
+        with self.assertRaises(ValueError): module.validate_sdk_versions("minSdkVersion:'25'\ntargetSdkVersion:'36'", {'minSdk':24, 'targetSdk':36})
+    def test_missing_sdk_is_rejected(self):
+        with self.assertRaises(ValueError): module.validate_sdk_versions("targetSdkVersion:'36'", {'minSdk':24, 'targetSdk':36})
+    def test_conflicting_labels_are_rejected(self):
+        with self.assertRaises(ValueError): module.validate_sdk_versions("sdkVersion:'23'\nminSdkVersion:'24'\ntargetSdkVersion:'36'", {'minSdk':24, 'targetSdk':36})
+
 if __name__ == '__main__': unittest.main()
