@@ -1,0 +1,112 @@
+--- a/src/services/commandBus.ts
++++ b/src/services/commandBus.ts
+@@ -11,8 +11,6 @@
+   TimelineEditMode,
+   TrackTakeRecord,
+ } from '../types/ableton';
+-import { syncLocatorsAndMixerToXml, syncTrackClipsToXml } from '../engine/alsXmlEngine';
+-
+ import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
+ import {
+   computeSelectedTrackAnalysisData,
+@@ -78,18 +76,8 @@
+     const beforeSnapshot = deepCloneProject(currentProject);
+     const workingDraft = deepCloneProject(currentProject);
+ 
+-    const mutated = mutator(workingDraft);
+-    // Commit native content before publishing state or adding a history entry.
+-    // Existing callers that already synchronized their XML remain valid.
+-    for (const track of mutated.tracks) {
+-      const previous = currentProject.tracks.find(t => t.id === track.id);
+-      if (previous && JSON.stringify(previous.clips) !== JSON.stringify(track.clips)) {
+-        mutated.rawXmlModified = syncTrackClipsToXml(mutated.rawXmlModified, track.id, track.clips);
+-      }
+-    }
+-
+-    const mutated = { ...mutator(workingDraft) };y
+-     (mutated.audioSettings) {
++    const mutated = { ...mutator(workingDraft) };
++    if (mutated.audioSettings) {
+       const { arrangementLengthBars: derivedExtent, ...transport } = mutated.audioSettings.transport;
+       mutated.audioSettings = { ...mutated.audioSettings, transport };
+     }
+@@ -97,13 +85,6 @@
+     const nextRev = (currentProject.projectRevision || currentProject.revision || 1) + 1;
+     mutated.revision = nextRev;
+     mutated.projectRevision = nextRev;
+-    const mixerState = (p: AbletonProjectState) => p.tracks.map(t => ({ id: t.id, mixer: t.mixer, muted: t.muted, soloed: t.soloed }));
+-    const needsMixerOrLocatorSync = JSON.stringify(mixerState(currentProject)) !== JSON.stringify(mixerState(mutated)) ||
+-      JSON.stringify(currentProject.memoryLocations) !== JSON.stringify(mutated.memoryLocations);
+-    const syncedXml = needsMixerOrLocatorSync ? syncLocatorsAndMixerToXml(mutated) : mutated.rawXmlModified;
+-    const native = new DOMParser().parseFromString(syncedXml, 'application/xml');
+-    if (native.querySelector('parsererror') || native.documentElement.tagName !== 'Ableton') throw new Error('Mutation produced invalid native XML');
+-
+     const syncedXml = synchronizeProjectStateToXml(mutated, currentProject);
+ 
+     mutated.rawXmlModified = syncedXml;
+--- a/src/engine/alsXmlEngine.ts
++++ b/src/engine/alsXmlEngine.ts
+@@ -1910,8 +1910,6 @@
+         clipEl.querySelector('CurrentStart')?.getAttribute('Value') || clipEl.getAttribute('Time') || '0'
+       );
+       const endTime = parseFloat(clipEl.querySelector('CurrentEnd')?.getAttribute('Value') || '64');
+-      const length = Math.max(0.03125, endTime - startTime);
+-
+       const length = Math.max(0, endTime - startTime);
+       if (endTime > maxEndBeatDetected) {
+         maxEndBeatDetected = endTime;
+@@ -1934,8 +1932,6 @@
+             const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
+             const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
+             notes.push({
+-              id: nEl.getAttribute('Data-AIDAW-LogicalId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
+-
+               id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
+               time,
+               quantizedTime,
+@@ -1960,8 +1956,6 @@
+           const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
+           const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
+           notes.push({
+-            id: nEl.getAttribute('Data-AIDAW-LogicalId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
+-
+             id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
+             time,
+             quantizedTime,
+@@ -1981,8 +1975,6 @@
+       notes.sort((a, b) => a.time - b.time);
+ 
+       return {
+-        id: clipEl.getAttribute('Data-AIDAW-LogicalId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
+-
+         id: clipEl.getAttribute('Data-Parametric-ClipId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
+ 
+         name: clipName,
+@@ -2579,27 +2571,6 @@
+   requireUnique(Array.from(events.children).filter(el => el.tagName === 'MidiClip').map(el => el.getAttribute('Id') || ''), 'serialized clip');
+   return new XMLSerializer().serializeToString(doc);
+ 
+-  if (doc.querySelector('parsererror')) throw new Error('CLIP_SYNC_XML: invalid source XML');
+-  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
+-  const targetTrack = trackEls.find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === trackId) ||
+-    trackEls.find((el, i) => `track_${i}_${el.getAttribute('Id') || i}` === trackId);
+-  if (!targetTrack) throw new Error(`CLIP_SYNC_TRACK: MIDI track ${trackId} not found`);
+-  if (new Set(clips.map(c => c.id)).size !== clips.length) throw new Error('CLIP_SYNC_ID: duplicate clip identity');
+-  for (const clip of clips) {
+-    if (!Number.isFinite(clip.startTime) || clip.startTime < 0 || !Number.isFinite(clip.length) || clip.length <= 0) {
+-      throw new Error('CLIP_SYNC_TIME: positive extent and nonnegative start required');
+-    }
+-    for (const note of clip.notes) {
+-      if (![note.time, note.quantizedTime, note.duration, note.pitch, note.velocity].every(Number.isFinite) ||
+-          note.duration <= 0 || !Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 ||
+-          note.velocity < 1 || note.velocity > 127 ||
+-          (note.probability !== undefined && (!Number.isFinite(note.probability) || note.probability < 0 || note.probability > 1))) {
+-        throw new Error('CLIP_SYNC_NOTE: invalid MIDI note');
+-      }
+-    }
+-  }
+-  injectMultipleMidiClipsXmlNodes(doc, targetTrack, clips);
+-  return formatXmlString(new XMLSerializer().serializeToString(doc));
+ 
+ }
+ 

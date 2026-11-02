@@ -47,18 +47,18 @@ async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDu
     assert(decoded.numberOfChannels === 2, 'Decoded channels mismatch');
     assert(decoded.sampleRate === expectedSampleRate, 'Decoded sample rate mismatch');
     assert(Math.abs(decoded.duration - frames / expectedSampleRate) <= 1 / expectedSampleRate, 'Decoded duration mismatch');
-    const pcmCopy = decoded.getChannelData(0);
+    const channels = [decoded.getChannelData(0), decoded.getChannelData(1)];
     let repeatMaxAbsoluteError = 0, repeatRmsError = 0, repeatMaxFrame = 0;
-    if (referencePcm && referencePcm.length === pcmCopy.length) {
-      for (let i = 0; i < pcmCopy.length; i++) {
-        const difference = pcmCopy[i] - referencePcm[i];
+    if (referencePcm && referencePcm[0].length === channels[0].length) {
+      for (let ch = 0; ch < channels.length; ch++) for (let i = 0; i < channels[ch].length; i++) {
+        const difference = channels[ch][i] - referencePcm[ch][i];
         if (Math.abs(difference) > repeatMaxAbsoluteError) { repeatMaxAbsoluteError = Math.abs(difference); repeatMaxFrame = i; }
         repeatRmsError += difference * difference;
       }
-      repeatRmsError = Math.sqrt(repeatRmsError / pcmCopy.length);
+      repeatRmsError = Math.sqrt(repeatRmsError / (channels[0].length * channels.length));
       assert(repeatMaxAbsoluteError < 0.001 && repeatRmsError < 0.0001, `Repeated render differs: max=${repeatMaxAbsoluteError}, rms=${repeatRmsError}, frame=${repeatMaxFrame}`);
     }
-    referencePcm = new Float32Array(pcmCopy);
+    referencePcm = channels.map(pcm => new Float32Array(pcm));
     let peak = 0;
     let nonzero = 0;
     let lastMusicalQuarterPeak = 0;
@@ -78,7 +78,7 @@ async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDu
     assert(lastMusicalQuarterPeak > 1e-5, 'Final musical quarter is silent; late tracks may be missing');
     return { sizeBytes: bytes.byteLength, frames, sampleRate: decoded.sampleRate,
       bitDepth: expectedBitDepth, durationSeconds: decoded.duration, peak, nonzero,
-      lastMusicalQuarterPeak, repeatMaxAbsoluteError, repeatRmsError, sha256: await sha256(bytes) };
+      lastMusicalQuarterPeak, repeatMaxAbsoluteError, repeatRmsError, repeatMaxFrame, sha256: await sha256(bytes) };
   } finally { await ctx.close(); }
 }
 

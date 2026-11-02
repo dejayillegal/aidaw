@@ -1,0 +1,38 @@
+{
+  "scope": "Before the relevant correction; expected failing assertions, not final acceptance",
+  "tests": 6,
+  "passed": 1,
+  "failed": 5,
+  "failures": [
+    {
+      "name": "reads and edits Data-Parametric identities across both serializers",
+      "messages": [
+        "Error: Target track public-track missing or ambiguous\n    at syncTrackClipsToXml (/workspace/scratch/742120232dee/aidaw/src/engine/alsXmlEngine.ts:2461:35)\n    at /workspace/scratch/742120232dee/aidaw/src/__tests__/mergedIdentityContracts.test.ts:32:19\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2886:64\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)"
+      ]
+    },
+    {
+      "name": "reads and edits Data-AIDAW identities across both serializers",
+      "messages": [
+        "AssertionError: expected '1001' to be 'public-clip' // Object.is equality\n    at /workspace/scratch/742120232dee/aidaw/src/__tests__/mergedIdentityContracts.test.ts:29:68\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2886:64\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3276:10)"
+      ]
+    },
+    {
+      "name": "preserves fine clip/note coordinates and grid time without rounding to milliseconds of beats",
+      "messages": [
+        "AssertionError: expected +0 to be 0.000125 // Object.is equality\n    at /workspace/scratch/742120232dee/aidaw/src/__tests__/mergedIdentityContracts.test.ts:45:23\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
+      ]
+    },
+    {
+      "name": "cloned clips and notes acquire new identities without inheriting stale aliases",
+      "messages": [
+        "Error: Target track public-track missing or ambiguous\n    at syncTrackClipsToXml (/workspace/scratch/742120232dee/aidaw/src/engine/alsXmlEngine.ts:2461:35)\n    at /workspace/scratch/742120232dee/aidaw/src/__tests__/mergedIdentityContracts.test.ts:52:34\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3276:10)"
+      ]
+    },
+    {
+      "name": "rejects contradictory aliases rather than silently selecting one identity",
+      "messages": [
+        "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/index.aTZaPVhf.js:2303:114)\n    at Proxy.<anonymous> (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/index.aTZaPVhf.js:1958:14)\n    at Proxy.methodWrapper (file:///workspace/scratch/742120232dee/aidaw/node_modules/chai/index.js:1737:25)\n    at /workspace/scratch/742120232dee/aidaw/src/__tests__/mergedIdentityContracts.test.ts:60:51\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20"
+      ]
+    }
+  ]
+}

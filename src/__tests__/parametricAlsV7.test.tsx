@@ -30,6 +30,7 @@ import { alsPatchEngine } from '../engine/alsPatchEngine';
 import { HumanizationConfig, MasterBusConfig, AbletonDevice } from '../types/ableton';
 
 class MockAudioNode {
+  constructor(public readonly context: MockAudioContext) {}
   connect(dest: any) {
     return dest;
   }
@@ -65,13 +66,13 @@ class MockAudioContext {
   }
 
   createGain() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.gain = new MockAudioParam(1.0);
     return node;
   }
 
   createBiquadFilter() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.type = 'lowpass';
     node.frequency = new MockAudioParam(1000);
     node.Q = new MockAudioParam(1.0);
@@ -80,7 +81,7 @@ class MockAudioContext {
   }
 
   createDynamicsCompressor() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.threshold = new MockAudioParam(-24);
     node.knee = new MockAudioParam(30);
     node.ratio = new MockAudioParam(12);
@@ -90,32 +91,32 @@ class MockAudioContext {
   }
 
   createWaveShaper() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.curve = null;
     node.oversample = 'none';
     return node;
   }
 
   createStereoPanner() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.pan = new MockAudioParam(0);
     return node;
   }
 
   createConvolver() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.buffer = null;
     return node;
   }
 
   createDelay() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.delayTime = new MockAudioParam(0);
     return node;
   }
 
   createAnalyser() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.fftSize = 256;
     node.frequencyBinCount = 128;
     node.smoothingTimeConstant = 0.8;
@@ -134,7 +135,7 @@ class MockAudioContext {
   }
 
   createBufferSource() {
-    const node = new MockAudioNode() as any;
+    const node = new MockAudioNode(this) as any;
     node.buffer = null;
     node.start = () => {};
     node.stop = () => {};

@@ -370,7 +370,8 @@ export function applyClipPositionWithEditMode(
     });
   }
 
-  const latestEnd = Math.max(0, ...draft.tracks.flatMap(t => t.clips.map(c => c.startTime + c.length)));
+  let latestEnd = 0;
+  for (const t of draft.tracks) for (const c of t.clips) latestEnd = Math.max(latestEnd, c.startTime + c.length);
   draft.arrangementLengthBars = Math.max(draft.arrangementLengthBars || 1, Math.ceil(latestEnd / 4));
   return draft;
 }

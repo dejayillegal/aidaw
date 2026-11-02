@@ -1686,6 +1686,13 @@ export function buildStarterAbletonXml(
  * TASK 1: THE PARSER ENGINE
  * Parses an Ableton .als XML tree to extract Tempo, Root Key, Scale, and existing MidiTrack / AudioTrack structures.
  */
+/** Only project-owned tempo targets may define or receive the global scalar tempo. */
+function projectTempoTarget(doc: Document): Element | null {
+  return doc.querySelector('LiveSet > MasterTrack > DeviceChain > Mixer > Tempo > Manual')
+    || doc.querySelector('LiveSet > MasterTrack > Tempo > Manual')
+    || doc.querySelector('LiveSet > Tempo > Manual');
+}
+
 export function parseAbletonXmlDom(
   xmlString: string,
   fileName: string,
@@ -1703,10 +1710,7 @@ export function parseAbletonXmlDom(
   const creator = abletonRoot?.getAttribute('Creator') || 'Ableton Live 12.0';
   const schemaVersion = abletonRoot?.getAttribute('MinorVersion') || '12.0_12049';
 
-  const tempoManualNode =
-    xmlDoc.querySelector('MasterTrack Tempo Manual') ||
-    xmlDoc.querySelector('Tempo > Manual') ||
-    xmlDoc.querySelector('Tempo');
+  const tempoManualNode = projectTempoTarget(xmlDoc);
   const tempoVal = parseFloat(
     tempoManualNode?.getAttribute('Value') || tempoManualNode?.textContent || '134'
   );
@@ -2915,12 +2919,13 @@ export function syncLocatorsAndMixerToXml(
   const tracks = isProject ? projectOrXml.tracks : tracksArg || [];
   const memoryLocations = isProject ? projectOrXml.memoryLocations : memoryLocationsArg;
 
-  if (!currentXml) return '';
+  if (!currentXml) throw new Error('PROJECT_XML: missing source XML');
 
   const parser = new DOMParser();
-  const sanitized = currentXml.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
-  const xmlDoc = parser.parseFromString(sanitized, 'application/xml');
-  const liveSet = xmlDoc.querySelector('LiveSet') || xmlDoc.documentElement;
+  const xmlDoc = parser.parseFromString(currentXml, 'application/xml');
+  if (xmlDoc.querySelector('parsererror')) throw new Error('PROJECT_XML: invalid source XML');
+  const liveSet = xmlDoc.querySelector('Ableton > LiveSet');
+  if (!liveSet) throw new Error('PROJECT_XML: missing LiveSet');
 
   if (memoryLocations !== undefined && liveSet) {
     let locatorsOuter = liveSet.querySelector('Locators');
@@ -2967,7 +2972,7 @@ export function syncLocatorsAndMixerToXml(
       automationGainOffsetDb: t.automationGainOffsetDb });
   });
 
-  return formatXmlString(new XMLSerializer().serializeToString(xmlDoc));
+  return new XMLSerializer().serializeToString(xmlDoc);
 }
 
 /** Serialize the existing canonical domain. Unchanged clip/unknown XML is left intact. */
@@ -3021,7 +3026,7 @@ export function synchronizeProjectStateToXml(
   const root = doc.querySelector('Ableton')!;
   if (project.humanizationSeed !== undefined) root.setAttribute('Data-Parametric-HumanizationSeed', String(project.humanizationSeed));
   root.setAttribute('Data-Parametric-ArrangementBars', String(project.arrangementLengthBars || 16));
-  const tempo = doc.querySelector('MasterTrack Tempo Manual') || doc.querySelector('Tempo > Manual');
+  const tempo = projectTempoTarget(doc);
   if (tempo) tempo.setAttribute('Value', String(project.tempo));
   else if (project.tempo !== (previous?.tempo ?? parseAbletonXmlDom(xml, project.fileName).tempo)) {
     throw new Error('PROJECT_XML: missing tempo target for tempo edit');
@@ -4087,7 +4092,7 @@ export class TechnoHeuristicEngine {
         }
       }
     }
-    return formatXmlString(new XMLSerializer().serializeToString(doc));
+    return new XMLSerializer().serializeToString(doc);
   }
 
 }

@@ -11,10 +11,12 @@ import { createServer } from 'vite';
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let chromium;
-try { ({ chromium } = require('playwright')); }
+let playwrightVersion;
+try { ({ chromium } = require('playwright')); playwrightVersion = require('playwright/package.json').version; }
 catch (error) {
   if (!process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES) throw error;
   ({ chromium } = require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES, 'playwright')));
+  playwrightVersion = require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES, 'playwright/package.json')).version;
 }
 const output = process.env.RECOVERY_BROWSER_OUTPUT || await fs.mkdtemp(path.join(os.tmpdir(), 'aidaw-browser-'));
 await fs.mkdir(output, { recursive: true });
@@ -30,6 +32,7 @@ try {
     ...(process.env.CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.CHROMIUM_EXECUTABLE_PATH } : {}),
     args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'],
   });
+  report.browserVersion = browser.version(); report.playwrightVersion = playwrightVersion;
   const context = await browser.newContext();
   // The app deliberately supports offline system fonts; this check does not depend on Google Fonts availability.
   await context.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -53,7 +56,7 @@ try {
   await page.waitForFunction(() => typeof window.recovery?.futureUiJournal === 'function');
   report.futureRecoveryUi = await page.evaluate(() => window.recovery.futureUiJournal('verify'));
   console.log(JSON.stringify({ futureRecoveryUi: report.futureRecoveryUi }));
-  for (const testCase of [...Array.from({ length: 8 }, () => ({ bars: 4 })), { bars: 64 }, { bars: 4, master: true }]) {
+  for (const testCase of [...Array.from({ length: 20 }, () => ({ bars: 4 })), { bars: 64 }, { bars: 4, master: true }]) {
     console.log(`Rendering ${testCase.bars} bars${testCase.master ? ' / mastering' : ''} in Chromium...`);
     let timeout;
     const result = await Promise.race([
@@ -63,7 +66,7 @@ try {
     report.audio.push(result);
     console.log(JSON.stringify(result));
   }
-  for (const repeat of report.audio.slice(1, 8)) assert(repeat.repeatMaxAbsoluteError < 0.001 && repeat.repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
+  for (const repeat of report.audio.slice(1, 20)) assert(repeat.repeatMaxAbsoluteError < 0.001 && repeat.repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
   report.probabilityOffline = await page.evaluate(() => window.recovery.runProbabilityCase());
   console.log(JSON.stringify({ probabilityOffline: report.probabilityOffline }));
   await page.goto(origin);

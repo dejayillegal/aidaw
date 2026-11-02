@@ -82,3 +82,25 @@ it('moves fractional clips beyond previous extent without clamping the destinati
   expect(reimported.tracks[0].clips[0].startTime).toBe(destination);
   expect(reimported.tracks[0].clips[0].notes[0].time).toBe(t.clips[0].notes[0].time+destination);
 });
+
+it('preserves namespace bindings and whitespace-sensitive opaque state during an unrelated command', () => {
+  const xml = buildStarterAbletonXml('berghain-134',777,4).xml.replace('<LiveSet>', '<LiveSet xmlns:vendor="urn:test"><vendor:State xml:space="preserve">  keep\n  this  </vendor:State>');
+  const p = parseAlsXmlString(xml), bus = new StudioCommandBus();
+  const next = bus.executeMutation('p','mute','mixer',p,d=>{d.tracks[0].muted=true;return d;});
+  const doc = new DOMParser().parseFromString(next.rawXmlModified,'application/xml');
+  expect(doc.querySelector('parsererror')).toBeNull();
+  expect(doc.getElementsByTagNameNS('urn:test','State')[0].textContent).toBe('  keep\n  this  ');
+  expect(bus.undo('p')).toEqual(p);
+});
+
+it('never reads or writes a device Tempo parameter as the project tempo', () => {
+  const doc = new DOMParser().parseFromString(buildStarterAbletonXml('berghain-134',777,4).xml,'application/xml');
+  doc.querySelector('MasterTrack')!.remove();
+  const tempo = doc.createElement('Tempo'), manual = doc.createElement('Manual');manual.setAttribute('Value','123');tempo.appendChild(manual);
+  doc.querySelector('MidiTrack Devices')!.appendChild(tempo);
+  const p = parseAlsXmlString(serialize(doc));expect(p.tempo).toBe(134);
+  const bus = new StudioCommandBus(), next = bus.executeMutation('p','mute','mixer',p,d=>{d.tracks[0].muted=true;return d;});
+  expect(new DOMParser().parseFromString(next.rawXmlModified,'application/xml').querySelector('MidiTrack Devices Tempo Manual')!.getAttribute('Value')).toBe('123');
+  expect(()=>bus.executeMutation('p','tempo','transport',next,d=>({...d,tempo:135}))).toThrow(/tempo target/);
+  expect(bus.getHistory('p')).toHaveLength(1);
+});
