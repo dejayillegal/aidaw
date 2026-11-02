@@ -1,5 +1,12 @@
 # Core recovery evidence ledger
 
+**Current integrated baseline & G1–G8 strengthening (2 November 2026):**
+- Integrated the 5-message attachment (`c6f0edfb` PR10 transport boundaries, `a1840cdd` track lifecycle/note transforms/responsive UI, `7943450f` capability & acceptance ledger, `00b012a8` non-destructive Session matrix, rational/fine grid edits & 10-insert guard, `d1094236` attachment evidence) cleanly against `b871b0de366e677d2f6ae5b2c1ab16df682edb88`.
+- Strengthened **G1** (`src/engine/timelineCoordinates.ts` canonical `960 PPQ` integer ticks, tuplets, `1/128` grid snapping, changing meter maps & piecewise tempo maps), **G3** (`src/components/StudioMenuBar.tsx`, `src/App.tsx`, `src/engine/alsXmlEngine.ts` explicit 16-bar Sketch vs 64/128-bar Full Track creation and persisted `creationMode` / `requestedDurationBars`), **G5** (`src/engine/abletonCapabilityMatrix.ts` declared `executable` / `preserved-only` / `converted` / `unsupported` matrix & preflight auditor), **G7** (unqualified `public/apk-metadata.json` preserved fail-closed with visible UI status alert on blocked APK download), and **G8** (authoritative G1–G8 matrix & historical G8 reconciliation in [recovery-contract/ACCEPTANCE.md](recovery-contract/ACCEPTANCE.md)).
+- See [Session, precision and insert corrections](recovery-contract/ATTACHMENT_IMPLEMENTATION.md) and [G1–G8 Acceptance & Gate Matrix](recovery-contract/ACCEPTANCE.md). Full gates remain open (`FAIL` / `BLOCKED`).
+
+**Earlier status (2 November 2026):** see [the current contract ledger](recovery-contract/ACCEPTANCE.md). Implementation commit `a1840cdd065962a7644c8d11778590464c518dbc` advances track lifecycle, independent clip tools, UI wiring/layout and project switching. All G1–G8 gates remain FAIL/BLOCKED; G0 full runtime audit remains NOT TESTED. Entries below are historical and must not be read as current release certification.
+
 Contract: Core DAW Recovery and Complete-Track Implementation Contract, supplied 2026-11-02 (Asia/Kolkata).
 
 ## Baseline and scope

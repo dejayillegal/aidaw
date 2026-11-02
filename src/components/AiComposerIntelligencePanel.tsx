@@ -81,14 +81,7 @@ interface AiComposerIntelligencePanelProps {
   ) => void;
 }
 
-export interface TrackVelocityRandomizerConfig {
-  minVelocity: number;
-  maxVelocity: number;
-  blendPct: number;
-  accentLock: boolean;
-  downbeatLock: boolean;
-  seed: number;
-}
+export type { TrackVelocityRandomizerConfig } from '../types/ableton';
 
 const MIDI_TOOLS: { id: MidiToolTransformationId; label: string; desc: string }[] = [
   { id: 'euclidean', label: 'Euclidean E(k,16)', desc: 'Bjorklund polymetric step distribution' },
@@ -187,7 +180,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
   };
 
   return (
-    <div className="p-3.5 bg-[#0D1017] text-slate-200 space-y-4 font-mono text-xs">
+    <div className="ai-composer-panel min-w-0 w-full p-3.5 bg-[#0D1017] text-slate-200 space-y-4 font-mono text-xs">
       {/* Row 1: Project Musical Profile & Novelty Telemetry */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Project Analysis Profile (5 cols) */}
@@ -708,7 +701,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
 
           {/* AI Composer Note Velocity Randomizer with Min/Max, Blend %, Accent Lock & Live Distribution */}
           {(() => {
-            const selectedTrackNotes = selectedTrack?.clips?.[0]?.notes || [];
+            const selectedTrackNotes = selectedTrack?.clips?.flatMap(clip => clip.notes) || [];
             const noteCount = selectedTrackNotes.length;
             const lockedCount = selectedTrackNotes.filter((n) => {
               if (velAccentLock && (n.isAccent || n.velocity >= 110)) return true;
@@ -952,7 +945,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-emerald-400" />
             <span className="font-semibold text-slate-100">
-              SCENE-TO-ARRANGEMENT VARIATIONS &amp; TRACK LOCKS ({project.tracks.length} TRACKS)
+              SESSION LAUNCHES &amp; TRACK LOCKS ({project.tracks.length} TRACKS)
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -964,13 +957,13 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                 className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
               >
                 <Play className="w-2.5 h-2.5 fill-current" />
-                <span>Apply Scene {String.fromCharCode(65 + sceneIdx)}</span>
+                <span>Launch Scene {String.fromCharCode(65 + sceneIdx)}</span>
               </button>
             ))}
           </div>
         </div>
 
-        <p className="text-[10px] text-slate-400">Apply Scene replaces the targeted arrangement clips and can be undone. Live Session launch/record is not yet qualified.</p>
+        <p className="text-[10px] text-slate-400">Launch queues independent Session clips on the launch grid. Arrangement clips are preserved. Capture performance explicitly in the Session workspace.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2">
           {project.tracks.map((track) => {
             const isSelected = track.id === selectedTrack?.id;
@@ -1026,7 +1019,8 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
 
                 <div className="grid grid-cols-2 gap-1">
                   {['Scene A', 'Scene B', 'Scene C', 'Scene D'].map((sceneLabel, sIdx) => {
-                    const isActiveSlot = (track.activeSessionSlot ?? 0) === sIdx;
+                    const requested=project.session?.events.filter(event=>event.trackId===track.id).at(-1);
+                    const isActiveSlot = !!requested?.clipId && requested.clipId===track.sessionClips?.[sIdx]?.id;
                     return (
                       <button
                         key={sIdx}

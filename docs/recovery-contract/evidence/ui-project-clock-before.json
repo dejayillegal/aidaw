@@ -1,0 +1,7 @@
+[
+  {
+    "status": "FAIL",
+    "error": "AssertionError [ERR_ASSERTION]: opening a project resets audio-clock ownership, not only the displayed cursor\n+ actual - expected\n\n  {\n+   beat: 0.6435789871504157,\n-   beat: 0,\n    playing: false\n  }\n\n    at runTrackWorkflows (file:///workspace/scratch/ea7599a5d909/aidaw/scripts/track-workflows-check.mjs:85:10)\n    at async file:///workspace/scratch/ea7599a5d909/aidaw/scripts/track-workflows-check.mjs:127:14",
+    "errors": []
+  }
+]

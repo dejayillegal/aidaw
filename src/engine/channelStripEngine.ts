@@ -14,6 +14,15 @@ import {
 
 export const MAX_CHANNEL_INSERT_SLOTS = 10;
 
+/** Imported chains are preserved; execution must never truncate them. */
+export function assertExecutableInsertLimits(project: AbletonProjectState): void {
+  for (const track of project.tracks) {
+    if (track.devices.length > MAX_CHANNEL_INSERT_SLOTS) {
+      throw new Error(`INSERT_LIMIT: ${track.name} has ${track.devices.length} devices; the browser supports ${MAX_CHANNEL_INSERT_SLOTS} chain slots. Remove devices or retain this project for XML preservation only.`);
+    }
+  }
+}
+
 export interface EffectiveTrackGainBreakdown {
   baseFaderDb: number;
   baseVolumeDb: number;

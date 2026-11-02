@@ -19,6 +19,7 @@ import {
 } from './alsXmlEngine';
 import { validateAlsProjectCadence } from './compositionIntelligenceEngine';
 import { synthesizeProjectToStereoFloatBuffers } from './webAudioSynth';
+import { assertExecutableInsertLimits } from './channelStripEngine';
 
 export const MASTER_EXPORT_PRESETS_STORAGE_KEY = 'ableton_studio_master_export_presets_v2';
 
@@ -866,7 +867,7 @@ export function evaluateProjectRenderCapabilities(project: AbletonProjectState):
     if (track.type === 'audio' && (!track.clips || track.clips.length === 0)) {
       missingSampleCount++;
     }
-    if (track.type === 'midi' && (track.clips[0]?.notes.length || 0) > 0 && !track.muted) {
+    if (track.type === 'midi' && track.clips.some(clip=>clip.notes.length>0) && !track.muted) {
       playableMidiTracks++;
     }
     track.devices.forEach((dev) => {
@@ -875,6 +876,15 @@ export function evaluateProjectRenderCapabilities(project: AbletonProjectState):
       }
     });
   });
+
+  let unavailableReason: string | undefined;
+  try { assertExecutableInsertLimits(project); } catch(error) { unavailableReason=error instanceof Error?error.message:String(error); }
+  if (project.audioSettings?.transport.arrangementMode==='session') unavailableReason='SESSION_CAPTURE_REQUIRED: capture the performance and return to Arrangement before rendering';
+  if (unavailableReason) return {
+    canRenderAudio:false,canSynthesizeOffline:false,hasUnsupportedNativeDevices:unsupportedDeviceNames.length>0,
+    hasExternalUnrenderableAudio:missingSampleCount>0,missingSampleCount,missingAudioSampleCount:missingSampleCount,
+    unsupportedDeviceNames,unsupportedDeviceTypes:unsupportedDeviceNames,renderAvailability:'metadata_only',unavailableReason,
+  };
 
   if (playableMidiTracks === 0) {
     return {

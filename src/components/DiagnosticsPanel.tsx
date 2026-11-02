@@ -21,6 +21,7 @@ import { downloadDebugApk } from '../utils/apkDownloader';
 interface DiagnosticsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  onReportStatus?: (message: string) => void;
 }
 
 interface LatencySample {
@@ -38,7 +39,7 @@ interface UnderrunEventItem {
   activeVoices: number;
 }
 
-export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onClose }) => {
+export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onClose, onReportStatus }) => {
   const [stats, setStats] = useState<{
     bufferUnderruns: number;
     audioThreadLatencyMs: number;
@@ -76,6 +77,7 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onCl
     ];
   });
   const [downloadingApk, setDownloadingApk] = useState(false);
+  const [apkError, setApkError] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // Poll synthEngine diagnostics every 100ms as requested
@@ -122,8 +124,13 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onCl
   const handleDownloadApk = async () => {
     if (downloadingApk) return;
     setDownloadingApk(true);
+    setApkError(null);
     try {
       await downloadDebugApk('parametric-techno-daw-debug.apk');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setApkError(msg);
+      onReportStatus?.(`Export failed: ${msg}`);
     } finally {
       setDownloadingApk(false);
     }
@@ -540,22 +547,29 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onCl
       </div>
 
       {/* Drawer Footer */}
-      <div className="px-4 py-3 bg-[#090C11] border-t border-[#1F2734] flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={handleDownloadApk}
-          className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-        >
-          <Download className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{downloadingApk ? 'Packaging APK...' : 'Download Debug APK'}</span>
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-3.5 py-1.5 bg-[#1B2230] hover:bg-[#252E40] text-slate-200 border border-[#2E3A4E] rounded text-xs font-bold transition"
-        >
-          Close Drawer
-        </button>
+      <div className="px-4 py-3 bg-[#090C11] border-t border-[#1F2734] space-y-2">
+        {apkError && (
+          <div role="alert" className="p-2 rounded bg-rose-500/15 border border-rose-500/40 text-[10px] text-rose-200 leading-snug">
+            {apkError}
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={handleDownloadApk}
+            className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{downloadingApk ? 'Packaging APK...' : 'Download Debug APK'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-1.5 bg-[#1B2230] hover:bg-[#252E40] text-slate-200 border border-[#2E3A4E] rounded text-xs font-bold transition"
+          >
+            Close Drawer
+          </button>
+        </div>
       </div>
     </div>
   );

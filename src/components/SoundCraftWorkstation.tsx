@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { SessionMatrix, type SessionMatrixProps } from './SessionMatrix';
 import {
   AbletonProjectState,
   AbletonTrack,
@@ -115,7 +116,8 @@ export interface SoundCraftWorkstationProps {
     scale?: string,
     prompt?: string
   ) => void;
-  onLaunchSessionScene: (sceneIdx: number) => void;
+  onLaunchSessionScene: (sceneIdx: number, trackId?: string) => void;
+  sessionActions?: Omit<SessionMatrixProps, 'project' | 'beat' | 'isPlaying'>;
   onToggleTrackLock: (trackId: string) => void;
   onTriggerPadNote?: (pitch: number, velocity: number) => void;
   onUpdateHumanization: (partial: Partial<HumanizationConfig>) => void;
@@ -210,6 +212,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   onInjectPolyrhythmClip,
   onApplyChordGridTransform,
   onLaunchSessionScene,
+  sessionActions,
   onToggleTrackLock,
   onUpdateHumanization,
   onUpdateTrackVelocityCurve,
@@ -359,7 +362,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
 
   if (studioWorkspace === 'session') {
     return (
-      <div className="flex-1 overflow-y-auto bg-[#0A0D12] p-4 flex flex-col items-center justify-center">
+      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto bg-[#0A0D12] p-4">
         <div className="w-full max-w-4xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#232B3A] pb-3">
             <div>
@@ -371,6 +374,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               </p>
             </div>
           </div>
+          {sessionActions && <SessionMatrix project={project} beat={playheadBeat} isPlaying={isPlaying} {...sessionActions} />}
           <TouchJamPads
             project={project}
             selectedTrackId={selectedTrackId}
@@ -441,6 +445,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
             onSelectTrack={onSelectTrack}
             onSeekBeat={onSeekBeat}
             onRandomizeTrackVelocities={onRandomizeTrackVelocities}
+            onApplyMidiQuantizeStrength={onApplyMidiQuantizeStrength}
           />
         </div>
       </div>
@@ -899,6 +904,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               onSelectTrack={onSelectTrack}
               onSeekBeat={onSeekBeat}
               onRandomizeTrackVelocities={onRandomizeTrackVelocities}
+              onApplyMidiQuantizeStrength={onApplyMidiQuantizeStrength}
             />
           </div>
         </aside>

@@ -1355,11 +1355,13 @@ export function formatXmlString(xml: string): string {
 export function buildStarterAbletonXml(
   templateId = 'berghain-134',
   seed?: number,
-  totalBars = 16
+  totalBars = 16,
+  creationMode?: 'sketch' | 'full-track'
 ): { xml: string; meta: StarterTemplateMeta } {
   const effectiveSeed = typeof seed === 'number' ? seed : Math.floor(Math.random() * 10000000) + 1;
   const rnd = (offset: number) => seededRandom(effectiveSeed + offset);
   const totalBeats = totalBars * 4;
+  const effectiveMode: 'sketch' | 'full-track' | undefined = creationMode;
 
   const rootKeys = ['F', 'F#', 'G', 'G#', 'A', 'D', 'C#', 'E'];
   const scales = ['Phrygian', 'Dorian', 'Natural Minor', 'Locrian'];
@@ -1553,8 +1555,11 @@ export function buildStarterAbletonXml(
       </MidiTrack>`;
   }
 
+  const modeAttrs = effectiveMode
+    ? ` Data-Parametric-RequestedDurationBars="${totalBars}" Data-Parametric-CreationMode="${effectiveMode}"`
+    : '';
   const rawXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Ableton MajorVersion="5" MinorVersion="12.0_12049" SchemaChangeCount="3" Creator="Ableton Live 12.0.5" Revision=" parametric-ai-daw-seed-${effectiveSeed} " Data-Parametric-GenerationSeed="${effectiveSeed}">
+<Ableton MajorVersion="5" MinorVersion="12.0_12049" SchemaChangeCount="3" Creator="Ableton Live 12.0.5" Revision=" parametric-ai-daw-seed-${effectiveSeed} " Data-Parametric-GenerationSeed="${effectiveSeed}"${modeAttrs}>
   <LiveSet>
     <NextPointeeId Value="${30000 + (effectiveSeed % 5000)}" />
     <OverwriteProtectionNumber Value="${4000 + (effectiveSeed % 1000)}" />
@@ -1677,6 +1682,7 @@ export function buildStarterAbletonXml(
     rootKey: chosenRoot,
     scale: chosenScale,
     description: `Procedurally unique underground techno project #${effectiveSeed}.`,
+    ...(effectiveMode ? { creationMode: effectiveMode, requestedDurationBars: totalBars } : {}),
   };
 
   return { xml: formatXmlString(fullSuiteXml), meta: metaObj };
@@ -2180,7 +2186,7 @@ export function parseAbletonXmlDom(
       catch { throw new Error('PROJECT_STATE: malformed track metadata'); }
       // Read only this application's serialized projection; never overlay native IDs/devices/clips.
       appState = Object.fromEntries(Object.entries(appState).filter(([key]) =>
-        ['devices', 'mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb'].includes(key)));
+        ['devices', 'mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb', 'sessionClips', 'activeSessionSlot'].includes(key)));
     }
     tracks.push({
       id: trackId,
@@ -2254,9 +2260,21 @@ export function parseAbletonXmlDom(
     try { audioSettings = JSON.parse(settingsNode.textContent || 'null'); } catch { throw new Error('PROJECT_SETTINGS: malformed settings metadata'); }
     assertAudioSettings(audioSettings!);
   }
+  const savedCreationMode = abletonRoot?.getAttribute('Data-Parametric-CreationMode');
+  const creationMode =
+    savedCreationMode === 'sketch' || savedCreationMode === 'full-track'
+      ? savedCreationMode
+      : undefined;
+  const savedRequestedBars = Number(abletonRoot?.getAttribute('Data-Parametric-RequestedDurationBars'));
+  const requestedDurationBars =
+    Number.isSafeInteger(savedRequestedBars) && savedRequestedBars > 0
+      ? savedRequestedBars
+      : undefined;
   const parsedProject: AbletonProjectState = {
     audioSettings,
     humanizationSeed: abletonRoot?.hasAttribute('Data-Parametric-HumanizationSeed') ? Number(abletonRoot.getAttribute('Data-Parametric-HumanizationSeed')) : undefined,
+    ...(creationMode ? { creationMode } : {}),
+    ...(requestedDurationBars ? { requestedDurationBars } : {}),
     fileName,
     compatibilityWarnings,
     generationSeed: abletonRoot?.hasAttribute('Data-Parametric-GenerationSeed')
@@ -2285,7 +2303,14 @@ export function parseAbletonXmlDom(
     estimatedGzipByteSize: Math.round(rawByteSize * 0.14),
     lastActionLog: `Parsed ${tracks.length} tracks (${totalNotesCount} <MidiNoteEvent> nodes) across ${arrangementLengthBars} bars at ${tempo} BPM in ${detectedRoot} ${scaleNameAttr || 'Phrygian'}.`,
   };
-  if (settingsNode || xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
+  const sessionNode=xmlDoc.querySelector('LiveSet > ParametricSessionState');
+  if (sessionNode) {
+    if (sessionNode.getAttribute('Version')!=='1') throw new Error('SESSION_VERSION: unsupported Session metadata');
+    try { parsedProject.session=JSON.parse(sessionNode.textContent || 'null'); } catch { throw new Error('SESSION_STATE: invalid metadata'); }
+    if (!parsedProject.session) throw new Error('SESSION_STATE: missing performance');
+    compatibilityWarnings.push('Session performance is browser application metadata; native Ableton Session slots and launch execution are not exported.');
+  }
+  if (settingsNode || sessionNode || xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
   return parsedProject;
 }
 
@@ -2969,7 +2994,7 @@ export function syncLocatorsAndMixerToXml(
     appState.setAttribute('AutomationParameter', 'parametric:filter-energy');
     appState.textContent = JSON.stringify({ devices: t.devices, mixer: t.mixer, muted: t.muted, soloed: t.soloed,
       locked: t.locked, automationPoints: t.automationPoints, vcaGroupId: t.vcaGroupId,
-      automationGainOffsetDb: t.automationGainOffsetDb });
+      automationGainOffsetDb: t.automationGainOffsetDb, sessionClips: t.sessionClips, activeSessionSlot: t.activeSessionSlot });
   });
 
   return new XMLSerializer().serializeToString(xmlDoc);
@@ -3005,6 +3030,12 @@ export function synchronizeProjectStateToXml(
   }
   const tracksNode = doc.querySelector('LiveSet > Tracks');
   if (!tracksNode) throw new Error('PROJECT_XML: missing Tracks');
+  // Reconcile only the track kinds represented by the editable domain. Groups,
+  // returns and future track types remain opaque, in their existing positions.
+  const desiredIds = new Set(project.tracks.map(track => track.id));
+  for (const node of Array.from(tracksNode.children)) {
+    if (['MidiTrack', 'AudioTrack'].includes(node.tagName) && !desiredIds.has(readAlsIdentity(node))) node.remove();
+  }
   const present = new Map(Array.from(tracksNode.children).map(node => [readAlsIdentity(node), node]));
   const used = new Set(Array.from(doc.querySelectorAll('[Id]')).map(node => node.getAttribute('Id')));
   let nextId = 10000;
@@ -3023,8 +3054,34 @@ export function synchronizeProjectStateToXml(
     tracksNode.appendChild(node);
     injectMultipleMidiClipsXmlNodes(doc, node, track.clips);
   }
+  const represented = Array.from(tracksNode.children).filter(node => ['MidiTrack', 'AudioTrack'].includes(node.tagName));
+  const byId = new Map<string, Element>();
+  for (const node of represented) {
+    const id = readAlsIdentity(node);
+    if (byId.has(id)) throw new Error(`PROJECT_XML: ambiguous track identity ${id}`);
+    byId.set(id, node);
+  }
+  const slots = represented.map(node => {
+    const slot = doc.createComment('track'); tracksNode.replaceChild(slot, node); return slot;
+  });
+  project.tracks.forEach((track, index) => {
+    const node = byId.get(track.id)!;
+    let name = node.querySelector(':scope > Name');
+    if (!name) { name = doc.createElement('Name'); node.appendChild(name); }
+    // Avoid rewriting an untouched native name representation on unrelated edits.
+    if (name.querySelector(':scope > EffectiveName')?.getAttribute('Value') !== track.name) {
+      for (const key of ['EffectiveName', 'UserName']) {
+        let value = name.querySelector(`:scope > ${key}`);
+        if (!value) { value = doc.createElement(key); name.appendChild(value); }
+        value.setAttribute('Value', track.name);
+      }
+    }
+    tracksNode.replaceChild(node, slots[index]);
+  });
   const root = doc.querySelector('Ableton')!;
   if (project.humanizationSeed !== undefined) root.setAttribute('Data-Parametric-HumanizationSeed', String(project.humanizationSeed));
+  if (project.creationMode !== undefined) root.setAttribute('Data-Parametric-CreationMode', project.creationMode);
+  if (project.requestedDurationBars !== undefined) root.setAttribute('Data-Parametric-RequestedDurationBars', String(project.requestedDurationBars));
   root.setAttribute('Data-Parametric-ArrangementBars', String(project.arrangementLengthBars || 16));
   const tempo = projectTempoTarget(doc);
   if (tempo) tempo.setAttribute('Value', String(project.tempo));
@@ -3036,9 +3093,16 @@ export function synchronizeProjectStateToXml(
     if (!node) { node = doc.createElement('ParametricAudioSettings'); doc.querySelector('LiveSet')!.appendChild(node); }
     node.setAttribute('Version', '1'); node.textContent = JSON.stringify(project.audioSettings);
   }
+  let sessionNode=doc.querySelector('LiveSet > ParametricSessionState');
+  if (project.session) {
+    if (!sessionNode) { sessionNode=doc.createElement('ParametricSessionState'); doc.querySelector('LiveSet')!.appendChild(sessionNode); }
+    sessionNode.setAttribute('Version','1');sessionNode.textContent=JSON.stringify(project.session);
+  } else sessionNode?.remove();
 
   xml = new XMLSerializer().serializeToString(doc);
-  const serialized = previous ? null : parseAbletonXmlDom(xml, project.fileName);
+  // Compare against the prior complete projection, never the half-built document:
+  // new Session references are not resolvable until track metadata is written below.
+  const serialized = previous ? null : parseAbletonXmlDom(project.rawXmlModified || project.rawXml || '', project.fileName);
   const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
     id: c.id, name: c.name, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
     notes: c.notes.map(n => ({ id: n.id, time: n.time, quantizedTime: n.quantizedTime,

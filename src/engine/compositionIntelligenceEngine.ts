@@ -17,6 +17,7 @@ import {
   TechnoArchetype,
   TechnoSubgenreId,
   VoicingSpreadStyle,
+  TrackVelocityRandomizerConfig,
 } from '../types/ableton';
 import {
   applyDillaShuffleSwing,
@@ -32,6 +33,42 @@ import {
   rootKeyToMidiBase,
   seededRandom,
 } from './alsXmlEngine';
+
+/** Track controls address every Arrangement clip; Session content is independent. */
+export function transformTrackArrangementNotes(
+  project: AbletonProjectState,
+  trackId: string,
+  transform: (notes: MidiNoteEvent[], clip: AbletonMidiClip) => MidiNoteEvent[]
+): AbletonProjectState {
+  const target = project.tracks.find(track => track.id === trackId);
+  if (!target) throw new Error(`Track ${trackId} not found`);
+  if (target.locked) throw new Error(`Track ${trackId} is locked`);
+  if (target.type !== 'midi') throw new Error(`Track ${trackId} is not MIDI`);
+  return { ...project, tracks: project.tracks.map(track => track.id !== trackId ? track : {
+    ...track, clips: track.clips.map(clip => {
+      const copy = structuredClone(clip);
+      return { ...clip, notes: structuredClone(transform(copy.notes, copy)) };
+    }),
+  }) };
+}
+
+/** Stable per-event sampling: clip ordering never changes another note's velocity. */
+export function randomizeTrackNoteVelocities(notes: MidiNoteEvent[], config: TrackVelocityRandomizerConfig): MidiNoteEvent[] {
+  if (![config.minVelocity, config.maxVelocity, config.blendPct, config.seed].every(Number.isFinite) ||
+      !Number.isInteger(config.seed) || config.minVelocity < 1 || config.maxVelocity > 127 ||
+      config.minVelocity > config.maxVelocity || config.blendPct < 0 || config.blendPct > 100) {
+    throw new Error('MIDI_VELOCITY: invalid range, blend or seed');
+  }
+  const blend = config.blendPct / 100;
+  return notes.map(note => {
+    if ((config.accentLock && (note.isAccent || note.velocity >= 110)) ||
+        (config.downbeatLock && Math.abs(note.time / 4 - Math.round(note.time / 4)) < 0.0125)) return { ...note };
+    let hash = 2166136261;
+    for (const char of `${config.seed}:${note.id}:${note.pitch}:${note.quantizedTime}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+    const target = Math.round(config.minVelocity + (hash >>> 0) / 4294967296 * (config.maxVelocity - config.minVelocity));
+    return { ...note, velocity: Math.max(1, Math.min(127, Math.round(note.velocity * (1 - blend) + target * blend))) };
+  });
+}
 
 export { applySixteenthNoteSwing, applySwingToMidiClip, MAX_SIXTEENTH_SWING_SHIFT_BEATS };
 

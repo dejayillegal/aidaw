@@ -1,6 +1,18 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Long track names must wrap inside the composer instead of widening the DAW. */
+.ai-composer-panel { overflow-wrap: anywhere; }
+.ai-composer-panel .grid > *,
+.ai-composer-panel .flex > * { min-width: 0; }
+.ai-composer-panel select,
+.ai-composer-panel input { max-width: 100%; }
+@media (pointer: coarse), (max-width: 640px) {
+  .ai-composer-panel button,
+  .ai-composer-panel select,
+  .ai-composer-panel input:not([type="checkbox"]):not([type="range"]) { min-height: 44px; }
+}
+
 @layer base {
   :root {
     --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;

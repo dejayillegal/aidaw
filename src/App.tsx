@@ -63,6 +63,8 @@ import {
   RangeClipGeneratorMode,
   splitTrackClipAtBeat,
   validateAlsProjectCadence,
+  transformTrackArrangementNotes,
+  randomizeTrackNoteVelocities,
 } from './engine/compositionIntelligenceEngine';
 import { renderArrangementToWavBlob, synthEngine } from './engine/webAudioSynth';
 import { TimelineCanvas } from './components/TimelineCanvas';
@@ -105,6 +107,9 @@ import { projectQueueService } from './services/projectQueueService';
 import {
   applyNoteEditWithMode,
   createTrackTakeSnapshot,
+  queueSessionLaunch,
+  storeArrangementClipInSession,
+  captureSessionPerformance,
   studioCommandBus,
   upsertMemoryLocationMarker,
 } from './services/commandBus';
@@ -441,6 +446,7 @@ export default function App() {
         setProject(enriched);
         if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
         setStatusMessage(`Executed: ${label}`);
+        return enriched;
       } catch (error) {
         setStatusMessage(`Edit rejected: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -582,6 +588,11 @@ export default function App() {
       ...nextState,
       audioSettings: prevState.audioSettings,
       humanizationSeed: prevState.humanizationSeed,
+      creationMode: prevState.creationMode ?? nextState.creationMode,
+      requestedDurationBars: prevState.requestedDurationBars ?? nextState.requestedDurationBars,
+      ppq: prevState.ppq ?? nextState.ppq,
+      tempoMap: prevState.tempoMap ?? nextState.tempoMap,
+      meterMap: prevState.meterMap ?? nextState.meterMap,
       lastGenerationIdentity: prevState.lastGenerationIdentity,
       arrangementLengthBars:
         prevState.arrangementLengthBars || nextState.arrangementLengthBars || 16,
@@ -624,15 +635,19 @@ export default function App() {
     return map;
   };
 
-  const starterLoadRevision = useRef(0);
-  const handleLoadStarterTemplate = async (templateId = selectedTemplateId) => {
-    const loadRevision = ++starterLoadRevision.current;
+  const projectLoadRevision = useRef(0);
+  const handleLoadStarterTemplate = async (
+    templateId = selectedTemplateId,
+    requestedBars = 16,
+    creationMode: 'sketch' | 'full-track' = requestedBars > 16 ? 'full-track' : 'sketch'
+  ) => {
+    const loadRevision = ++projectLoadRevision.current;
     synthEngine.stop();
+    synthEngine.seek(0);
     setIsPlaying(false);
     setPlayheadBeat(0);
     const freshSeed = Math.floor(Math.random() * 10000000) + 1;
     setSelectedTemplateId(templateId);
-
 
     const nextForm: MacroArrangementFormId =
       templateId === 'tresor-138'
@@ -650,61 +665,119 @@ export default function App() {
     setActiveFormId(nextForm);
     setActiveStrategyId(nextStrategy);
 
-    const { xml, meta } = buildStarterAbletonXml(templateId, freshSeed);
-    const parsed = parseAbletonXmlDom(xml, meta.name, xml);
+    const { xml: initialXml, meta } = buildStarterAbletonXml(
+      templateId,
+      freshSeed,
+      requestedBars,
+      creationMode
+    );
+    let workingXml = initialXml;
+    let parsed = parseAbletonXmlDom(workingXml, meta.name, workingXml);
+    if (creationMode === 'full-track' && requestedBars > 16) {
+      const sections = generateSectionArrangementPlan(nextForm, requestedBars, freshSeed);
+      const sectionedTracks = parsed.tracks.map((track, idx) => {
+        if (track.type !== 'midi') return track;
+        const clips = decomposeNotesIntoSectionClips(
+          track.name,
+          track.archetype,
+          track.clips.flatMap((c) => c.notes),
+          requestedBars,
+          sections
+        );
+        return {
+          ...track,
+          clips,
+          automationPoints: generateContextualAutomationPoints(
+            track.archetype,
+            nextForm,
+            freshSeed + idx * 53,
+            requestedBars,
+            sections
+          ),
+        };
+      });
+      for (const track of sectionedTracks) {
+        if (track.type === 'midi') {
+          workingXml = syncTrackClipsToXml(workingXml, track.id, track.clips);
+        }
+      }
+      parsed = {
+        ...parsed,
+        creationMode: 'full-track',
+        requestedDurationBars: requestedBars,
+        arrangementLengthBars: requestedBars,
+        tracks: sectionedTracks,
+        rawXmlOriginal: workingXml,
+        rawXmlModified: workingXml,
+        rawXml: workingXml,
+      };
+    } else {
+      parsed = {
+        ...parsed,
+        creationMode,
+        requestedDurationBars: requestedBars,
+        arrangementLengthBars: requestedBars,
+      };
+    }
     const enriched = enrichProjectWithAnalysis(parsed, nextForm);
     // Persist outgoing work before giving the new project a separate queue/history identity.
-    if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, project);
-    const record = await projectQueueService.enqueueProjectFromXml(meta.name, xml);
-    if (loadRevision !== starterLoadRevision.current) return;
-    projectQueueService.switchActiveProject(record.queueId);
+    const record = await projectQueueService.enqueueProjectFromXml(meta.name, workingXml);
+    if (loadRevision !== projectLoadRevision.current) return;
+    if (!record.workingProjectState || record.state === 'failed' || record.state === 'unsupported') {
+      setStatusMessage(`Project open failed: ${record.errorDetails || 'starter initialization failed'}`); return;
+    }
+    projectQueueService.switchActiveProject(record.queueId, projectRef.current);
     projectQueueService.updateWorkingProjectState(record.queueId, enriched);
-    const installed = { ...enriched, audioSettings: projectAudioSettings(enriched) };
+    const baseSettings = projectAudioSettings(enriched);
+    const installed: AbletonProjectState = {
+      ...enriched,
+      creationMode,
+      requestedDurationBars: requestedBars,
+      arrangementLengthBars: requestedBars,
+      audioSettings: {
+        ...baseSettings,
+        transport: {
+          ...baseSettings.transport,
+          loopLengthBars: requestedBars,
+        },
+      },
+    };
     projectRef.current = installed;
     setProject(installed);
     setSelectedTrackId(enriched.tracks[0]?.id || '1');
     setStatusMessage(
-      `Loaded & Analyzed: ${meta.name} (${enriched.tempo} BPM · ${enriched.rootKey} ${enriched.scale} · Strategy: ${nextStrategy}).`
+      `Loaded & Analyzed ${creationMode === 'full-track' ? `Full Track (${requestedBars} Bars)` : `Sketch (${requestedBars} Bars)`}: ${meta.name} (${enriched.tempo} BPM · ${enriched.rootKey} ${enriched.scale} · Strategy: ${nextStrategy}).`
     );
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const loadRevision = ++projectLoadRevision.current;
     try {
-      const firstFile = files[0];
-      setStatusMessage(
-        `Decompressing & ingesting ${files.length} .als project file(s) into Studio Queue...`
-      );
-      const { xml, wasGzipped } = await decompressAlsFile(firstFile);
-      const parsed = parseAbletonXmlDom(xml, firstFile.name, xml);
-      const enriched = enrichProjectWithAnalysis(parsed, activeFormId);
-      setProject(enriched);
+      setStatusMessage(`Ingesting ${files.length} .als project file(s) into Studio Queue...`);
+      const records = [];
+      for (const file of files) {
+        records.push(await projectQueueService.enqueueBrowserFile(file));
+        if (loadRevision !== projectLoadRevision.current) return;
+      }
+      const first = records[0];
+      if (!first.workingProjectState || first.state === 'failed' || first.state === 'unsupported') {
+        throw new Error(first.errorDetails || 'Project initialization failed');
+      }
+      const enriched = enrichProjectWithAnalysis(first.workingProjectState, activeFormId);
+      synthEngine.stop(); synthEngine.seek(0);
+      setIsPlaying(false); setPlayheadBeat(0);
+      projectQueueService.switchActiveProject(first.queueId, projectRef.current);
+      projectQueueService.updateWorkingProjectState(first.queueId, enriched);
+      projectRef.current = enriched; setProject(enriched);
       setSelectedTrackId(enriched.tracks[0]?.id || '1');
-
-      // Enqueue all selected files into ProjectQueueService
-      for (let i = 0; i < files.length; i++) {
-        const rec = await projectQueueService.enqueueBrowserFile(files[i]);
-        if (i === 0) {
-          projectQueueService.switchActiveProject(rec.queueId, project);
-          projectQueueService.updateWorkingProjectState(rec.queueId, enriched);
-        }
-      }
-
-      if (files.length > 1) {
-        setIsBulkQueueModalOpen(true);
-      }
-
-      setStatusMessage(
-        `Ingested ${files.length} project(s) · Active: ${firstFile.name} (${
-          wasGzipped ? 'Gzipped .als' : 'Raw XML'
-        }) · ${enriched.tracks.length} tracks @ ${enriched.tempo} BPM. ${enriched.compatibilityWarnings?.join(' ') || ''}`
-      );
-    } catch (err: any) {
-      setStatusMessage(`Failed to parse .als file: ${err.message}`);
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+      if (files.length > 1) setIsBulkQueueModalOpen(true);
+      const failures = records.filter(record => record.state === 'failed' || record.state === 'unsupported');
+      setStatusMessage(`Ingested ${records.length - failures.length}/${files.length} project(s) · Active: ${files[0].name}. ${failures.length ? `${failures.length} failed; inspect the queue.` : ''} ${enriched.compatibilityWarnings?.join(' ') || ''}`);
+    } catch (error) {
+      if (loadRevision === projectLoadRevision.current) setStatusMessage(`Failed to parse .als file: ${error instanceof Error ? error.message : String(error)}`);
+    } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
   const syncTrackNotesToXml = (
@@ -1140,16 +1213,6 @@ export default function App() {
         nextSeed
       );
 
-      const updatedXml = syncTrackNotesToXml(
-        prev.rawXmlModified,
-        targetTrack.name,
-        targetTrack.archetype,
-        clipName,
-        notes,
-        totalBeats,
-        loopEndBeats
-      );
-
       const updatedTracks = prev.tracks.map((t) => {
         if (t.id !== trackId) return t;
         return {
@@ -1177,7 +1240,7 @@ export default function App() {
         {
           ...prev,
           tracks: updatedTracks,
-          rawXmlModified: updatedXml,
+          rawXmlModified: prev.rawXmlModified,
         },
         activeFormId
       );
@@ -1349,37 +1412,27 @@ export default function App() {
     }));
   };
 
-  const handleLaunchSessionScene = (sceneIdx: number, specificTrackId?: string) => {
-    handleExecuteProjectCommand('Apply Scene To Arrangement', 'clip_edit', (prev) => {
-      let workingXml = prev.rawXmlModified;
-      const totalBeats = (prev.arrangementLengthBars || 16) * 4;
-      const updatedTracks = prev.tracks.map((track) => {
-        if (track.locked || (specificTrackId && track.id !== specificTrackId)) return track;
-        const sceneClip = track.sessionClips?.[sceneIdx];
-        if (!sceneClip || sceneClip.notes.length === 0) {
-          return { ...track, activeSessionSlot: sceneIdx };
-        }
-        workingXml = syncTrackClipsToXml(workingXml, track.id, [sceneClip]);
-        return {
-          ...track,
-          activeSessionSlot: sceneIdx,
-          clips: [{ ...sceneClip }],
-        };
-      });
-      return enrichProjectWithAnalysis(
-        {
-          ...prev,
-          rawXmlModified: workingXml,
-          tracks: updatedTracks,
-        },
-        activeFormId
-      );
+  const handleSessionLaunch = (slot: number|null, trackId?: string) => {
+    const current=projectRef.current;
+    const now=synthEngine.getCurrentBeat()+(synthEngine.getIsPlaying()?0.15*current.tempo/60:0);
+    const next=handleExecuteProjectCommand(slot===null?'Queue Session Stop':'Queue Session Launch','clip_edit',draft=>
+      queueSessionLaunch(draft,trackId || null,slot,now,draft.session?.quantizationBeats || 4));
+    if(next) {
+      try {
+        const settings=projectAudioSettings(next);
+        synthEngine.setState(next,settings.humanization,settings.transport,settings.masterBus);
+        if (!synthEngine.getIsPlaying()) synthEngine.start(false);
+        setIsPlaying(synthEngine.getIsPlaying());
+      } catch(error) {setIsPlaying(false);setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);}
+    }
+  };
+  const handleLaunchSessionScene = (slot: number, trackId?: string) => handleSessionLaunch(slot,trackId);
+  const handleReturnToArrangement = () => {
+    const next=handleExecuteProjectCommand('Return to Arrangement','transport',draft=>{
+      const settings=projectAudioSettings(draft);
+      return {...draft,audioSettings:{...settings,transport:{...settings.transport,arrangementMode:'arrangement'}}};
     });
-    setStatusMessage(
-      specificTrackId
-        ? `Applied Scene ${String.fromCharCode(65 + sceneIdx)} on Track #${specificTrackId}.`
-        : `Applied Scene ${String.fromCharCode(65 + sceneIdx)} across all tracks.`
-    );
+    if(next) {synthEngine.stop();synthEngine.seek(0);setIsPlaying(false);setPlayheadBeat(0);}
   };
 
   const handleGenerateAiVariation = async (archetype: TechnoArchetype) => {
@@ -1440,25 +1493,23 @@ export default function App() {
       setIsPlaying(false);
       setMasterPeakDb(-60);
     } else {
-      synthEngine.start(false);
-      setIsPlaying(true);
+      try { synthEngine.start(false); setIsPlaying(synthEngine.getIsPlaying()); }
+      catch(error) { setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`); setIsPlaying(false); }
     }
   };
 
   const handlePlayCompleteSequence = () => {
-    const bars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-    const nextTransport: TransportConfig = { ...transport, loopEnabled: false };
-    setTransport(nextTransport);
-    synthEngine.setState(project, humanization, nextTransport, masterBus);
-    synthEngine.seek(0);
-    setPlayheadBeat(0);
-    if (!isPlaying) {
-      synthEngine.start(true);
-      setIsPlaying(true);
-    }
-    setStatusMessage(
-      `Loop OFF · Playing complete ${bars}-bar (${bars * 4}-beat) arrangement sequence.`
-    );
+    const next=handleExecuteProjectCommand('Play Complete Arrangement','transport',draft=>{
+      const settings=projectAudioSettings(draft);
+      return {...draft,audioSettings:{...settings,transport:{...settings.transport,arrangementMode:'arrangement',loopEnabled:false}}};
+    });
+    if (!next) return;
+    const settings=projectAudioSettings(next);
+    try {
+      synthEngine.stop();synthEngine.setState(next,settings.humanization,settings.transport,settings.masterBus);
+      synthEngine.seek(0);setPlayheadBeat(0);synthEngine.start(true);setIsPlaying(synthEngine.getIsPlaying());
+      setStatusMessage(`Loop OFF · Playing complete ${next.arrangementLengthBars || 16}-bar arrangement.`);
+    } catch(error) {setIsPlaying(false);setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);}
   };
 
   const handleReturnToZero = () => {
@@ -1492,196 +1543,26 @@ export default function App() {
     }));
   };
 
-  const handleUpdateTrackVelocityCurve = (
-    trackId: string,
-    velocityCurve: VelocityCurveConfig,
-    injectImmediately = true
-  ) => {
-    handleExecuteProjectCommand('Update Track Velocity Curve', 'clip_edit', (prev) => {
-      let workingXml = prev.rawXmlModified;
-      let updatedNoteCount = 0;
-      let targetTrackName = '';
-      const totalBeats = (prev.arrangementLengthBars || 16) * 4;
-
-      const updatedTracks = prev.tracks.map((t, idx) => {
-        if (t.id !== trackId) return t;
-        targetTrackName = t.name;
-
-        if (!injectImmediately || t.clips.length === 0) {
-          return { ...t, velocityCurve };
-        }
-
-        const primaryClip = t.clips[0];
-        const curvedNotes = applyTrackVelocityCurveToNotes(
-          primaryClip.notes,
-          velocityCurve,
-          humanization,
-          jitterSeed + idx * 29
-        );
-        updatedNoteCount = curvedNotes.length;
-
-        const nextSessionClips = t.sessionClips?.map((sc, sIdx) => ({
-          ...sc,
-          notes: applyTrackVelocityCurveToNotes(
-            sc.notes,
-            velocityCurve,
-            humanization,
-            jitterSeed + idx * 29 + sIdx * 11
-          ),
-        }));
-
-        return {
-          ...t,
-          velocityCurve,
-          clips: t.clips.map((clip, index) => index === 0 ? { ...clip, notes: curvedNotes } : clip),
-          sessionClips: nextSessionClips,
-        };
-      });
-
-      if (targetTrackName && injectImmediately) {
-        setStatusMessage(
-          `Injected ${velocityCurve.preset.toUpperCase()} velocity curve (${Math.round(
-            velocityCurve.intensity * 100
-          )}% depth · Vel ${velocityCurve.minVelocity}–${velocityCurve.maxVelocity}) into ${updatedNoteCount} <MidiNoteEvent> nodes on ${targetTrackName}.`
-        );
-      }
-
-      return enrichProjectWithAnalysis(
-        {
-          ...prev,
-          tracks: updatedTracks,
-          rawXmlModified: workingXml,
-        },
-        activeFormId
-      );
+  const handleUpdateTrackVelocityCurve = (trackId: string, velocityCurve: VelocityCurveConfig, injectImmediately = true) => {
+    handleExecuteProjectCommand('Update Track Velocity Curve', 'clip_edit', draft => {
+      const transformed = injectImmediately ? transformTrackArrangementNotes(draft, trackId, notes =>
+        applyTrackVelocityCurveToNotes(notes, velocityCurve, projectAudioSettings(draft).humanization, draft.humanizationSeed ?? jitterSeed)
+      ) : draft;
+      const target = draft.tracks.find(track => track.id === trackId);
+      if (!target || target.locked) throw new Error('Velocity curve target is missing or locked');
+      return { ...transformed, tracks: transformed.tracks.map(track => track.id === trackId ? { ...track, velocityCurve } : track) };
     });
   };
 
-  const handleRandomizeTrackVelocities = (
-    trackId: string,
-    config: TrackVelocityRandomizerConfig
-  ) => {
-    handleExecuteProjectCommand(
-      `Randomize Velocities (${selectedTrack?.name || 'Track'})`,
-      'clip_edit',
-      (proj) => {
-        let workingXml = proj.rawXmlModified;
-        let randomizedCount = 0;
-        const totalBeats = (proj.arrangementLengthBars || 16) * 4;
-
-        const updatedTracks = proj.tracks.map((track, idx) => {
-          if (track.id !== trackId || track.clips.length === 0) return track;
-          const clip = track.clips[0];
-
-          const blend = Math.max(0, Math.min(1, config.blendPct / 100));
-          const span = Math.max(1, config.maxVelocity - config.minVelocity);
-
-          const nextNotes = clip.notes.map((note, nIdx) => {
-            const isAccent = Boolean(note.isAccent || note.velocity >= 110);
-            const isDownbeat = Math.abs(note.time % 4) < 0.05;
-
-            if (config.accentLock && isAccent) return note;
-            if (config.downbeatLock && isDownbeat) return note;
-
-            const hash =
-              Math.sin(config.seed + idx * 79 + nIdx * 19 + note.pitch * 31 + note.time * 97) *
-              43758.5453;
-            const randNorm = hash - Math.floor(hash);
-            const targetRandVel = Math.round(config.minVelocity + randNorm * span);
-
-            const blendedVel = Math.max(
-              1,
-              Math.min(127, Math.round(note.velocity * (1 - blend) + targetRandVel * blend))
-            );
-            randomizedCount++;
-
-            return {
-              ...note,
-              velocity: blendedVel,
-            };
-          });
-
-          workingXml = syncTrackNotesToXml(
-            workingXml,
-            track.name,
-            track.archetype,
-            clip.name,
-            nextNotes,
-            totalBeats,
-            clip.loopEndBeats
-          );
-
-          return {
-            ...track,
-            clips: [{ ...clip, notes: nextNotes }],
-          };
-        });
-
-        setStatusMessage(
-          `Randomized ${randomizedCount} note velocities on ${selectedTrack?.name || 'track'} (${config.minVelocity}–${config.maxVelocity} · Blend ${config.blendPct}%)`
-        );
-
-        return enrichProjectWithAnalysis(
-          {
-            ...proj,
-            tracks: updatedTracks,
-            rawXmlModified: workingXml,
-          },
-          activeFormId
-        );
-      }
+  const handleRandomizeTrackVelocities = (trackId: string, config: TrackVelocityRandomizerConfig) => {
+    handleExecuteProjectCommand('Randomize Track Velocities', 'clip_edit', draft =>
+      transformTrackArrangementNotes(draft, trackId, notes => randomizeTrackNoteVelocities(notes, config))
     );
   };
 
-  const handleApplyMidiQuantizeStrength = (
-    trackId: string,
-    gridDivision: NoteGridDivision,
-    strengthPct: 50 | 75 | 100
-  ) => {
-    handleExecuteProjectCommand(
-      `Quantize ${strengthPct}% (${gridDivision}) on ${selectedTrack?.name || 'Track'}`,
-      'clip_edit',
-      (proj) => {
-        let workingXml = proj.rawXmlModified;
-        const totalBeats = (proj.arrangementLengthBars || 16) * 4;
-
-        const updatedTracks = proj.tracks.map((track) => {
-          if (track.id !== trackId || track.clips.length === 0) return track;
-          const clip = track.clips[0];
-
-          const { notes: quantizedNotes, description } = applyMidiQuantizeStrength(
-            clip.notes,
-            gridDivision,
-            strengthPct
-          );
-
-          workingXml = syncTrackNotesToXml(
-            workingXml,
-            track.name,
-            track.archetype,
-            clip.name,
-            quantizedNotes,
-            totalBeats,
-            clip.loopEndBeats
-          );
-
-          setStatusMessage(`${track.name} · ${description}`);
-
-          return {
-            ...track,
-            clips: [{ ...clip, notes: quantizedNotes }],
-          };
-        });
-
-        return enrichProjectWithAnalysis(
-          {
-            ...proj,
-            tracks: updatedTracks,
-            rawXmlModified: workingXml,
-          },
-          activeFormId
-        );
-      }
+  const handleApplyMidiQuantizeStrength = (trackId: string, gridDivision: NoteGridDivision, strengthPct: 50 | 75 | 100) => {
+    handleExecuteProjectCommand(`Quantize Track ${strengthPct}% (${gridDivision})`, 'clip_edit', draft =>
+      transformTrackArrangementNotes(draft, trackId, notes => applyMidiQuantizeStrength(notes, gridDivision, strengthPct).notes)
     );
   };
 
@@ -1968,17 +1849,19 @@ export default function App() {
   const handleOpenProjectSnapshot = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const loadRevision = ++projectLoadRevision.current;
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const snapshot = decodeProjectSnapshot(new TextDecoder().decode(bytes));
-      // Validation completes before stopping transport or changing any active project/history.
-      synthEngine.stop();
-      setIsPlaying(false); setPlayheadBeat(0);
-      if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, project);
+      // Validate and prepare before replacing active state or interrupting playback.
+      if (loadRevision !== projectLoadRevision.current) return;
       const record = await projectQueueService.enqueueProjectState(snapshot.project, file.name, bytes);
+      if (loadRevision !== projectLoadRevision.current) return;
       if (record.state === 'failed' || record.state === 'unsupported') throw new Error(record.errorDetails || 'Project initialization failed');
+      synthEngine.stop(); synthEngine.seek(0);
+      setIsPlaying(false); setPlayheadBeat(0);
       projectQueueService.updateWorkingProjectState(record.queueId, snapshot.project);
-      projectQueueService.switchActiveProject(record.queueId);
+      projectQueueService.switchActiveProject(record.queueId, projectRef.current);
       projectRef.current = snapshot.project;
       setProject(snapshot.project);
 
@@ -1988,7 +1871,7 @@ export default function App() {
       }
       setSelectedTrackId(snapshot.project.tracks[0]?.id || '1');
       setStatusMessage(`Opened ${file.name}. External assets remain referenced; missing assets are not embedded in the project file.`);
-    } catch (error) { setStatusMessage(`Project open failed: ${error instanceof Error ? error.message : String(error)}`); }
+    } catch (error) { if (loadRevision === projectLoadRevision.current) setStatusMessage(`Project open failed: ${error instanceof Error ? error.message : String(error)}`); }
     finally { if (projectSnapshotInputRef.current) projectSnapshotInputRef.current.value = ''; }
   };
 
@@ -2218,7 +2101,7 @@ export default function App() {
   }, [handleUndo, handleRedo]);
 
   return (
-    <div className="studio-shell h-dvh w-full overflow-hidden grid grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
+    <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
       {/* 1. TOP 28px SOUNDCRAFT STUDIO MENU BAR */}
       <StudioMenuBar
         projectName={project.fileName}
@@ -2229,7 +2112,11 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onNewProject={() => { void handleLoadStarterTemplate(selectedTemplateId); }}
+        onNewProject={() => { void handleLoadStarterTemplate(selectedTemplateId, 16, 'sketch'); }}
+        onCreateProjectWithMode={(mode, bars) => {
+          void handleLoadStarterTemplate(selectedTemplateId, bars, mode);
+        }}
+        onReportStatus={setStatusMessage}
         onSaveProject={() => { void handleSaveProjectSnapshot(); }}
         onOpenProject={() => projectSnapshotInputRef.current?.click()}
         onImportAlsClick={() => fileInputRef.current?.click()}
@@ -2363,6 +2250,15 @@ export default function App() {
             onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
             onApplyChordGridTransform={handleApplyChordGridTransform}
             onLaunchSessionScene={handleLaunchSessionScene}
+            sessionActions={{
+              onLaunch:handleLaunchSessionScene,
+              onStop:trackId=>handleSessionLaunch(null,trackId),
+              onStore:(trackId,slot,clipId)=>handleExecuteProjectCommand('Store Session Clip','clip_edit',draft=>storeArrangementClipInSession(draft,trackId,slot,clipId)),
+              onReturn:handleReturnToArrangement,
+              onClear:()=>handleExecuteProjectCommand('Clear Session Performance','clip_edit',draft=>({...draft,session:{quantizationBeats:draft.session?.quantizationBeats || 4,events:[]}})),
+              onQuantization:beats=>handleExecuteProjectCommand('Set Session Launch Grid','transport',draft=>({...draft,session:{quantizationBeats:beats,events:draft.session?.events || []}})),
+              onCapture:(from,to,destination)=>handleExecuteProjectCommand('Capture Session Performance','clip_edit',draft=>captureSessionPerformance(draft,from,to,destination)),
+            }}
             onToggleTrackLock={handleToggleTrackLock}
             onUpdateHumanization={handleUpdateHumanization}
             onUpdateTrackVelocityCurve={handleUpdateTrackVelocityCurve}
@@ -2523,10 +2419,13 @@ export default function App() {
         queueItems={queueItems}
         activeQueueId={activeQueueId}
         onSwitchToQueueProject={(targetQueueId) => {
-          const switched = projectQueueService.switchActiveProject(targetQueueId, project);
+          ++projectLoadRevision.current;
+          const switched = projectQueueService.switchActiveProject(targetQueueId, projectRef.current);
           if (switched) {
+            synthEngine.stop(); synthEngine.seek(0);
+            setIsPlaying(false); setPlayheadBeat(0);
             const enriched = enrichProjectWithAnalysis(switched, activeFormId);
-            setProject(enriched);
+            projectRef.current = enriched; setProject(enriched);
             setSelectedTrackId(enriched.tracks[0]?.id || '1');
             setStatusMessage(`Switched active workstation project to ${enriched.fileName}.`);
           }
@@ -2599,6 +2498,7 @@ export default function App() {
       <DiagnosticsPanel
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
+        onReportStatus={setStatusMessage}
       />
 
       {/* Studio Settings Modal */}

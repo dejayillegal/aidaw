@@ -5,7 +5,7 @@ import { assertProjectState } from '../engine/projectStateContracts';
 
 export interface ProjectSnapshot {
   format: 'parametric-als-daw';
-  version: 2;
+  version: 2 | 3;
   project: AbletonProjectState;
   audioSettings: { humanization: HumanizationConfig; masterBus: MasterBusConfig; transport: TransportConfig };
 }
@@ -24,7 +24,7 @@ function validate(snapshot: ProjectSnapshot): void {
 
 function exposedSnapshot(project: AbletonProjectState): ProjectSnapshot {
   // Legacy API access is a derived getter, never another mutable or serialized settings owner.
-  return { format: 'parametric-als-daw', version: 2, project,
+  return { format: 'parametric-als-daw', version: project.session || project.audioSettings?.transport.arrangementMode==='session' ? 3 : 2, project,
     get audioSettings() { return project.audioSettings!; } };
 }
 
@@ -41,14 +41,15 @@ export function encodeProjectSnapshot(
   delete clonedProject.audioSettings!.transport.arrangementLengthBars;
   clonedProject.rawXmlModified = synchronizeProjectStateToXml(clonedProject);
   clonedProject.rawXml = clonedProject.rawXmlModified;
-  return JSON.stringify({ format: 'parametric-als-daw', version: 2, project: clonedProject }, null, 2);
+  return JSON.stringify({ format: 'parametric-als-daw', version: input.version, project: clonedProject }, null, 2);
 }
 
 export function decodeProjectSnapshot(text: string): ProjectSnapshot {
   let input: { format: string; version: number; project: AbletonProjectState; audioSettings?: ProjectSnapshot['audioSettings'] };
   try { input = JSON.parse(text); } catch { throw new Error('PROJECT_SNAPSHOT: invalid JSON'); }
   if (!input || input.format !== 'parametric-als-daw') throw new Error('PROJECT_SNAPSHOT: unrecognized project format');
-  if (input.version !== 1 && input.version !== 2) throw new Error('PROJECT_SNAPSHOT_VERSION: unsupported version; original file is unchanged');
+  if (![1,2,3].includes(input.version)) throw new Error('PROJECT_SNAPSHOT_VERSION: unsupported version; original file is unchanged');
+  if (input.version===3 && !input.project?.session) throw new Error('PROJECT_SNAPSHOT: v3 requires Session performance state');
   if (input.version === 1) {
     if (input.project?.audioSettings && JSON.stringify(input.project.audioSettings) !== JSON.stringify(input.audioSettings)) {
       throw new Error('PROJECT_SNAPSHOT: ambiguous settings owners');

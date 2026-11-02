@@ -135,7 +135,8 @@ export class ProjectQueueService {
           prior.onsuccess = () => {
             try {
               if (prior.result) store.put({ ...prior.result, queueId: `backup:${snapshot.queueId}`, originalQueueId: snapshot.queueId });
-              store.put({ queueId: snapshot.queueId, recoveryVersion: 1, record: snapshot, checksum, active });
+              const recoveryVersion=snapshot.workingProjectState.session || snapshot.workingProjectState.audioSettings?.transport.arrangementMode==='session' ? 2 : 1;
+              store.put({ queueId: snapshot.queueId, recoveryVersion, record: snapshot, checksum, active });
             } catch { tx.abort(); }
           };
         });
@@ -180,16 +181,16 @@ export class ProjectQueueService {
     const restored: { record: QueuedProjectRecord; active: boolean }[] = [];
     for (const id of ids) {
       const candidates = [rows.find(row => row.queueId === id), rows.find(row => row.queueId === `backup:${id}`)];
-      if (candidates[0]?.recoveryVersion !== undefined && candidates[0].recoveryVersion !== 1) {
+      if (candidates[0]?.recoveryVersion !== undefined && ![1,2].includes(candidates[0].recoveryVersion)) {
         this.persistenceStatus = 'error'; this.persistenceError = 'RECOVERY_VERSION: unsupported journal; preserved without downgrade'; continue;
       }
       let recovered = false;
       for (const row of candidates) {
         if (!row) continue;
         try {
-          if (row.recoveryVersion !== undefined && row.recoveryVersion !== 1) throw new Error('RECOVERY_VERSION: unsupported journal');
-          const record: QueuedProjectRecord = row.recoveryVersion === 1 ? row.record : { ...row, queueId: row.originalQueueId || row.queueId };
-          if (row.recoveryVersion === 1 && row.checksum !== await computeSha256Hex(JSON.stringify(record))) throw new Error('RECOVERY_CHECKSUM: damaged record');
+          if (row.recoveryVersion !== undefined && ![1,2].includes(row.recoveryVersion)) throw new Error('RECOVERY_VERSION: unsupported journal');
+          const record: QueuedProjectRecord = row.recoveryVersion !== undefined ? row.record : { ...row, queueId: row.originalQueueId || row.queueId };
+          if (row.recoveryVersion !== undefined && row.checksum !== await computeSha256Hex(JSON.stringify(record))) throw new Error('RECOVERY_CHECKSUM: damaged record');
           assertProjectState(record.workingProjectState);
           if (record.queueId !== id) throw new Error('RECOVERY_ID: wrong project identity');
           const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;

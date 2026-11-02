@@ -151,16 +151,17 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
         {/* Loop Toggle */}
         <button
           type="button"
+          disabled={transport.arrangementMode==='session'}
           onClick={() => onUpdateTransport({ loopEnabled: !transport.loopEnabled })}
-          title={`Loop Toggle (${transport.loopLengthBars} Bars)`}
+          title={transport.arrangementMode==='session'?'Arrangement loop unavailable in Session':`Loop Toggle (${transport.loopLengthBars} Bars)`}
           className={`px-2.5 h-8 rounded text-xs font-semibold flex items-center gap-1 border transition-colors ${
-            transport.loopEnabled
+            transport.loopEnabled && transport.arrangementMode!=='session'
               ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
               : 'bg-[#151B24] text-zinc-400 border-[#263140] hover:text-zinc-200'
           }`}
         >
           <Repeat className="w-3.5 h-3.5" />
-          <span>{transport.loopEnabled ? `${transport.loopLengthBars}B` : 'OFF'}</span>
+          <span>{transport.arrangementMode==='session'?'SESSION':transport.loopEnabled ? `${transport.loopLengthBars}B` : 'OFF'}</span>
         </button>
 
         {/* Undo / Redo */}

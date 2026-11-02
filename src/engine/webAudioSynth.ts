@@ -15,8 +15,9 @@ import {
   TrackMixerParams,
   TransportConfig,
 } from '../types/ableton';
-import { composeEffectiveTrackGain, resolveEffectiveAudibility } from './channelStripEngine';
+import { composeEffectiveTrackGain, resolveEffectiveAudibility, assertExecutableInsertLimits } from './channelStripEngine';
 import { computeDeterministicHash } from './alsXmlEngine';
+import { noteProbabilityPasses, sessionEventsInWindow } from './timelineCoordinates';
 
 function midiToFreq(midi: number, transposeSemitones = 0, fineTuneCents = 0): number {
   const totalSemitones = midi + transposeSemitones + fineTuneCents / 100;
@@ -24,9 +25,7 @@ function midiToFreq(midi: number, transposeSemitones = 0, fineTuneCents = 0): nu
 }
 
 export function shouldPlayNote(note: MidiNoteEvent): boolean {
-  if (note.probability === undefined || note.probability >= 1) return true;
-  if (note.probability <= 0) return false;
-  return ((Math.round(note.time * 100) + note.pitch * 17) % 100) / 100 < note.probability;
+  return noteProbabilityPasses(note);
 }
 
 function dbToGain(db: number): number {
@@ -202,6 +201,7 @@ interface AudioBusGraph {
   withAnalyser?: boolean;
   trackChannels: Map<string, TrackChannelRuntime>;
   activeVoices: Set<() => void>;
+  trackVoices?: Map<string, Set<(when?: number) => void>>;
   offlineRetirements: { at: number; nodes: AudioNode[]; releaseMix: () => void }[];
 }
 
@@ -343,6 +343,7 @@ function buildAudioBusGraph(
     withAnalyser,
     trackChannels: new Map<string, TrackChannelRuntime>(),
     activeVoices: new Set(),
+    trackVoices: new Map(),
     offlineRetirements: [],
   };
 }
@@ -536,7 +537,7 @@ function getOrCreateTrackChannelRuntime(
     const insertProcessors: InsertProcessorInstance[] = [];
     let lastNode: AudioNode = inputNode;
 
-    const devices = (track.devices || []).slice(0, 10);
+    const devices = track.devices || [];
     for (const dev of devices) {
       const proc = buildDeviceInsertProcessor(ctx, dev);
       insertProcessors.push(proc);
@@ -673,16 +674,18 @@ function scheduleTrackVoiceAtTime(
   whenSec: number,
   beatsPerSecond: number,
   humanization: HumanizationConfig,
-  project?: AbletonProjectState
+  project?: AbletonProjectState,
+  stopAtSeconds?: number
 ) {
   const nodes: AudioNode[] = [];
   const sources: AudioScheduledSourceNode[] = [];
   let latestStop = ctx.currentTime;
+  const stopTimes=new Map<AudioScheduledSourceNode,number>();
   const offline = typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext;
   const own = <T extends AudioNode>(node: T): T => { nodes.push(node); return node; };
   const source = <T extends AudioScheduledSourceNode>(node: T): T => {
     const stop = node.stop.bind(node);
-    node.stop = (when = 0) => { latestStop = Math.max(latestStop, when); stop(when); };
+    node.stop = (when = 0) => { latestStop = Math.max(latestStop, when); stopTimes.set(node,when); stop(when); };
     sources.push(node); return own(node);
   };
   const time = Math.max(ctx.currentTime, whenSec);
@@ -1203,12 +1206,17 @@ function scheduleTrackVoiceAtTime(
   }
   if (offline) bus.offlineRetirements.push({ at: latestStop + 1, nodes, releaseMix });
   let remaining = sources.length;
-  const retire = () => {
-    voiceEnvelopeGain.gain.cancelScheduledValues?.(ctx.currentTime);
-    voiceEnvelopeGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.004);
-    for (const node of sources) { try { node.stop(ctx.currentTime + 0.025); } catch { /* already stopped */ } }
+  const retire = (at=ctx.currentTime) => {
+    at=Math.max(ctx.currentTime,at);
+    voiceEnvelopeGain.gain.cancelScheduledValues?.(at);
+    voiceEnvelopeGain.gain.setTargetAtTime(0.0001, at, 0.004);
+    for (const node of sources) { try { node.stop(Math.min(stopTimes.get(node) ?? Infinity,at + 0.025)); } catch { /* already stopped */ } }
   };
   bus.activeVoices.add(retire);
+  bus.trackVoices ??= new Map();
+  const voices=bus.trackVoices.get(track.id) || new Set<(when?:number)=>void>();
+  voices.add(retire);bus.trackVoices.set(track.id,voices);
+  if (stopAtSeconds!==undefined && Number.isFinite(stopAtSeconds) && stopAtSeconds<latestStop) retire(stopAtSeconds);
   for (const node of sources) node.onended = () => {
     remaining--;
     if (remaining === 0) {
@@ -1216,6 +1224,8 @@ function scheduleTrackVoiceAtTime(
       // at deterministic audio-clock boundaries, preserving reproducible filter tails.
       if (!offline) { releaseMix(); for (const owned of nodes) owned.disconnect(); }
       bus.activeVoices.delete(retire);
+      voices.delete(retire);
+      if (!voices.size) bus.trackVoices?.delete(track.id);
     }
   };
 }
@@ -1484,6 +1494,8 @@ export async function synthesizeProjectToStereoFloatBuffers(
   onProgress?: (completedFrames: number, totalFrames: number) => void,
   workingBytesPerFrame = 32
 ): Promise<{ left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number }> {
+  assertExecutableInsertLimits(project);
+  if (project.audioSettings?.transport.arrangementMode==='session') throw new Error('SESSION_CAPTURE_REQUIRED: capture the performance and return to Arrangement before offline export');
   const bars = totalBars ?? project.arrangementLengthBars ?? 16;
   if (!Number.isFinite(project.tempo) || project.tempo <= 0 || !Number.isInteger(bars) || bars < 1) {
     throw new Error('RENDER_INPUT: positive tempo and positive whole bars required');
@@ -1948,6 +1960,7 @@ export class ParametricWebAudioEngine {
   private anchorBeat = 0;
   private currentBeat = 0;
   private scheduledNoteKeys = new Set<string>();
+  private sessionScheduledKeys = new Map<string, { trackId: string; beat: number }>();
   private loopGeneration = 0;
 
   private schedulerTimerId: number | null = null;
@@ -2144,9 +2157,23 @@ export class ParametricWebAudioEngine {
   }
 
   private getMaxArrangementBeats(): number {
+    if (this.project?.audioSettings?.transport.arrangementMode==='session') return Number.MAX_SAFE_INTEGER;
     const bars =
       this.project?.arrangementLengthBars || this.transport.arrangementLengthBars || 16;
-    return Math.max(16, bars * 4);
+    return Math.max(1, bars) * 4;
+  }
+
+  private getPlaybackRegion(maxBeats:number) {
+    return playbackRegion(maxBeats,this.project?.audioSettings?.transport.arrangementMode==='session' ? {...this.transport,loopEnabled:false} : this.transport);
+  }
+
+  private executionAllowed(): boolean {
+    try { if (this.project) assertExecutableInsertLimits(this.project); return true; }
+    catch(error) {
+      this.stop();this.playbackState='error';
+      this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);
+      return false;
+    }
   }
 
   public syncLiveTrackChannels(): void {
@@ -2161,6 +2188,7 @@ export class ParametricWebAudioEngine {
     partialMixer?: Partial<TrackMixerParams>,
     muteSoloOverride?: { muted?: boolean; soloed?: boolean }
   ): TrackChannelRuntime | null {
+    if (!this.executionAllowed()) return null;
     // V7.1 P0-003: THE AUDIO ENGINE NEVER MUTATES CANONICAL PROJECT STATE!
     // Updates internal audio graph nodes directly via setTargetAtTime
     if (!this.bus) {
@@ -2312,6 +2340,28 @@ export class ParametricWebAudioEngine {
     onPlaybackStopped?: (reason?: string) => void
   ) {
     const prevTempo = this.project?.tempo;
+    const modeChanged=this.project?.audioSettings?.transport.arrangementMode !== project.audioSettings?.transport.arrangementMode;
+    const previousSessionIds=new Set(this.project?.session?.events.map(e=>e.id) || []);
+    const nextEvents=new Map(project.session?.events.map(e=>[e.id,e]) || []);
+    const invalidatedTracks=new Set<string>();
+    for (const event of this.project?.session?.events || []) {
+      if (JSON.stringify(event)!==JSON.stringify(nextEvents.get(event.id))) invalidatedTracks.add(event.trackId);
+    }
+    for (const track of this.project?.tracks || []) {
+      if (JSON.stringify(track.sessionClips)!==JSON.stringify(project.tracks.find(t=>t.id===track.id)?.sessionClips)) invalidatedTracks.add(track.id);
+    }
+    // Capture with the OLD tempo before replacing project state. RAF may be suspended
+    // or several frames behind the audio clock. Queued voices use the old seconds map.
+    const tempoChangedWhilePlaying = this.isPlaying && prevTempo !== undefined && (prevTempo !== project.tempo || modeChanged);
+    if (tempoChangedWhilePlaying) {
+      this.currentBeat = this.getCurrentBeat();
+      if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
+      this.scheduledNoteKeys.clear();
+    this.sessionScheduledKeys.clear();
+      this.loopGeneration++;
+      this.anchorBeat = this.currentBeat;
+      if (this.ctx) this.anchorAudioTime = this.ctx.currentTime;
+    }
     this.project = project;
     this.humanization = humanization;
     if (transport) {
@@ -2325,6 +2375,23 @@ export class ParametricWebAudioEngine {
     }
     if (onPlaybackStopped) {
       this.onPlaybackStopped = onPlaybackStopped;
+    }
+    try { assertExecutableInsertLimits(project); } catch(error) {
+      this.stop();this.playbackState='error';
+      this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);
+      return;
+    }
+    if (this.isPlaying && this.ctx && this.bus && project.audioSettings?.transport.arrangementMode==='session') {
+      for (const trackId of invalidatedTracks) {
+        for (const retire of this.bus.trackVoices?.get(trackId) || []) retire();
+        for (const [key,metadata] of this.sessionScheduledKeys) if (metadata.trackId===trackId) {
+          this.scheduledNoteKeys.delete(key);this.sessionScheduledKeys.delete(key);
+        }
+      }
+      for (const event of project.session?.events || []) if (!previousSessionIds.has(event.id)) {
+        const at=this.anchorAudioTime+(event.atBeat-this.anchorBeat)/(project.tempo/60);
+        for (const retire of this.bus.trackVoices?.get(event.trackId) || []) retire(at);
+      }
     }
 
     if (this.ctx && this.bus) {
@@ -2369,10 +2436,6 @@ export class ParametricWebAudioEngine {
       // Immediately sync all persistent per-track channel strips in real time
       this.syncLiveTrackChannels();
 
-      if (this.isPlaying && prevTempo && prevTempo !== project.tempo) {
-        this.anchorBeat = this.currentBeat;
-        this.anchorAudioTime = this.ctx.currentTime;
-      }
     }
   }
 
@@ -2411,21 +2474,22 @@ export class ParametricWebAudioEngine {
   }
 
   public start(fromStart = false) {
+    if (this.project) assertExecutableInsertLimits(this.project);
     this.ensureContext();
     if (!this.ctx) return;
     this.syncLiveTrackChannels();
 
     const maxBeats = this.getMaxArrangementBeats();
-    if (fromStart || this.currentBeat >= maxBeats - 0.05) {
-      this.currentBeat = this.transport.loopEnabled
-        ? Math.max(0, (this.transport.loopStartBar - 1) * 4)
-        : 0;
+    if (fromStart || this.currentBeat >= maxBeats) {
+      const region = this.getPlaybackRegion(maxBeats);
+      this.currentBeat = region.enabled ? region.start : 0;
     }
 
     this.anchorBeat = this.currentBeat;
     this.anchorAudioTime = this.ctx.currentTime + 0.02;
     this.lastSchedulerPerfMs = performance.now();
     this.scheduledNoteKeys.clear();
+    this.sessionScheduledKeys.clear();
     this.loopGeneration = 0;
     this.playbackState = 'playing';
 
@@ -2442,6 +2506,8 @@ export class ParametricWebAudioEngine {
   }
 
   public stop() {
+    // Freeze at the audible clock position, independently of visual rendering.
+    this.currentBeat = this.getCurrentBeat();
     if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
     this.isPlaying = false;
     this.lastSchedulerPerfMs = 0;
@@ -2454,21 +2520,24 @@ export class ParametricWebAudioEngine {
       this.rafId = null;
     }
     this.scheduledNoteKeys.clear();
+    this.sessionScheduledKeys.clear();
     if (this.playbackState !== 'interrupted' && this.playbackState !== 'error') {
       this.playbackState = this.ctx ? 'ready' : 'idle';
     }
   }
 
   public seek(beat: number) {
-    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
+    if (!Number.isFinite(beat)) throw new Error('TIMELINE_INPUT: invalid seek coordinate');
     const maxBeats = this.getMaxArrangementBeats();
-    const clamped = Math.max(0, Math.min(maxBeats - 0.01, beat));
+    const clamped = Math.max(0, Math.min(maxBeats, beat));
+    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
     this.currentBeat = clamped;
     this.anchorBeat = clamped;
     if (this.ctx) {
       this.anchorAudioTime = this.ctx.currentTime;
     }
     this.scheduledNoteKeys.clear();
+    this.sessionScheduledKeys.clear();
     this.loopGeneration++;
   }
 
@@ -2479,7 +2548,7 @@ export class ParametricWebAudioEngine {
       const elapsedSec = Math.max(0, this.ctx.currentTime - this.anchorAudioTime);
       const maxBeats = this.getMaxArrangementBeats();
       const rawBeat = this.anchorBeat + elapsedSec * beatsPerSec;
-      this.currentBeat = positionAtBeat(rawBeat, maxBeats, playbackRegion(maxBeats, this.transport));
+      this.currentBeat = positionAtBeat(rawBeat, maxBeats, this.getPlaybackRegion(maxBeats));
     }
     return this.currentBeat;
   }
@@ -2571,6 +2640,7 @@ export class ParametricWebAudioEngine {
   }
 
   public triggerLivePad(archetype: string, velocity = 105, customPitch?: number): void {
+    if (!this.executionAllowed()) return;
     this.ensureContext();
     if (!this.ctx || !this.bus || !this.noiseBuffer || !this.project || !this.humanization) return;
     const targetTrack =
@@ -2657,7 +2727,7 @@ export class ParametricWebAudioEngine {
 
     let exactBeatNow = this.anchorBeat + (nowAudio - this.anchorAudioTime) * beatsPerSecond;
 
-    const region = playbackRegion(maxBeats, this.transport);
+    const region = this.getPlaybackRegion(maxBeats);
     const loopStartBeat = region.start;
     const loopEndBeat = region.end;
     const loopSpanBeats = region.span;
@@ -2675,10 +2745,9 @@ export class ParametricWebAudioEngine {
       }
     } else {
       if (exactBeatNow >= maxBeats) {
-        this.currentBeat = 0;
         this.stop();
         if (this.onPlayheadUpdate) {
-          this.onPlayheadUpdate(0, this.humanization.cutoffHz, -60);
+          this.onPlayheadUpdate(this.currentBeat, this.humanization.cutoffHz, -60);
         }
         if (this.onPlaybackStopped) {
           this.onPlaybackStopped();
@@ -2705,6 +2774,30 @@ export class ParametricWebAudioEngine {
       }
     }
 
+    if (this.project.audioSettings?.transport.arrangementMode==='session') {
+      for(const [key,metadata] of this.sessionScheduledKeys) if (metadata.beat<exactBeatNow-1) {
+        this.scheduledNoteKeys.delete(key);this.sessionScheduledKeys.delete(key);
+      }
+      for(const key of this.scheduledNoteKeys) {
+        if (key.startsWith('metro_') && Number(key.split('_')[2])<exactBeatNow-1) this.scheduledNoteKeys.delete(key);
+      }
+      try {
+        for(const event of sessionEventsInWindow(this.project,Math.max(0,exactBeatNow-0.015),windowEndBeat)) {
+          if (!shouldPlayNote(event.sourceNote)) continue;
+          const key=`s_${event.note.time}_${event.eventId}_${event.cycle}_${event.note.id}`;
+          if (this.scheduledNoteKeys.has(key)) continue;
+          const track=this.project.tracks.find(t=>t.id===event.trackId)!;
+          const at=this.anchorAudioTime+(event.note.time-this.anchorBeat)/beatsPerSecond;
+          if (at<nowAudio-0.015) continue;
+          this.scheduledNoteKeys.add(key);
+          this.sessionScheduledKeys.set(key,{trackId:event.trackId,beat:event.note.time});
+          const stop=this.anchorAudioTime+(event.endBeat-this.anchorBeat)/beatsPerSecond;
+          scheduleTrackVoiceAtTime(this.ctx,this.bus,this.noiseBuffer,track,event.note,at,beatsPerSecond,this.humanization,this.project,stop);
+        }
+      } catch(error) {
+        this.stop();this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);return;
+      }
+    } else {
     this.project.tracks.forEach((track) => {
       track.clips.forEach((clip) => {
         const clipStartBeat = clip.startTime;
@@ -2772,6 +2865,8 @@ export class ParametricWebAudioEngine {
       });
     });
 
+    }
+
     // Evaluate master automation curve if present
     if (
       this.masterBus.masterAutomationPoints &&
@@ -2802,7 +2897,7 @@ export class ParametricWebAudioEngine {
     const beat = this.anchorBeat + Math.max(0, nowAudio - this.anchorAudioTime) * beatsPerSecond;
     const maxBeats = this.getMaxArrangementBeats();
 
-    this.currentBeat = positionAtBeat(beat, maxBeats, playbackRegion(maxBeats, this.transport));
+    this.currentBeat = positionAtBeat(beat, maxBeats, this.getPlaybackRegion(maxBeats));
 
     const lfoPhase = Math.sin(2 * Math.PI * this.humanization.lfoRateHz * nowAudio);
     const baseCutoff =

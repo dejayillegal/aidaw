@@ -40,6 +40,8 @@ interface StudioMenuBarProps {
   onUndo: () => void;
   onRedo: () => void;
   onNewProject: () => void;
+  onCreateProjectWithMode?: (mode: 'sketch' | 'full-track', requestedDurationBars: number) => void;
+  onReportStatus?: (message: string) => void;
   onSaveProject?: () => void;
   onOpenProject?: () => void;
   onImportAlsClick: () => void;
@@ -67,6 +69,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
   onUndo,
   onRedo,
   onNewProject,
+  onCreateProjectWithMode,
+  onReportStatus,
   onSaveProject,
   onOpenProject,
   onImportAlsClick,
@@ -112,15 +116,45 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
             File
           </button>
           {activeMenu === 'file' && (
-            <div className="absolute top-full left-0 mt-0.5 w-56 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
+            <div className="absolute top-full left-0 mt-0.5 w-60 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
               <button
                 type="button"
-                onClick={() => { onNewProject(); closeMenu(); }}
+                onClick={() => {
+                  if (onCreateProjectWithMode) onCreateProjectWithMode('sketch', 16);
+                  else onNewProject();
+                  closeMenu();
+                }}
                 className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
-                <span>New Project</span>
+                <span>New Project (16-Bar Sketch)</span>
                 <span className="text-[10px] text-zinc-500">Cmd+N</span>
               </button>
+              {onCreateProjectWithMode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCreateProjectWithMode('full-track', 64);
+                      closeMenu();
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                  >
+                    <span>New Full Track (64 Bars)</span>
+                    <span className="text-[10px] text-amber-400">FULL</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCreateProjectWithMode('full-track', 128);
+                      closeMenu();
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                  >
+                    <span>New Extended Full Track (128 Bars)</span>
+                    <span className="text-[10px] text-sky-400">128B</span>
+                  </button>
+                </>
+              )}
               {onOpenProject && <button type="button" onClick={() => { onOpenProject(); closeMenu(); }}
                 className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Open Project (.aidaw.json)…</button>}
               {onSaveProject && <button type="button" onClick={() => { onSaveProject(); closeMenu(); }}
@@ -161,7 +195,11 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  void downloadDebugApk('parametric-techno-daw-debug.apk');
+                  downloadDebugApk('parametric-techno-daw-debug.apk').catch((error) => {
+                    onReportStatus?.(
+                      `Export failed: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                  });
                   closeMenu();
                 }}
                 className="w-full text-left px-3 py-1.5 hover:bg-emerald-500/20 text-emerald-300 flex items-center justify-between font-semibold"

@@ -1,0 +1,5 @@
+{
+  "status": "FAIL",
+  "error": "AssertionError [ERR_ASSERTION]: Cleared Session retained scheduled voices: [{\"peakDb\":-60,\"rmsDb\":-60,\"faderLinear\":1,\"gateLinear\":1,\"pan\":0},{\"peakDb\":-28.2,\"rmsDb\":-32.6,\"faderLinear\":0.8413951416451951,\"gateLinear\":1,\"pan\":0}]\n    at runSessionWorkflows (file:///workspace/scratch/ea7599a5d909/aidaw/scripts/track-workflows-check.mjs:85:30)\n    at async file:///workspace/scratch/ea7599a5d909/aidaw/scripts/track-workflows-check.mjs:214:56",
+  "errors": []
+}

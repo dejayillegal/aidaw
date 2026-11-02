@@ -12,6 +12,61 @@ import {
   TrackTakeRecord,
 } from '../types/ableton';
 import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
+import { projectAudioSettings } from '../engine/projectDefaults';
+import { noteProbabilityPasses, sessionEventsInWindow } from '../engine/timelineCoordinates';
+
+export function storeArrangementClipInSession(project: AbletonProjectState, trackId: string, slot: number, clipId: string): AbletonProjectState {
+  const track=project.tracks.find(t=>t.id===trackId), clip=track?.clips.find(c=>c.id===clipId);
+  if (!track || !clip || track.type!=='midi' || track.locked || !Number.isInteger(slot) || slot<0 || slot>3) throw new Error('SESSION_TARGET: missing, locked or unsupported slot/source');
+  const slots=structuredClone(track.sessionClips || []);
+  if (slots[slot] && project.session?.events.some(e=>e.clipId===slots[slot].id && e.trackId===trackId)) throw new Error('SESSION_TARGET: clear performance before replacing a referenced slot');
+  while(slots.length<=slot) slots.push({id:`session_${trackId}_${slots.length}`,name:'Empty',startTime:0,length:1,notes:[]});
+  slots[slot]={...structuredClone(clip),id:`session_${trackId}_${slot}`,sourceClipId:undefined,startTime:0,endTime:clip.length,
+    notes:clip.notes.map(n=>({...n,time:n.time-clip.startTime,quantizedTime:n.quantizedTime-clip.startTime}))};
+  return {...project,tracks:project.tracks.map(t=>t.id===trackId?{...t,sessionClips:slots}:t)};
+}
+
+export function queueSessionLaunch(project: AbletonProjectState, trackId: string|null, slot: number|null, nowBeat: number, quantizationBeats=4): AbletonProjectState {
+  if (!Number.isFinite(nowBeat) || nowBeat<0 || !Number.isFinite(quantizationBeats) || quantizationBeats<=0 ||
+      (slot!==null && (!Number.isInteger(slot) || slot<0 || slot>3))) throw new Error('SESSION_INPUT: invalid launch');
+  const tracks=project.tracks.filter(t=>(!t.locked || slot===null) && t.type==='midi' && (!trackId || t.id===trackId));
+  if (trackId && !tracks.length) throw new Error('SESSION_TARGET: missing or locked track');
+  const atBeat=Math.ceil(nowBeat/quantizationBeats)*quantizationBeats;
+  const events=[...(project.session?.events || [])];
+  for (const track of tracks) {
+    const clip=slot===null?null:track.sessionClips?.[slot];
+    if (slot!==null && (!clip || !clip.notes.length)) {
+      if(trackId) throw new Error('SESSION_TARGET: empty slot');
+      // An empty scene slot is a stop; it never falls back to Arrangement content.
+    }
+    events.push({id:`session_${project.projectRevision || 1}_${events.length}_${track.id}`,trackId:track.id,clipId:clip?.notes.length?clip.id:null,atBeat});
+  }
+  if (events.length>4096) throw new Error('SESSION_LIMIT: clear or capture the performance before exceeding 4096 launch decisions');
+  const settings=projectAudioSettings(project);
+  return {...project,session:{quantizationBeats,events},audioSettings:{...settings,transport:{...settings.transport,arrangementMode:'session'}}};
+}
+
+export function captureSessionPerformance(project: AbletonProjectState, fromBeat: number, toBeat: number, destinationBeat: number): AbletonProjectState {
+  if (!Number.isFinite(destinationBeat) || destinationBeat<0 || toBeat-fromBeat>4096) throw new Error('SESSION_RANGE: capture must be at most 4096 beats with a finite destination');
+  const events=sessionEventsInWindow(project,fromBeat,toBeat).filter(e=>noteProbabilityPasses(e.sourceNote));
+  const offset=destinationBeat-fromBeat;
+  const tracks=project.tracks.map(track=>{
+    const scheduled=events.filter(e=>e.trackId===track.id);
+    if (track.locked && scheduled.length) throw new Error('SESSION_TARGET: cannot capture onto locked track');
+    const groups=new Map<string,typeof scheduled>();
+    for(const e of scheduled) {const key=`${e.eventId}_${e.cycle}`;groups.set(key,[...(groups.get(key)||[]),e]);}
+    const clips=[...track.clips];
+    for(const [key,notes] of groups) {
+      const start=Math.max(fromBeat,notes[0].periodStart),end=Math.min(toBeat,notes[0].periodEnd);
+      const id=`capture_${project.projectRevision || 1}_${key}_${clips.length}`;
+      clips.push({id,name:`Session capture ${notes[0].clipId}`,startTime:start+offset,endTime:end+offset,length:end-start,
+        notes:notes.map((e,i)=>({...e.note,id:`${id}_n${i}`,sourceNoteId:undefined,time:e.note.time+offset,quantizedTime:e.note.quantizedTime+offset,
+          duration:Math.min(e.note.duration,toBeat-e.note.time),probability:1}))});
+    }
+    return {...track,clips};
+  });
+  return {...project,tracks,arrangementLengthBars:Math.max(project.arrangementLengthBars || 1,Math.ceil((destinationBeat+toBeat-fromBeat)/4))};
+}
 import {
   computeSelectedTrackAnalysisData,
   detectAudioStripSilenceRegions,
@@ -76,7 +131,9 @@ export class StudioCommandBus {
     const beforeSnapshot = deepCloneProject(currentProject);
     const workingDraft = deepCloneProject(currentProject);
 
-    const mutated = { ...mutator(workingDraft) };
+    // A mutator may return caller-owned state instead of its draft. Detach the
+    // entire result, including nested objects, before publishing it to the UI.
+    const mutated = deepCloneProject(mutator(workingDraft));
     if (mutated.audioSettings) {
       const { arrangementLengthBars: derivedExtent, ...transport } = mutated.audioSettings.transport;
       mutated.audioSettings = { ...mutated.audioSettings, transport };
@@ -186,14 +243,14 @@ export function spotPositionToBeat(bar: number, beat = 1, sixteenth = 1): number
  * Converts a timestamp in milliseconds to exact beat position at a given BPM.
  */
 export function spotMillisecondsToBeat(milliseconds: number, tempoBpm: number): number {
-  const beatsPerSecond = Math.max(40, tempoBpm) / 60;
-  return Math.max(0, Number(((milliseconds / 1000) * beatsPerSecond).toFixed(4)));
+  if (!Number.isFinite(milliseconds) || !Number.isFinite(tempoBpm) || tempoBpm <= 0) throw new Error('TIMELINE_INPUT: invalid timestamp or tempo');
+  return Math.max(0, milliseconds * tempoBpm / 60000);
 }
 
 /**
  * Snaps a beat position according to the active TimelineEditMode:
  * - Grid: snaps to `gridDivisionBeats` (e.g. 0.25 for 1/16, 0.5 for 1/8, 1.0 for 1/4)
- * - Slip: preserves free floating-point sub-grid precision (0.001 beat resolution)
+ * - Slip: preserves the supplied finite beat coordinate
  * - Shuffle: snaps or shifts contiguously with ripple delta
  * - Spot: places at exact numeric targetBeat
  */
@@ -203,12 +260,13 @@ export function resolveBeatForEditMode(
   gridDivisionBeats = 0.25,
   maxBeats = Number.POSITIVE_INFINITY
 ): number {
-  const clamped = Math.max(0, Math.min(maxBeats - 0.0625, rawBeat));
+  if (!Number.isFinite(rawBeat) || !Number.isFinite(gridDivisionBeats) || gridDivisionBeats <= 0 ||
+      !(maxBeats > 0)) throw new Error('TIMELINE_INPUT: invalid coordinate, grid or extent');
+  const clamped = Math.max(0, Math.min(maxBeats, rawBeat));
   if (editMode === 'slip' || editMode === 'spot') {
     return clamped;
   }
-  const step = Math.max(0.03125, gridDivisionBeats);
-  return Number((Math.round(clamped / step) * step).toFixed(4));
+  return Math.min(maxBeats, Math.round(clamped / gridDivisionBeats) * gridDivisionBeats);
 }
 
 /**
@@ -243,13 +301,14 @@ export function applyNoteEditWithMode(
   const originalEnd = originalNote.time + originalNote.duration;
 
   const resolvedBeat = resolveBeatForEditMode(targetBeat, editMode, gridDivisionBeats, maxBeats);
+  if (targetDurationBeats !== undefined && (!Number.isFinite(targetDurationBeats) || targetDurationBeats <= 0)) throw new Error('TIMELINE_INPUT: invalid note duration');
   const resolvedDuration =
     targetDurationBeats !== undefined
       ? editMode === 'slip' || editMode === 'spot'
-        ? Math.max(0.03125, Number(targetDurationBeats.toFixed(4)))
+        ? targetDurationBeats
         : Math.max(
             gridDivisionBeats,
-            Number((Math.round(targetDurationBeats / gridDivisionBeats) * gridDivisionBeats).toFixed(4))
+            Math.round(targetDurationBeats / gridDivisionBeats) * gridDivisionBeats
           )
       : originalNote.duration;
 
@@ -262,16 +321,16 @@ export function applyNoteEditWithMode(
       return {
         ...n,
         time: resolvedBeat,
-        quantizedTime: Math.round(resolvedBeat * 4) / 4,
+        quantizedTime: editMode === 'grid' || editMode === 'shuffle' ? resolvedBeat : n.quantizedTime + startDelta,
         duration: resolvedDuration,
       };
     }
-    if (editMode === 'shuffle' && n.time > originalStart + 0.0001) {
-      const shiftedTime = Math.max(0, Math.min(maxBeats - 0.125, Number((n.time + rippleDelta).toFixed(4))));
+    if (editMode === 'shuffle' && n.time > originalStart) {
+      const shiftedTime = Math.max(0, n.time + rippleDelta);
       return {
         ...n,
         time: shiftedTime,
-        quantizedTime: Math.round(shiftedTime * 4) / 4,
+        quantizedTime: n.quantizedTime + shiftedTime - n.time,
       };
     }
     return n;
@@ -306,12 +365,12 @@ export function deleteNoteWithEditMode(
   clip.notes = clip.notes
     .filter((n) => n.id !== noteId)
     .map((n) => {
-      if (editMode === 'shuffle' && n.time >= deletedStart + deletedDuration - 0.001) {
-        const shifted = Math.max(0, Number((n.time - deletedDuration).toFixed(4)));
+      if (editMode === 'shuffle' && n.time >= deletedStart + deletedDuration) {
+        const shifted = Math.max(0, n.time - deletedDuration);
         return {
           ...n,
           time: shifted,
-          quantizedTime: Math.round(shifted * 4) / 4,
+          quantizedTime: n.quantizedTime + shifted - n.time,
         };
       }
       return n;

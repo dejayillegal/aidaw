@@ -57,7 +57,9 @@ jobs:
       - name: Verify real audio rendering and responsive settings
         env:
           RECOVERY_BROWSER_OUTPUT: recovery-browser-evidence
-        run: node scripts/recovery-browser-check.mjs
+        run: |
+          node scripts/inventory-ui-controls.mjs recovery-browser-evidence/ui-controls.json
+          node scripts/recovery-browser-check.mjs
 
       - name: Upload browser evidence
         if: always()

@@ -1,0 +1,24 @@
+{
+  "source_commit": "00b012a8b857d245bd35e9495f41f343cd1876fa",
+  "local_baseline": "7943450f34eaa18076bfcdaef624c92e1c9422ab",
+  "reviewed_remote_main": "7072a44351b018a67bec7e9dcc571145afe0b0e3",
+  "test_count": 192,
+  "browser_status": "PASS",
+  "android_candidate": null,
+  "physical_device_tested": false,
+  "ableton_reopen_tested": false,
+  "producer_listening_tested": false,
+  "publication": "local only",
+  "files": {
+    "intermediate-browser-interrupted.json": "059e2c6d90164b3d115648eef836592e09b6356fb6847db4e6e85b78d081b08b",
+    "precision-inserts-before.log": "efa337f06a3058b78bef099fcb9eb167bc5416f59f1277a210d64114d8def17e",
+    "browser-report.json": "561f6c87568641f42660940f6c267feb1f742eaa58b0600c73d1b8c5caff0e18",
+    "session-before.log": "2f613f3c252a5b7b4fa0878288e845f25a601129d002dcf6efa644df5f0d2e7d",
+    "session-clear-before.json": "3e6b6f8f4172db0b48861bf0da42980b0b617cdcb21a86c9aae421e70f776fb8",
+    "final-tests.log": "9cfdbaf59c249fde15395c2d8b681936477923c2b698b84929cf8599267ceead",
+    "final-typescript.log": "3fa4b3073117fae3870a31295f620fd576b5eea6185d8b68af5bc3cfc69f7d96",
+    "intermediate-concurrent-tests.log": "ab9456cf86d0ddd1f424b6019259cc768fa2da5b5ef09e225d78d3e526e4d112",
+    "final-build.log": "59d196d1c53814aad64948db5cecb97ce666f8f2271e90ccf63d54a294e213cb",
+    "python-verifier.log": "72f09eca554e87a45b7156c6109520cf15e8b6ec157dc5c033610649b49b8698"
+  }
+}

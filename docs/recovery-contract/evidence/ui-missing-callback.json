@@ -1,0 +1,7 @@
+[
+  {
+    "status": "FAIL",
+    "error": "AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n+   0.13,\n+   8.13\n-   0.25,\n-   8.25\n  ]\n\n    at runTrackWorkflows (file:///workspace/scratch/ea7599a5d909/aidaw/scripts/track-workflows-check.mjs:57:10)\n    at async file:///workspace/scratch/ea7599a5d909/aidaw/scripts/track-workflows-check.mjs:106:14",
+    "errors": []
+  }
+]

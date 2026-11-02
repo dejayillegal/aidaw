@@ -152,6 +152,15 @@ export interface MidiNoteEvent {
   isAccent?: boolean; // 303 Acid resonant accent articulation
 }
 
+export interface TrackVelocityRandomizerConfig {
+  minVelocity: number;
+  maxVelocity: number;
+  blendPct: number;
+  accentLock: boolean;
+  downbeatLock: boolean;
+  seed: number;
+}
+
 export interface AbletonMidiClip {
   id: string;
   sourceClipId?: string; // Native clip template for preservation during split/duplicate.
@@ -813,11 +822,44 @@ export interface ProjectAudioSettings {
   transport: TransportConfig;
 }
 
+export interface SessionLaunchEvent {
+  id: string;
+  trackId: string;
+  clipId: string | null; // null is a quantized stop for this track
+  atBeat: number; // Same AudioContext-derived musical coordinate as Arrangement
+}
+
+export interface SessionPerformanceState {
+  quantizationBeats: number;
+  events: SessionLaunchEvent[]; // Ordered performance decisions, not a second score
+}
+
+export interface TempoAutomationPoint {
+  beat: number;
+  bpm: number;
+  curve?: 'step' | 'linear';
+}
+
+export interface MeterChangeEvent {
+  bar: number; // 1-indexed bar number where meter change starts
+  beat: number; // 0-indexed beat coordinate where meter change starts
+  numerator: number; // e.g., 4, 3, 5, 7
+  denominator: number; // e.g., 4, 8, 16
+}
+
+export type ProjectCreationMode = 'sketch' | 'full-track';
+
 export interface AbletonProjectState {
+  session?: SessionPerformanceState;
   audioSettings?: ProjectAudioSettings;
   compatibilityWarnings?: string[];
   humanizationSeed?: number;
   generationSeed?: number; // Seed persisted with generated starter XML
+  creationMode?: ProjectCreationMode;
+  requestedDurationBars?: number;
+  ppq?: number; // Canonical integer ticks per quarter note (default 960)
+  tempoMap?: TempoAutomationPoint[];
+  meterMap?: MeterChangeEvent[];
   fileName: string;
   schemaVersion: string;
   creator: string;
@@ -853,4 +895,7 @@ export interface StarterTemplateMeta {
   rootKey: string;
   scale: string;
   description: string;
+  creationMode?: ProjectCreationMode;
+  requestedDurationBars?: number;
 }
+
