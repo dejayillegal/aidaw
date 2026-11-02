@@ -1,0 +1,41 @@
+{
+  "main": "12140c94e06c016329c69fc6fdfc6f5f6cd344ce",
+  "tree": "7df81aa44d491261a70f6e39ab939ef836c6642e",
+  "m1": "33bc0b62ef0e1c90775df6021cfafc7932aab285",
+  "m1Merge": "e77105c4decbb49cbc6d7d86873d50358ed140fe",
+  "m2Head": "a3413a02af8ba2e028fbb8373f1324e9058cb6c8",
+  "m2Merged": true,
+  "openPrs": [],
+  "m2Ci": {
+    "run": 41369383752,
+    "job": 125036370188,
+    "conclusion": "success",
+    "oracle": {
+      "scope": "Offline probability eligibility oracle; not live-loop audio capture or listening approval",
+      "results": [
+        {
+          "sampleRate": 44100,
+          "frames": 430056,
+          "eligibleIds": [
+            "p1",
+            "p2"
+          ],
+          "peak": 0.7290629148483276,
+          "maxError": 0,
+          "rmsError": 0
+        },
+        {
+          "sampleRate": 48000,
+          "frames": 468088,
+          "eligibleIds": [
+            "p1",
+            "p2"
+          ],
+          "peak": 0.7003936767578125,
+          "maxError": 0,
+          "rmsError": 0
+        }
+      ]
+    }
+  }
+}
