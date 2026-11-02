@@ -19,7 +19,7 @@ export function computeSha256(input) {
 }
 export function validatePrerequisites() {
   let hasJava = false;
-  try { execFileSync('javac', ['-version'], { stdio: 'ignore' }); hasJava = true; } catch { /* reported below */ }
+  try { execFileSync('javac', ['-version'], { stdio: 'ignore', timeout: 2000 }); hasJava = true; } catch { /* reported below */ }
   return { hasGradleWrapper: fs.existsSync(path.join(ROOT_DIR, 'android/gradlew')),
     hasPackageJson: fs.existsSync(path.join(ROOT_DIR, 'package.json')),
     hasCapacitorConfig: fs.existsSync(path.join(ROOT_DIR, 'capacitor.config.ts')), hasJava };

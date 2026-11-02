@@ -11,6 +11,8 @@ import {
   TimelineEditMode,
   TrackTakeRecord,
 } from '../types/ableton';
+import { syncLocatorsAndMixerToXml, syncTrackClipsToXml } from '../engine/alsXmlEngine';
+
 import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
 import {
   computeSelectedTrackAnalysisData,
@@ -75,15 +77,35 @@ export class StudioCommandBus {
     }
     const beforeSnapshot = deepCloneProject(currentProject);
     const workingDraft = deepCloneProject(currentProject);
-    const mutated = { ...mutator(workingDraft) };
-    if (mutated.audioSettings) {
+
+    const mutated = mutator(workingDraft);
+    // Commit native content before publishing state or adding a history entry.
+    // Existing callers that already synchronized their XML remain valid.
+    for (const track of mutated.tracks) {
+      const previous = currentProject.tracks.find(t => t.id === track.id);
+      if (previous && JSON.stringify(previous.clips) !== JSON.stringify(track.clips)) {
+        mutated.rawXmlModified = syncTrackClipsToXml(mutated.rawXmlModified, track.id, track.clips);
+      }
+    }
+
+    const mutated = { ...mutator(workingDraft) };y
+     (mutated.audioSettings) {
       const { arrangementLengthBars: derivedExtent, ...transport } = mutated.audioSettings.transport;
       mutated.audioSettings = { ...mutated.audioSettings, transport };
     }
+
     const nextRev = (currentProject.projectRevision || currentProject.revision || 1) + 1;
     mutated.revision = nextRev;
     mutated.projectRevision = nextRev;
+    const mixerState = (p: AbletonProjectState) => p.tracks.map(t => ({ id: t.id, mixer: t.mixer, muted: t.muted, soloed: t.soloed }));
+    const needsMixerOrLocatorSync = JSON.stringify(mixerState(currentProject)) !== JSON.stringify(mixerState(mutated)) ||
+      JSON.stringify(currentProject.memoryLocations) !== JSON.stringify(mutated.memoryLocations);
+    const syncedXml = needsMixerOrLocatorSync ? syncLocatorsAndMixerToXml(mutated) : mutated.rawXmlModified;
+    const native = new DOMParser().parseFromString(syncedXml, 'application/xml');
+    if (native.querySelector('parsererror') || native.documentElement.tagName !== 'Ableton') throw new Error('Mutation produced invalid native XML');
+
     const syncedXml = synchronizeProjectStateToXml(mutated, currentProject);
+
     mutated.rawXmlModified = syncedXml;
     mutated.rawXml = syncedXml;
     const afterSnapshot = deepCloneProject(mutated);
@@ -229,11 +251,11 @@ export function applyNoteEditWithMode(
   const draft = deepCloneProject(project);
   const maxBeats = (draft.arrangementLengthBars || 16) * 4;
   const track = draft.tracks.find((t) => t.id === trackId);
-  if (!track || !track.clips[clipIndex]) return draft;
+  if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
   const clip = track.clips[clipIndex];
   const noteIdx = clip.notes.findIndex((n) => n.id === noteId);
-  if (noteIdx === -1) return draft;
+  if (noteIdx === -1) throw new Error(`Target note ${noteId} not found`);
 
   const originalNote = clip.notes[noteIdx];
   const originalStart = originalNote.time;
@@ -291,11 +313,11 @@ export function deleteNoteWithEditMode(
 ): AbletonProjectState {
   const draft = deepCloneProject(project);
   const track = draft.tracks.find((t) => t.id === trackId);
-  if (!track || !track.clips[clipIndex]) return draft;
+  if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
   const clip = track.clips[clipIndex];
   const targetNote = clip.notes.find((n) => n.id === noteId);
-  if (!targetNote) return draft;
+  if (!targetNote) throw new Error(`Target note ${noteId} not found`);
 
   const deletedStart = targetNote.time;
   const deletedDuration = targetNote.duration;
@@ -332,11 +354,13 @@ export function applyClipPositionWithEditMode(
   const draft = deepCloneProject(project);
   const maxBeats = (draft.arrangementLengthBars || 16) * 4;
   const track = draft.tracks.find((t) => t.id === trackId);
-  if (!track || !track.clips[clipIndex]) return draft;
+  if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
   const clip = track.clips[clipIndex];
   const oldStart = clip.startTime || 0;
   const clipDuration = clip.length;
+  if (!Number.isFinite(clipDuration) || clipDuration <= 0) throw new Error('Invalid clip length');
+
   const newStart = resolveBeatForEditMode(targetStartBeat, editMode, gridDivisionBeats, maxBeats);
   const deltaBeats = newStart - oldStart;
 

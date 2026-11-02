@@ -139,6 +139,7 @@ export type MidiToolTransformationId =
 
 export interface MidiNoteEvent {
   id: string;
+  sourceNoteId?: string; // Native note template for preservation during duplication.
   time: number; // In beats (e.g., 1.012 with micro-timing shift)
   quantizedTime: number; // Original grid beat (e.g., 1.000)
   duration: number; // In beats (e.g., 0.25)
@@ -153,6 +154,7 @@ export interface MidiNoteEvent {
 
 export interface AbletonMidiClip {
   id: string;
+  sourceClipId?: string; // Native clip template for preservation during split/duplicate.
   name: string;
   startTime: number; // In beats (0 = Bar 1)
   endTime?: number; // Optional end beat
