@@ -11,10 +11,17 @@ import {
   formatXmlString,
   getDefaultVcaGroups,
 } from './alsXmlEngine';
-import { auditProjectCapabilities } from './abletonCapabilityMatrix';
+import {
+  auditProjectCapabilities,
+  classifyAbletonDeviceTag,
+  isInstrumentDeviceTag,
+  MAX_EXECUTABLE_INSERT_DEVICES,
+  syncDeviceConversionRecord,
+  verifyDeviceConversionRecord,
+} from './abletonCapabilityMatrix';
 import { assertRuntimeTimingMapSupport } from './timelineCoordinates';
 
-export const MAX_CHANNEL_INSERT_SLOTS = 10;
+export const MAX_CHANNEL_INSERT_SLOTS = MAX_EXECUTABLE_INSERT_DEVICES;
 
 /** Imported chains are preserved; execution must never truncate them or silently pass through unsupported devices. */
 export function assertExecutableInsertLimits(project: AbletonProjectState): void {
@@ -35,6 +42,12 @@ export function assertExecutableInsertLimits(project: AbletonProjectState): void
     const first = audit.preservedOnlyDevices[0];
     throw new Error(
       `PRESERVED_ONLY_DEVICE: ${first.trackName} contains preserved-only native device <${first.xmlTag}> (${first.deviceId}) with no browser DSP processor; bypass it to audition/render with approximations or retain this project for XML preservation.`
+    );
+  }
+  if (audit.unconvertedDevices.length > 0) {
+    const first = audit.unconvertedDevices[0];
+    throw new Error(
+      `CONVERSION_REQUIRED: ${first.trackName} contains converted device <${first.xmlTag}> (${first.deviceId}) with ${first.status} conversion record (${first.reason}); regenerate or validate its conversion record or bypass it before playback or WAV rendering.`
     );
   }
 }
@@ -254,11 +267,32 @@ export function getDeviceCompatibilityInfo(deviceOrTag: AbletonDevice | string |
   const isObject = typeof deviceOrTag === 'object';
   const xmlTag = isObject ? deviceOrTag.xmlTag : String(deviceOrTag);
   const isUser = isObject ? Boolean(deviceOrTag.isUserCreated) : false;
+  const status = classifyAbletonDeviceTag(xmlTag);
   const supported = isObject
-    ? deviceOrTag.browserDspSupported ?? BROWSER_SUPPORTED_DEVICE_TAGS.has(xmlTag)
+    ? (deviceOrTag.browserDspSupported ?? BROWSER_SUPPORTED_DEVICE_TAGS.has(xmlTag))
     : BROWSER_SUPPORTED_DEVICE_TAGS.has(xmlTag);
 
-  if (supported) {
+  if (status === 'converted' && isObject) {
+    const verification = verifyDeviceConversionRecord(deviceOrTag);
+    if (!verification.isValid) {
+      const badgeText = 'Conversion Required';
+      return {
+        supportedInBrowserDsp: false,
+        badgeText,
+        badgeLabel: badgeText,
+        description: verification.reason,
+      };
+    }
+    const badgeText = isUser ? 'User ALS · Converted DSP' : 'Converted Browser DSP';
+    return {
+      supportedInBrowserDsp: true,
+      badgeText,
+      badgeLabel: badgeText,
+      description: `Converted browser approximation [hash=${deviceOrTag.conversionRecord?.sourceParameterHash}].`,
+    };
+  }
+
+  if (supported && (status === 'executable' || status === 'converted')) {
     const badgeText = isUser ? 'User ALS · Active DSP' : 'Active Browser DSP';
     return {
       supportedInBrowserDsp: true,
@@ -268,13 +302,13 @@ export function getDeviceCompatibilityInfo(deviceOrTag: AbletonDevice | string |
     };
   }
 
-  const badgeText = 'Native ALS Only (Passthrough)';
+  const badgeText = status === 'preserved-only' ? 'Preserved Native XML (Bypass Required)' : 'Unsupported Plugin (Bypass Required)';
   return {
     supportedInBrowserDsp: false,
     badgeText,
     badgeLabel: badgeText,
     description:
-      'Preserved intact in .als XML on export; browser audio engine passes signal through unmodified.',
+      'Preserved intact in .als XML on export; must be bypassed before browser DSP playback or WAV rendering.',
   };
 }
 
@@ -333,13 +367,16 @@ export function insertDeviceIntoChannelStrip(
     };
   }
 
-  const template = ABLETON_BUILTIN_LIBRARY.find(
-    (d) =>
-      d.id === templateId ||
-      d.xmlTag === templateId ||
-      d.xmlTag.toLowerCase() === templateId.toLowerCase() ||
+  const template =
+    ABLETON_BUILTIN_LIBRARY.find(
+      (d) =>
+        d.id === templateId ||
+        d.xmlTag === templateId ||
+        d.xmlTag.toLowerCase() === templateId.toLowerCase()
+    ) ||
+    ABLETON_BUILTIN_LIBRARY.find((d) =>
       d.displayName.toLowerCase().includes(templateId.toLowerCase())
-  );
+    );
   if (!template) {
     return {
       project: fallbackProject,
@@ -368,7 +405,7 @@ export function insertDeviceIntoChannelStrip(
   }
 
   const newDeviceId = `${targetTrack.id}_ins_${Date.now()}_${targetTrack.devices.length + 1}`;
-  const newDevice: AbletonDevice = {
+  const newDevice: AbletonDevice = syncDeviceConversionRecord({
     id: newDeviceId,
     xmlTag: template.xmlTag,
     displayName: template.displayName,
@@ -377,7 +414,7 @@ export function insertDeviceIntoChannelStrip(
     bypassed: false,
     isUserCreated: false,
     browserDspSupported: true,
-  };
+  });
 
   const nextDevices = [...targetTrack.devices];
   if (
@@ -643,15 +680,18 @@ export function reorderChannelInsertDevice(
 }
 
 /**
- * Updates a parameter on a specific channel strip insert device and increments dspConfigRevision.
+ * Updates a parameter on a specific channel strip insert or instrument device,
+ * atomically regenerates any per-instance DeviceConversionRecord, and increments dspConfigRevision.
  */
 export function updateChannelInsertParam(
   project: AbletonProjectState,
   trackId: string,
   deviceId: string,
   paramName: string,
-  newValue: string | number
+  newValue: string | number,
+  options?: { regenerateConversion?: boolean }
 ): AbletonProjectState {
+  const shouldRegenerate = options?.regenerateConversion !== false;
   const updatedTracks = project.tracks.map((t) => {
     if (t.id !== trackId) return t;
     return {
@@ -659,12 +699,19 @@ export function updateChannelInsertParam(
       dspConfigRevision: (t.dspConfigRevision || 1) + 1,
       devices: t.devices.map((d) => {
         if (d.id !== deviceId) return d;
-        return {
+        const hasExistingParam = d.parameters.some(
+          (p) => p.name.toLowerCase() === paramName.toLowerCase()
+        );
+        const nextParameters = hasExistingParam
+          ? d.parameters.map((p) =>
+              p.name.toLowerCase() === paramName.toLowerCase() ? { ...p, value: newValue } : p
+            )
+          : [...d.parameters, { name: paramName, value: newValue }];
+        const nextDevice: AbletonDevice = {
           ...d,
-          parameters: d.parameters.map((p) =>
-            p.name === paramName ? { ...p, value: newValue } : p
-          ),
+          parameters: nextParameters,
         };
+        return shouldRegenerate ? syncDeviceConversionRecord(nextDevice) : nextDevice;
       }),
     };
   });
@@ -677,3 +724,114 @@ export function updateChannelInsertParam(
     lastActionLog: `Updated ${paramName} = ${newValue} on device ${deviceId} (Track #${trackId}).`,
   };
 }
+
+/**
+ * Removes a device (instrument, MIDI effect, or audio insert) from a track's device chain
+ * and increments dspConfigRevision so live and offline audio graphs reconcile immediately.
+ */
+export function removeChannelInsertDevice(
+  project: AbletonProjectState,
+  trackId: string,
+  deviceId: string
+): AbletonProjectState {
+  const targetTrack = project.tracks.find((t) => t.id === trackId);
+  if (!targetTrack) return project;
+  const removed = targetTrack.devices.find((d) => d.id === deviceId);
+  if (!removed) return project;
+
+  let updatedXml = project.rawXmlModified;
+  if (updatedXml) {
+    const parser = new DOMParser();
+    const sanitized = updatedXml.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
+    const xmlDoc = parser.parseFromString(sanitized, 'application/xml');
+    const trackEl = Array.from(
+      xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')
+    ).find((el) => el.getAttribute('Id') === trackId);
+    if (trackEl) {
+      const devEl = Array.from(
+        trackEl.querySelectorAll(
+          'DeviceChain > MidiToAudioDeviceChain > Devices > *, DeviceChain > Devices > *'
+        )
+      ).find((el) => el.getAttribute('Id') === deviceId);
+      if (devEl && devEl.parentNode) {
+        devEl.parentNode.removeChild(devEl);
+      }
+    }
+    updatedXml = formatXmlString(new XMLSerializer().serializeToString(xmlDoc));
+  }
+
+  return {
+    ...project,
+    revision: (project.revision || 1) + 1,
+    projectRevision: (project.projectRevision || project.revision || 1) + 1,
+    tracks: project.tracks.map((t) =>
+      t.id === trackId
+        ? {
+            ...t,
+            devices: t.devices.filter((d) => d.id !== deviceId),
+            dspConfigRevision: (t.dspConfigRevision || 1) + 1,
+          }
+        : t
+    ),
+    rawXmlModified: updatedXml,
+    rawXml: updatedXml,
+    lastActionLog: `Removed device ${removed.displayName} (${deviceId}) from ${targetTrack.name}.`,
+  };
+}
+
+/**
+ * Replaces (or installs) the primary instrument device on a track while preserving its
+ * compositional archetype and downstream audio effect inserts.
+ */
+export function replaceTrackInstrumentDevice(
+  project: AbletonProjectState,
+  trackId: string,
+  instrumentTemplateIdOrTag: string
+): AbletonProjectState {
+  const targetTrack = project.tracks.find((t) => t.id === trackId);
+  if (!targetTrack) {
+    throw new Error(`Track ${trackId} not found.`);
+  }
+  const template = ABLETON_BUILTIN_LIBRARY.find(
+    (d) =>
+      isInstrumentDeviceTag(d.xmlTag) &&
+      (d.id === instrumentTemplateIdOrTag ||
+        d.xmlTag.toLowerCase() === instrumentTemplateIdOrTag.toLowerCase() ||
+        d.displayName.toLowerCase().includes(instrumentTemplateIdOrTag.toLowerCase()))
+  );
+  if (!template) {
+    throw new Error(`Instrument template "${instrumentTemplateIdOrTag}" not found in verified library.`);
+  }
+
+  const existingInstIndex = targetTrack.devices.findIndex((d) => isInstrumentDeviceTag(d.xmlTag));
+  let intermediateProject = project;
+  let insertSlotIndex = 0;
+
+  if (existingInstIndex >= 0) {
+    insertSlotIndex = existingInstIndex;
+    intermediateProject = removeChannelInsertDevice(
+      project,
+      trackId,
+      targetTrack.devices[existingInstIndex].id
+    );
+  } else {
+    // Place after any leading MIDI effects, before audio effects
+    const lastMidiIdx = targetTrack.devices.reduce(
+      (acc, d, idx) => (d.category === 'midi_effect' ? idx : acc),
+      -1
+    );
+    insertSlotIndex = lastMidiIdx + 1;
+  }
+
+  const res = insertDeviceIntoChannelStrip(
+    intermediateProject,
+    trackId,
+    template.id,
+    insertSlotIndex
+  );
+  if (res.error) {
+    throw new Error(res.error);
+  }
+  return res.project;
+}
+

@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CANONICAL_PPQ,
+  MAX_SUPPORTED_TIMELINE_BARS,
+  MusicalTimeService,
+  SUPPORTED_PPQ_RESOLUTIONS,
+  assertValidPpq,
   barBeatTickToBeat,
   beatToBarBeatTick,
   beatToSecondsWithTempoMap,
   beatsToTicks,
+  playbackRegion,
+  quantizeBeatToCanonicalTick,
   secondsToBeatWithTempoMap,
   snapBeatsToGridTicks,
   ticksToBeats,
@@ -14,7 +20,6 @@ import {
   buildStarterAbletonXml,
   parseAbletonXmlDom,
   synchronizeProjectStateToXml,
-  syncTrackClipsToXml,
 } from '../engine/alsXmlEngine';
 import {
   decomposeNotesIntoSectionClips,
@@ -26,16 +31,41 @@ import {
   encodeProjectSnapshot,
 } from '../services/projectSnapshotService';
 import type {
+  AbletonDevice,
   HumanizationConfig,
   MasterBusConfig,
   TransportConfig,
 } from '../types/ableton';
 import {
   ABLETON_CAPABILITY_MATRIX,
+  ABLETON_DEVICE_REGISTRY,
   MAX_EXECUTABLE_INSERT_DEVICES,
   auditProjectCapabilities,
+  buildDeviceConversionRecord,
+  evaluateTrackMidiDeviceChain,
+  getAbletonDeviceContract,
+  syncDeviceConversionRecord,
+  verifyDeviceConversionRecord,
 } from '../engine/abletonCapabilityMatrix';
+import {
+  MAX_CHANNEL_INSERT_SLOTS,
+  assertExecutableInsertLimits,
+  insertDeviceIntoChannelStrip,
+  removeChannelInsertDevice,
+  reorderChannelInsertDevice,
+  replaceTrackInstrumentDevice,
+  toggleChannelInsertBypass,
+  updateChannelInsertParam,
+} from '../engine/channelStripEngine';
 import { assertProjectState } from '../engine/projectStateContracts';
+import {
+  ParametricWebAudioEngine,
+  buildAudioBusGraph,
+  buildDeviceInsertProcessor,
+  getOrCreateTrackChannelRuntime,
+  resolveTrackInstrumentSynthesis,
+  synthesizeDeterministicStereoPcm,
+} from '../engine/webAudioSynth';
 
 const DEFAULT_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.012,
@@ -70,16 +100,117 @@ const DEFAULT_TRANSPORT: TransportConfig = {
   arrangementMode: 'arrangement',
 };
 
+function createTestAudioContext() {
+  const makeParam = (initial = 0) => ({
+    value: initial,
+    setValueAtTime: vi.fn(function (this: { value: number }, v: number) {
+      this.value = v;
+    }),
+    setTargetAtTime: vi.fn(function (this: { value: number }, v: number) {
+      this.value = v;
+    }),
+    linearRampToValueAtTime: vi.fn(function (this: { value: number }, v: number) {
+      this.value = v;
+    }),
+  });
+  const ctx: Record<string, unknown> = {
+    currentTime: 0,
+    sampleRate: 44100,
+    state: 'running',
+    resume: vi.fn(async () => {}),
+  };
+  const makeNode = (extra: Record<string, unknown> = {}) => ({
+    context: ctx,
+    connect: vi.fn((dest: unknown) => dest),
+    disconnect: vi.fn(),
+    ...extra,
+  });
+  Object.assign(ctx, {
+    createGain: vi.fn(() => makeNode({ gain: makeParam(1) })),
+    createBiquadFilter: vi.fn(() =>
+      makeNode({
+        type: 'lowpass',
+        frequency: makeParam(1000),
+        Q: makeParam(1),
+        gain: makeParam(0),
+      })
+    ),
+    createDynamicsCompressor: vi.fn(() =>
+      makeNode({
+        threshold: makeParam(-24),
+        knee: makeParam(12),
+        ratio: makeParam(4),
+        attack: makeParam(0.003),
+        release: makeParam(0.25),
+      })
+    ),
+    createWaveShaper: vi.fn(() => makeNode({ curve: null, oversample: 'none' })),
+    createStereoPanner: vi.fn(() => makeNode({ pan: makeParam(0) })),
+    createConvolver: vi.fn(() => makeNode({ buffer: null })),
+    createDelay: vi.fn(() => makeNode({ delayTime: makeParam(0) })),
+    createOscillator: vi.fn(() =>
+      makeNode({
+        type: 'sine',
+        frequency: makeParam(1),
+        start: vi.fn(),
+        stop: vi.fn(),
+      })
+    ),
+    createAnalyser: vi.fn(() =>
+      makeNode({
+        fftSize: 256,
+        frequencyBinCount: 128,
+        smoothingTimeConstant: 0.8,
+        getByteTimeDomainData: vi.fn((arr: Uint8Array) => arr.fill(128)),
+        getByteFrequencyData: vi.fn((arr: Uint8Array) => arr.fill(0)),
+      })
+    ),
+    createBuffer: vi.fn((channels: number, length: number, sampleRate: number) => ({
+      numberOfChannels: channels,
+      length,
+      sampleRate,
+      getChannelData: () => new Float32Array(length),
+    })),
+  });
+  return ctx as unknown as AudioContext;
+}
+
+function computeRms(samples: Float32Array): number {
+  if (samples.length === 0) return 0;
+  let sumSq = 0;
+  for (let i = 0; i < samples.length; i++) {
+    sumSq += samples[i] * samples[i];
+  }
+  return Math.sqrt(sumSq / samples.length);
+}
+
+function computeMaxAbsDiff(a: Float32Array, b: Float32Array): number {
+  const len = Math.min(a.length, b.length);
+  let maxDiff = 0;
+  for (let i = 0; i < len; i++) {
+    const diff = Math.abs(a[i] - b[i]);
+    if (diff > maxDiff) maxDiff = diff;
+  }
+  return maxDiff;
+}
+
 describe('G1–G8 Strengthening Contracts', () => {
-  describe('G1: Canonical Ticks/PPQ (960), Tuplets, Fine Grids, Meter Map & Tempo Map', () => {
-    it('converts beats and ticks losslessly for binary, triplet, and 1/128 fine grids', () => {
+  describe('Section 1 & G1/G7: Authoritative 10-Slot Constant & Canonical Timing Service', () => {
+    it('uses one authoritative 10-device-chain-slot constant across capability matrix and channel strip engine', () => {
+      expect(MAX_EXECUTABLE_INSERT_DEVICES).toBe(10);
+      expect(MAX_CHANNEL_INSERT_SLOTS).toBe(10);
+      expect(MAX_CHANNEL_INSERT_SLOTS).toBe(MAX_EXECUTABLE_INSERT_DEVICES);
+    });
+
+    it('converts beats and ticks losslessly for binary, triplet, and 1/128 fine grids and validates PPQ/tick boundaries', () => {
       expect(CANONICAL_PPQ).toBe(960);
+      expect(SUPPORTED_PPQ_RESOLUTIONS).toContain(960);
       expect(beatsToTicks(1)).toBe(960);
-      expect(beatsToTicks(0.25)).toBe(240); // 1/16 note
-      expect(beatsToTicks(1 / 3)).toBe(320); // quarter-note triplet
-      expect(beatsToTicks(1 / 6)).toBe(160); // 8th-note triplet
-      expect(beatsToTicks(1 / 12)).toBe(80); // 16th-note triplet
-      expect(beatsToTicks(4 / 128)).toBe(30); // 1/128 note (0.03125 beats = 30 ticks)
+      expect(beatsToTicks(0.25)).toBe(240);
+      expect(beatsToTicks(1 / 3)).toBe(320);
+      expect(beatsToTicks(1 / 6)).toBe(160);
+      expect(beatsToTicks(1 / 12)).toBe(80);
+      expect(beatsToTicks(4 / 128)).toBe(30);
 
       expect(ticksToBeats(320)).toBeCloseTo(1 / 3, 10);
       expect(ticksToBeats(30)).toBe(0.03125);
@@ -91,13 +222,54 @@ describe('G1–G8 Strengthening Contracts', () => {
       const snapped128th = snapBeatsToGridTicks(0.031, 4 / 128);
       expect(snapped128th.ticks).toBe(30);
       expect(snapped128th.beats).toBe(0.03125);
+
+      // Sub-tick preservation and quantization decomposition
+      const microQuant = quantizeBeatToCanonicalTick(1.25 + 0.0004, 960);
+      expect(microQuant.canonicalTicks).toBe(1200);
+      expect(microQuant.quantizedBeat).toBeCloseTo(1.25, 8);
+      expect(Math.abs(microQuant.subTickRemainderBeats)).toBeLessThan(1 / 960);
+      expect(microQuant.isSubTick).toBe(true);
+
+      // PPQ validation rejects zero, negative, non-integer, or unsupported PPQ
+      expect(() => assertValidPpq(0)).toThrow(/TIMELINE_INPUT/);
+      expect(() => assertValidPpq(-960)).toThrow(/TIMELINE_INPUT/);
+      expect(() => assertValidPpq(123)).toThrow(/TIMELINE_INPUT/);
+      expect(() => barBeatTickToBeat(1, 1, 0, undefined, 0)).toThrow(/TIMELINE_INPUT/);
+
+      // Tick validation rejects negative, non-integer, or >= ticksPerMeterBeat
+      expect(() => barBeatTickToBeat(1, 1, -1)).toThrow(/TIMELINE_INPUT/);
+      expect(() => barBeatTickToBeat(1, 1, 120.5)).toThrow(/TIMELINE_INPUT/);
+      expect(() => barBeatTickToBeat(1, 1, 960)).toThrow(/TIMELINE_INPUT/);
+    });
+
+    it('supports final supported bar 4096 exclusive end boundary in barBeatTickToBeat and playbackRegion', () => {
+      expect(MAX_SUPPORTED_TIMELINE_BARS).toBe(4096);
+      const startOfBar4096 = barBeatTickToBeat(4096, 1, 0);
+      const endOfBar4096 = barBeatTickToBeat(4097, 1, 0);
+      expect(startOfBar4096).toBe(4095 * 4);
+      expect(endOfBar4096).toBe(4096 * 4);
+      expect(() => barBeatTickToBeat(4097, 1, 1)).toThrow(/TIMELINE_INPUT/);
+      expect(() => barBeatTickToBeat(4098, 1, 0)).toThrow(/TIMELINE_INPUT/);
+
+      const finalBarLoop = playbackRegion(4096 * 4, {
+        ...DEFAULT_TRANSPORT,
+        loopEnabled: true,
+        loopStartBar: 4096,
+        loopLengthBars: 1,
+      });
+      expect(finalBarLoop).toEqual({
+        start: 16380,
+        end: 16384,
+        span: 4,
+        enabled: true,
+      });
     });
 
     it('resolves bar/beat/tick coordinates across changing meters and long 1024-bar projects', () => {
       const meterMap = [
-        { bar: 1, beat: 0, numerator: 4, denominator: 4 }, // Bars 1..4 = 16 beats (0..16)
-        { bar: 5, beat: 16, numerator: 3, denominator: 4 }, // Bars 5..8 = 12 beats (16..28)
-        { bar: 9, beat: 28, numerator: 7, denominator: 8 }, // Bar 9+ = 3.5 quarter-beats per bar
+        { bar: 1, beat: 0, numerator: 4, denominator: 4 },
+        { bar: 5, beat: 16, numerator: 3, denominator: 4 },
+        { bar: 9, beat: 28, numerator: 7, denominator: 8 },
       ];
 
       const bar1 = beatToBarBeatTick(0, meterMap);
@@ -124,7 +296,6 @@ describe('G1–G8 Strengthening Contracts', () => {
       );
       expect(roundTripBeat).toBeCloseTo(20.5, 8);
 
-      // Long sparse project coordinate at Bar 1024 in 4/4
       const beatAtBar1024 = barBeatTickToBeat(1024, 4, 720);
       expect(beatAtBar1024).toBe(1023 * 4 + 3 + 0.75);
       const parsed1024 = beatToBarBeatTick(beatAtBar1024);
@@ -132,18 +303,15 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(parsed1024.beatInBar).toBe(4);
       expect(parsed1024.tickInBeat).toBe(720);
 
-      // Discontinuous meter map boundary must be rejected atomically
       const discontinuousMeterMap = [
         { bar: 1, beat: 0, numerator: 4, denominator: 4 },
-        { bar: 5, beat: 8, numerator: 3, denominator: 4 }, // 4 bars of 4/4 is 16 beats, not 8
+        { bar: 5, beat: 8, numerator: 3, denominator: 4 },
       ];
       expect(() => beatToBarBeatTick(8, discontinuousMeterMap)).toThrow(/discontinuous meter map anchor/);
       expect(() => barBeatTickToBeat(3, 1, 0, discontinuousMeterMap)).toThrow(/discontinuous meter map anchor/);
     });
 
-    it('integrates beat-linear tempo ramps via 60/BPM calculus (4*ln(2)) and inverts interior beats losslessly', () => {
-      // Analytic reference oracle: 60 -> 120 BPM over 4 beats
-      // BPM(b) = 60 + 15*b => dt = integral_0^4 (60 / (60 + 15*b)) db = 4 * ln(2) = 2.772588722239781s
+    it('integrates increasing, decreasing, and shallow beat-linear tempo ramps via 60/BPM calculus and exposes MusicalTimeService', () => {
       const ramp60To120 = [
         { beat: 0, bpm: 60, curve: 'linear' as const },
         { beat: 4, bpm: 120, curve: 'step' as const },
@@ -152,33 +320,39 @@ describe('G1–G8 Strengthening Contracts', () => {
       const secAtBeat4 = beatToSecondsWithTempoMap(4, 60, ramp60To120);
       expect(secAtBeat4).toBeCloseTo(exactFourLn2, 10);
 
-      // Interior midpoint beat = 2 (BPM = 90): dt = 4 * ln(90/60) = 4 * ln(1.5)
       const secAtBeat2 = beatToSecondsWithTempoMap(2, 60, ramp60To120);
       expect(secAtBeat2).toBeCloseTo(4 * Math.log(1.5), 10);
       expect(secondsToBeatWithTempoMap(secAtBeat2, 60, ramp60To120)).toBeCloseTo(2.0, 10);
       expect(secondsToBeatWithTempoMap(secAtBeat4, 60, ramp60To120)).toBeCloseTo(4.0, 10);
 
-      // Multi-segment stepped + linear tempo map
-      const multiMap = [
-        { beat: 0, bpm: 120, curve: 'step' as const }, // 0..4 beats @ 120 BPM = 2.0s
-        { beat: 4, bpm: 120, curve: 'linear' as const }, // 4..8 beats linear ramp 120 -> 140 BPM (k = 5 BPM/beat)
-        { beat: 8, bpm: 140, curve: 'step' as const }, // 8+ beats @ 140 BPM
+      // Decreasing ramp: 120 -> 60 BPM over 4 beats (slope = -15 BPM/beat)
+      const ramp120To60 = [
+        { beat: 0, bpm: 120, curve: 'linear' as const },
+        { beat: 4, bpm: 60, curve: 'step' as const },
       ];
-      const expectedRampSec = (60 / 5) * Math.log(140 / 120);
-      const multiSecAt8 = beatToSecondsWithTempoMap(8, 120, multiMap);
-      expect(multiSecAt8).toBeCloseTo(2.0 + expectedRampSec, 10);
-      expect(secondsToBeatWithTempoMap(multiSecAt8, 120, multiMap)).toBeCloseTo(8.0, 10);
+      const decSecAt4 = beatToSecondsWithTempoMap(4, 120, ramp120To60);
+      expect(decSecAt4).toBeCloseTo(exactFourLn2, 10);
+      const decSecAt2 = beatToSecondsWithTempoMap(2, 120, ramp120To60);
+      expect(secondsToBeatWithTempoMap(decSecAt2, 120, ramp120To60)).toBeCloseTo(2.0, 10);
 
-      const multiSecAt6 = beatToSecondsWithTempoMap(6, 120, multiMap);
-      expect(secondsToBeatWithTempoMap(multiSecAt6, 120, multiMap)).toBeCloseTo(6.0, 10);
+      // Ultra-shallow ramp near constant-slope limit
+      const shallowRamp = [
+        { beat: 0, bpm: 120, curve: 'linear' as const },
+        { beat: 4, bpm: 120.000001, curve: 'step' as const },
+      ];
+      const shallowSec = beatToSecondsWithTempoMap(2, 120, shallowRamp);
+      expect(shallowSec).toBeCloseTo(1.0, 6);
+      expect(secondsToBeatWithTempoMap(shallowSec, 120, shallowRamp)).toBeCloseTo(2.0, 6);
 
-      expect(() => beatToSecondsWithTempoMap(-1, 120)).toThrow(/TIMELINE_INPUT/);
-      expect(() =>
-        beatToSecondsWithTempoMap(4, 120, [
-          { beat: 4, bpm: 128 },
-          { beat: 2, bpm: 132 },
-        ])
-      ).toThrow(/TIMELINE_INPUT/);
+      // MusicalTimeService unified API
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 101, 4, 'sketch');
+      const project = parseAbletonXmlDom(xml, meta.name, xml);
+      expect(MusicalTimeService.arrangementTotalBeats(project, 4)).toBe(16);
+      expect(MusicalTimeService.arrangementDurationSeconds(project, 16)).toBeCloseTo((16 * 60) / project.tempo, 6);
+      expect(MusicalTimeService.noteDurationSeconds(0, 1, project.tempo, project.tempoMap)).toBeCloseTo(60 / project.tempo, 6);
+      expect(MusicalTimeService.formatBarBeatTick(4.5, project.meterMap, project.ppq)).toBe('2.1.480');
+      expect(MusicalTimeService.formatBarBeatTick(5.5, project.meterMap, project.ppq)).toBe('2.2.480');
+      expect(MusicalTimeService.quantizeSessionLaunchBeat(1.1, 4, project.ppq)).toBe(4);
     });
 
     it('round-trips tempoMap, meterMap, and ppq through ALS XML and rejects non-constant maps at audio render preflight', () => {
@@ -199,6 +373,636 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(reparsed.ppq).toBe(960);
       expect(reparsed.tempoMap).toEqual(project.tempoMap);
       expect(reparsed.meterMap).toEqual(project.meterMap);
+    });
+  });
+
+  describe('Section 3: Engine State Installation Preflight & Emergency Shutdown Resilience', () => {
+    it('preserves previous valid state, retires active voices, stops timers, and surfaces one actionable error when setState rejects an invalid meterMap or unsupported device during active playback', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 404, 4, 'sketch');
+      const validProject = parseAbletonXmlDom(xml, meta.name, xml);
+      const engine = new ParametricWebAudioEngine();
+      const testCtx = createTestAudioContext();
+      const stopReasons: string[] = [];
+
+      Object.assign(engine, {
+        ctx: testCtx,
+        bus: buildAudioBusGraph(testCtx, validProject.tempo, DEFAULT_MASTER_BUS, false),
+      });
+
+      engine.setState(
+        validProject,
+        DEFAULT_HUMANIZATION,
+        DEFAULT_TRANSPORT,
+        DEFAULT_MASTER_BUS,
+        undefined,
+        (reason) => {
+          if (reason) stopReasons.push(reason);
+        }
+      );
+      expect(engine.getInstalledProjectState()).toBe(validProject);
+
+      // Simulate active playback with an active voice and running timers
+      const retireVoiceSpy = vi.fn();
+      (engine as any).bus.activeVoices.add(retireVoiceSpy);
+      Object.assign(engine, {
+        isPlaying: true,
+        playbackState: 'playing',
+        currentBeat: 6.5,
+        anchorBeat: 6.5,
+        anchorAudioTime: 0,
+        schedulerTimerId: window.setInterval(() => {}, 1000),
+      });
+
+      // Candidate 1: Invalid discontinuous meterMap that previously threw inside stop() -> getCurrentBeat()
+      const invalidMeterProject = {
+        ...validProject,
+        meterMap: [
+          { bar: 1, beat: 0, numerator: 4, denominator: 4 },
+          { bar: 5, beat: 8, numerator: 3, denominator: 4 },
+        ],
+      };
+
+      expect(() =>
+        engine.setState(invalidMeterProject, DEFAULT_HUMANIZATION, DEFAULT_TRANSPORT, DEFAULT_MASTER_BUS)
+      ).not.toThrow();
+
+      // Previous valid project state must be preserved, voices retired, timers stopped, and error surfaced once
+      expect(engine.getInstalledProjectState()).toBe(validProject);
+      expect(engine.getIsPlaying()).toBe(false);
+      expect((engine as any).schedulerTimerId).toBeNull();
+      expect(retireVoiceSpy).toHaveBeenCalledTimes(1);
+      expect(engine.getCurrentBeat()).toBe(6.5);
+      expect(stopReasons).toHaveLength(1);
+      expect(stopReasons[0]).toMatch(/discontinuous meter map anchor/);
+
+      // Candidate 2: Unsupported external plugin device
+      const retireVoiceSpy2 = vi.fn();
+      (engine as any).bus.activeVoices.add(retireVoiceSpy2);
+      Object.assign(engine, { isPlaying: true, playbackState: 'playing' });
+
+      const unsupportedDeviceProject = {
+        ...validProject,
+        tracks: validProject.tracks.map((t, idx) =>
+          idx === 0
+            ? {
+                ...t,
+                devices: [
+                  ...t.devices,
+                  {
+                    id: 'vst_external',
+                    xmlTag: 'PluginDevice',
+                    displayName: 'External VST3',
+                    category: 'audio_effect' as const,
+                    parameters: [],
+                    bypassed: false,
+                  },
+                ],
+              }
+            : t
+        ),
+      };
+
+      engine.setState(unsupportedDeviceProject, DEFAULT_HUMANIZATION, DEFAULT_TRANSPORT, DEFAULT_MASTER_BUS);
+      expect(engine.getInstalledProjectState()).toBe(validProject);
+      expect(engine.getIsPlaying()).toBe(false);
+      expect(retireVoiceSpy2).toHaveBeenCalledTimes(1);
+      expect(stopReasons).toHaveLength(2);
+      expect(stopReasons[1]).toMatch(/UNSUPPORTED_DEVICE/);
+    });
+  });
+
+  describe('Section 4: Shared Device Registry & Instrument vs. Insert Separation', () => {
+    it('maintains complete executable contracts in ABLETON_DEVICE_REGISTRY for every registered device', () => {
+      const contracts = Object.values(ABLETON_DEVICE_REGISTRY);
+      expect(contracts.length).toBeGreaterThanOrEqual(25);
+      for (const contract of contracts) {
+        expect(getAbletonDeviceContract(contract.xmlTag)).toBe(contract);
+        expect(contract.kind).toBeTruthy();
+        expect(contract.status).toBeTruthy();
+        expect(contract.bypassBehavior.length).toBeGreaterThan(5);
+        expect(contract.parameterUpdateBehavior.length).toBeGreaterThan(5);
+        expect(contract.disposalBehavior.length).toBeGreaterThan(5);
+        expect(contract.routing).toBeTruthy();
+        expect(contract.requiredTests.length).toBeGreaterThan(0);
+      }
+      // Every device-category entry in ABLETON_CAPABILITY_MATRIX resolves in ABLETON_DEVICE_REGISTRY
+      for (const entry of ABLETON_CAPABILITY_MATRIX) {
+        if (
+          entry.category === 'instrument' ||
+          entry.category === 'audio_effect' ||
+          entry.category === 'midi_effect' ||
+          entry.category === 'rack'
+        ) {
+          for (const tag of entry.xmlTagOrFeature.split('|')) {
+            const contract = getAbletonDeviceContract(tag.trim());
+            expect(contract).toBeDefined();
+            expect(contract!.status).toBe(entry.status);
+          }
+        }
+      }
+    });
+
+    it('separates instrument sound generation from audio inserts across bypass, deletion, replacement, and parameter edits', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 505, 4, 'sketch');
+      const baseProject = parseAbletonXmlDom(xml, meta.name, xml);
+      const kickTrack = baseProject.tracks[0];
+      expect(kickTrack.archetype).toBe('kick');
+
+      // Baseline active DrumGroupDevice synthesis
+      const activeSpec = resolveTrackInstrumentSynthesis(kickTrack);
+      expect(activeSpec.active).toBe(true);
+      expect(activeSpec.instrumentTag).toBe('DrumGroupDevice');
+      expect(activeSpec.synthesisRole).toBe('kick');
+
+      const soloKickProject = {
+        ...baseProject,
+        arrangementLengthBars: 1,
+        tracks: [{ ...kickTrack, clips: [{ ...kickTrack.clips[0], length: 4, endTime: 4 }] }],
+      };
+      const basePcm = synthesizeDeterministicStereoPcm(
+        soloKickProject,
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      expect(computeRms(basePcm.left)).toBeGreaterThan(0.01);
+
+      // 1. Bypassing the instrument produces silence while keeping track.archetype intact
+      const bypassedInstTrack = {
+        ...soloKickProject.tracks[0],
+        devices: soloKickProject.tracks[0].devices.map((d) =>
+          d.xmlTag === 'DrumGroupDevice' ? { ...d, bypassed: true } : d
+        ),
+      };
+      expect(resolveTrackInstrumentSynthesis(bypassedInstTrack).active).toBe(false);
+      const bypassedPcm = synthesizeDeterministicStereoPcm(
+        { ...soloKickProject, tracks: [bypassedInstTrack] },
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      expect(computeRms(bypassedPcm.left)).toBe(0);
+
+      // 2. Deleting the instrument produces silence
+      const deletedInstTrack = {
+        ...soloKickProject.tracks[0],
+        devices: soloKickProject.tracks[0].devices.filter((d) => d.xmlTag !== 'DrumGroupDevice'),
+      };
+      expect(resolveTrackInstrumentSynthesis(deletedInstTrack).active).toBe(false);
+      const deletedPcm = synthesizeDeterministicStereoPcm(
+        { ...soloKickProject, tracks: [deletedInstTrack] },
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      expect(computeRms(deletedPcm.left)).toBe(0);
+
+      // 3. Replacing DrumGroupDevice with UltraAnalog changes synthesis engine to acid voice while preserving track.archetype='kick'
+      const replacedProject = replaceTrackInstrumentDevice(
+        soloKickProject,
+        soloKickProject.tracks[0].id,
+        'UltraAnalog'
+      );
+      const replacedTrack = replacedProject.tracks[0];
+      expect(replacedTrack.archetype).toBe('kick');
+      const replacedSpec = resolveTrackInstrumentSynthesis(replacedTrack);
+      expect(replacedSpec.active).toBe(true);
+      expect(replacedSpec.instrumentTag).toBe('UltraAnalog');
+      expect(replacedSpec.synthesisRole).toBe('acid');
+
+      const replacedPcm = synthesizeDeterministicStereoPcm(
+        replacedProject,
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      expect(computeRms(replacedPcm.left)).toBeGreaterThan(0.005);
+      expect(computeMaxAbsDiff(basePcm.left, replacedPcm.left)).toBeGreaterThan(0.05);
+
+      // 4. Modifying instrument parameters (Pitch +7st & Decay 0.9s) produces measurable audio difference
+      const instDevice = soloKickProject.tracks[0].devices.find((d) => d.xmlTag === 'DrumGroupDevice')!;
+      let tunedProject = updateChannelInsertParam(
+        soloKickProject,
+        soloKickProject.tracks[0].id,
+        instDevice.id,
+        'Pitch',
+        7
+      );
+      tunedProject = updateChannelInsertParam(
+        tunedProject,
+        soloKickProject.tracks[0].id,
+        instDevice.id,
+        'Decay',
+        0.9
+      );
+      const tunedPcm = synthesizeDeterministicStereoPcm(
+        tunedProject,
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      expect(computeMaxAbsDiff(basePcm.left, tunedPcm.left)).toBeGreaterThan(0.02);
+    });
+  });
+
+  describe('Section 5: Per-Instance Conversion Records, MIDI Processors & Converted Insert DSP', () => {
+    it('requires valid per-instance conversion records for converted devices and invalidates when parameters mutate without re-conversion', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 606, 4, 'sketch');
+      const project = parseAbletonXmlDom(xml, meta.name, xml);
+
+      // Starter project includes converted devices (DrumBuss, Reverb, HybridReverb, Erosion, AutoPan, MidiChord)
+      const initialAudit = auditProjectCapabilities(project);
+      expect(initialAudit.convertedDevices.length).toBeGreaterThan(0);
+      expect(initialAudit.unconvertedDevices).toHaveLength(0);
+      expect(initialAudit.canRenderApproximation).toBe(true);
+      // Faithful native parity is false whenever lossy converted approximations are active
+      expect(initialAudit.canExecuteFaithfully).toBe(false);
+      expect(initialAudit.canExecuteFullDsp).toBe(true);
+
+      // Mutating a converted device parameter directly without regenerating conversionRecord invalidates it
+      const drumBussTrack = project.tracks[0];
+      const drumBussDev = drumBussTrack.devices.find((d) => d.xmlTag === 'DrumBuss')!;
+      expect(verifyDeviceConversionRecord(drumBussDev).status).toBe('valid');
+
+      const staleDev: AbletonDevice = {
+        ...drumBussDev,
+        parameters: drumBussDev.parameters.map((p) =>
+          p.name === 'Drive' ? { ...p, value: 99 } : p
+        ),
+      };
+      expect(verifyDeviceConversionRecord(staleDev).status).toBe('invalidated');
+
+      const staleProject = {
+        ...project,
+        tracks: project.tracks.map((t, idx) =>
+          idx === 0
+            ? {
+                ...t,
+                devices: t.devices.map((d) => (d.id === drumBussDev.id ? staleDev : d)),
+              }
+            : t
+        ),
+      };
+      const staleAudit = auditProjectCapabilities(staleProject);
+      expect(staleAudit.unconvertedDevices).toHaveLength(1);
+      expect(staleAudit.canRenderApproximation).toBe(false);
+      expect(staleAudit.canExecuteFullDsp).toBe(false);
+      expect(() => assertExecutableInsertLimits(staleProject)).toThrow(/CONVERSION_REQUIRED/);
+
+      // Updating via updateChannelInsertParam atomically regenerates a valid conversionRecord
+      const updatedProject = updateChannelInsertParam(
+        project,
+        drumBussTrack.id,
+        drumBussDev.id,
+        'Drive',
+        85
+      );
+      const updatedDev = updatedProject.tracks[0].devices.find((d) => d.id === drumBussDev.id)!;
+      expect(verifyDeviceConversionRecord(updatedDev).status).toBe('valid');
+      expect(updatedDev.conversionRecord?.sourceParameterHash).not.toBe(
+        drumBussDev.conversionRecord?.sourceParameterHash
+      );
+      expect(() => assertExecutableInsertLimits(updatedProject)).not.toThrow();
+    });
+
+    it('executes MidiChord and MidiArpeggiator note transformations across pitch, timing, rate, gate, ordering, bypass, and offline rendering', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 707, 4, 'sketch');
+      const project = parseAbletonXmlDom(xml, meta.name, xml);
+      const baseNote = {
+        id: 'n1',
+        time: 0,
+        quantizedTime: 0,
+        duration: 1.0,
+        pitch: 60,
+        velocity: 100,
+        isGhost: false,
+      };
+
+      const chordDev = syncDeviceConversionRecord({
+        id: 'mc_1',
+        xmlTag: 'MidiChord',
+        displayName: 'Chord',
+        category: 'midi_effect',
+        parameters: [
+          { name: 'Shift1', value: 4 },
+          { name: 'Shift2', value: 7 },
+          { name: 'Shift3', value: 12 },
+          { name: 'VelocityPct', value: 90 },
+        ],
+        bypassed: false,
+      });
+
+      const arpDev = syncDeviceConversionRecord({
+        id: 'ma_1',
+        xmlTag: 'MidiArpeggiator',
+        displayName: 'Arpeggiator',
+        category: 'midi_effect',
+        parameters: [
+          { name: 'Rate', value: 0.25 },
+          { name: 'Gate', value: 50 },
+          { name: 'Steps', value: 2 },
+          { name: 'Distance', value: 12 },
+          { name: 'Style', value: 'Up' },
+        ],
+        bypassed: false,
+      });
+
+      const synthTrack = {
+        ...project.tracks[3],
+        devices: [
+          chordDev,
+          arpDev,
+          ...project.tracks[3].devices.filter((d) => d.category === 'instrument'),
+        ],
+        clips: [
+          {
+            id: 'clip_test',
+            name: 'Test Clip',
+            startTime: 0,
+            endTime: 4,
+            length: 4,
+            notes: [baseNote],
+          },
+        ],
+      };
+
+      // 1. MidiChord alone expands 1 note into 4 chord notes [60, 64, 67, 72]
+      const chordOnlyTrack = { ...synthTrack, devices: [chordDev, synthTrack.devices[2]] };
+      const chordNotes = evaluateTrackMidiDeviceChain(chordOnlyTrack, [baseNote], 0, 4);
+      expect(chordNotes.map((n) => n.pitch)).toEqual([60, 64, 67, 72]);
+      expect(chordNotes[1].velocity).toBe(90);
+
+      // 2. MidiChord -> MidiArpeggiator expands the chord into 1/16th arpeggio steps with 50% gate (0.125 beats)
+      const chainedNotes = evaluateTrackMidiDeviceChain(synthTrack, [baseNote], 0, 4);
+      expect(chainedNotes.length).toBe(4); // 1.0 beat / 0.25 rate = 4 steps
+      expect(chainedNotes.map((n) => n.time)).toEqual([0, 0.25, 0.5, 0.75]);
+      expect(chainedNotes.every((n) => Math.abs(n.duration - 0.125) < 1e-6)).toBe(true);
+      expect(chainedNotes.map((n) => n.pitch)).toEqual([60, 64, 67, 72]);
+
+      // Down style reverses pitch order
+      const downArpDev = syncDeviceConversionRecord({
+        ...arpDev,
+        parameters: arpDev.parameters.map((p) =>
+          p.name === 'Style' ? { ...p, value: 'Down' } : p
+        ),
+      });
+      const downNotes = evaluateTrackMidiDeviceChain(
+        { ...synthTrack, devices: [chordDev, downArpDev, synthTrack.devices[2]] },
+        [baseNote],
+        0,
+        4
+      );
+      expect(downNotes[0].pitch).toBeGreaterThan(downNotes[1].pitch);
+
+      // 3. Bypassing both MIDI processors returns the original note unchanged
+      const bypassedTrack = {
+        ...synthTrack,
+        devices: synthTrack.devices.map((d) =>
+          d.category === 'midi_effect' ? { ...d, bypassed: true } : d
+        ),
+      };
+      const bypassedNotes = evaluateTrackMidiDeviceChain(bypassedTrack, [baseNote], 0, 4);
+      expect(bypassedNotes).toEqual([baseNote]);
+
+      // 4. Offline PCM render differs measurably between active MidiChord+MidiArpeggiator and bypassed
+      const activePcm = synthesizeDeterministicStereoPcm(
+        { ...project, arrangementLengthBars: 1, tracks: [synthTrack] },
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      const bypassedPcm = synthesizeDeterministicStereoPcm(
+        { ...project, arrangementLengthBars: 1, tracks: [bypassedTrack] },
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+      expect(computeMaxAbsDiff(activePcm.left, bypassedPcm.left)).toBeGreaterThan(0.02);
+    });
+
+    it('executes per-insert DSP for DrumBuss, Reverb, HybridReverb, AutoPan, and Erosion with measurable parameter-dependent audio changes', () => {
+      const testCtx = createTestAudioContext();
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 808, 4, 'sketch');
+      const project = parseAbletonXmlDom(xml, meta.name, xml);
+      const baseTrack = {
+        ...project.tracks[3],
+        devices: project.tracks[3].devices.filter((d) => d.category === 'instrument'),
+        clips: [{ ...project.tracks[3].clips[0], length: 4, endTime: 4 }],
+      };
+      const singleTrackProject = {
+        ...project,
+        arrangementLengthBars: 1,
+        tracks: [baseTrack],
+      };
+      const dryPcm = synthesizeDeterministicStereoPcm(
+        singleTrackProject,
+        DEFAULT_HUMANIZATION,
+        DEFAULT_MASTER_BUS,
+        22050
+      );
+
+      const convertedEffectConfigs: Array<{
+        xmlTag: string;
+        lowParams: Array<{ name: string; value: number | string }>;
+        highParams: Array<{ name: string; value: number | string }>;
+      }> = [
+        {
+          xmlTag: 'DrumBuss',
+          lowParams: [
+            { name: 'Drive', value: 10 },
+            { name: 'Boom', value: 5 },
+            { name: 'Damp', value: 12000 },
+            { name: 'DryWet', value: 100 },
+          ],
+          highParams: [
+            { name: 'Drive', value: 90 },
+            { name: 'Boom', value: 85 },
+            { name: 'Damp', value: 1800 },
+            { name: 'DryWet', value: 100 },
+          ],
+        },
+        {
+          xmlTag: 'Reverb',
+          lowParams: [
+            { name: 'DecayTime', value: 0.4 },
+            { name: 'PreDelay', value: 5 },
+            { name: 'HighCut', value: 8000 },
+            { name: 'DryWet', value: 25 },
+          ],
+          highParams: [
+            { name: 'DecayTime', value: 8.5 },
+            { name: 'PreDelay', value: 60 },
+            { name: 'HighCut', value: 1200 },
+            { name: 'DryWet', value: 90 },
+          ],
+        },
+        {
+          xmlTag: 'HybridReverb',
+          lowParams: [
+            { name: 'DecayTime', value: 0.5 },
+            { name: 'PreDelay', value: 8 },
+            { name: 'HighCut', value: 9000 },
+            { name: 'DryWet', value: 25 },
+          ],
+          highParams: [
+            { name: 'DecayTime', value: 9.0 },
+            { name: 'PreDelay', value: 75 },
+            { name: 'HighCut', value: 1400 },
+            { name: 'DryWet', value: 90 },
+          ],
+        },
+        {
+          xmlTag: 'AutoPan',
+          lowParams: [
+            { name: 'Rate', value: 0.5 },
+            { name: 'Amount', value: 20 },
+            { name: 'Shape', value: 'Sine' },
+          ],
+          highParams: [
+            { name: 'Rate', value: 6.0 },
+            { name: 'Amount', value: 95 },
+            { name: 'Shape', value: 'Triangle' },
+          ],
+        },
+        {
+          xmlTag: 'Erosion',
+          lowParams: [
+            { name: 'Frequency', value: 800 },
+            { name: 'Amount', value: 15 },
+            { name: 'Width', value: 1.0 },
+          ],
+          highParams: [
+            { name: 'Frequency', value: 5200 },
+            { name: 'Amount', value: 95 },
+            { name: 'Width', value: 4.5 },
+          ],
+        },
+      ];
+
+      for (const cfg of convertedEffectConfigs) {
+        const lowDev = syncDeviceConversionRecord({
+          id: `fx_${cfg.xmlTag}_low`,
+          xmlTag: cfg.xmlTag,
+          displayName: cfg.xmlTag,
+          category: 'audio_effect',
+          parameters: cfg.lowParams,
+          bypassed: false,
+        });
+        const highDev = syncDeviceConversionRecord({
+          id: `fx_${cfg.xmlTag}_high`,
+          xmlTag: cfg.xmlTag,
+          displayName: cfg.xmlTag,
+          category: 'audio_effect',
+          parameters: cfg.highParams,
+          bypassed: false,
+        });
+
+        const proc = buildDeviceInsertProcessor(testCtx, lowDev);
+        expect(proc.input).not.toBe(proc.output);
+        expect(typeof proc.updateParams).toBe('function');
+        expect(typeof proc.dispose).toBe('function');
+        proc.dispose?.();
+
+        const lowPcm = synthesizeDeterministicStereoPcm(
+          {
+            ...singleTrackProject,
+            tracks: [{ ...baseTrack, devices: [...baseTrack.devices, lowDev] }],
+          },
+          DEFAULT_HUMANIZATION,
+          DEFAULT_MASTER_BUS,
+          22050
+        );
+        const highPcm = synthesizeDeterministicStereoPcm(
+          {
+            ...singleTrackProject,
+            tracks: [{ ...baseTrack, devices: [...baseTrack.devices, highDev] }],
+          },
+          DEFAULT_HUMANIZATION,
+          DEFAULT_MASTER_BUS,
+          22050
+        );
+
+        expect(computeMaxAbsDiff(dryPcm.left, highPcm.left)).toBeGreaterThan(0.005);
+        expect(computeMaxAbsDiff(lowPcm.left, highPcm.left)).toBeGreaterThan(0.005);
+      }
+    });
+  });
+
+  describe('Section 6: Live Device Graph Reconciliation & Disposal Lifecycle', () => {
+    it('updates AudioParams in place on parameter edits and reconciles structural edits with click-safe replacement and node/LFO disposal', () => {
+      const testCtx = createTestAudioContext();
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 909, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+      const bus = buildAudioBusGraph(testCtx, project.tempo, DEFAULT_MASTER_BUS, false);
+      const trackId = project.tracks[0].id;
+
+      // 1. Initial channel creation
+      const ch1 = getOrCreateTrackChannelRuntime(testCtx, bus, project.tracks[0], project);
+      expect(ch1.reconciliationCount).toBe(0);
+      expect(ch1.disposedProcessorIds).toHaveLength(0);
+      const initialProcCount = ch1.insertProcessors.length;
+
+      // 2. Parameter-only edit updates AudioParam in place without rebuilding the chain
+      const drumBussId = project.tracks[0].devices.find((d) => d.xmlTag === 'DrumBuss')!.id;
+      project = updateChannelInsertParam(project, trackId, drumBussId, 'Drive', 78);
+      const chAfterParamEdit = getOrCreateTrackChannelRuntime(
+        testCtx,
+        bus,
+        project.tracks[0],
+        project
+      );
+      expect(chAfterParamEdit).toBe(ch1);
+      expect(chAfterParamEdit.reconciliationCount).toBe(0);
+      expect(chAfterParamEdit.disposedProcessorIds).toHaveLength(0);
+
+      // 3. Structural insertion of ChorusEnsemble (with LFO oscillator) and Delay (with stateful tail)
+      project = insertDeviceIntoChannelStrip(project, trackId, 'ChorusEnsemble').project;
+      project = insertDeviceIntoChannelStrip(project, trackId, 'Delay').project;
+      const chAfterInsert = getOrCreateTrackChannelRuntime(
+        testCtx,
+        bus,
+        project.tracks[0],
+        project
+      );
+      expect(chAfterInsert.reconciliationCount).toBe(1);
+      expect(chAfterInsert.insertProcessors.length).toBe(initialProcCount + 2);
+      expect(chAfterInsert.disposedProcessorIds.length).toBe(initialProcCount);
+
+      // 4. Reordering devices triggers structural reconciliation
+      project = reorderChannelInsertDevice(project, trackId, 1, 2);
+      const chAfterReorder = getOrCreateTrackChannelRuntime(
+        testCtx,
+        bus,
+        project.tracks[0],
+        project
+      );
+      expect(chAfterReorder.reconciliationCount).toBe(2);
+
+      // 5. Bypassing a device triggers structural reconciliation
+      const chorusDev = project.tracks[0].devices.find((d) => d.xmlTag === 'ChorusEnsemble')!;
+      project = toggleChannelInsertBypass(project, trackId, chorusDev.id);
+      const chAfterBypass = getOrCreateTrackChannelRuntime(
+        testCtx,
+        bus,
+        project.tracks[0],
+        project
+      );
+      expect(chAfterBypass.reconciliationCount).toBe(3);
+
+      // 6. Removing ChorusEnsemble and Delay disposes their processors and stops LFO oscillators
+      const delayDev = project.tracks[0].devices.find((d) => d.xmlTag === 'Delay')!;
+      project = removeChannelInsertDevice(project, trackId, chorusDev.id);
+      project = removeChannelInsertDevice(project, trackId, delayDev.id);
+      const chAfterRemove = getOrCreateTrackChannelRuntime(
+        testCtx,
+        bus,
+        project.tracks[0],
+        project
+      );
+      expect(chAfterRemove.reconciliationCount).toBe(4);
+      expect(chAfterRemove.insertProcessors.length).toBe(initialProcCount);
+      expect(chAfterRemove.disposedProcessorIds).toContain(chorusDev.id);
+      expect(chAfterRemove.disposedProcessorIds).toContain(delayDev.id);
     });
   });
 
@@ -283,8 +1087,7 @@ describe('G1–G8 Strengthening Contracts', () => {
   });
 
   describe('G5: Declared Ableton Capability Matrix & Runtime Execution Policy', () => {
-    it('enforces capability matrix at runtime for unsupported, preserved-only, and over-limit device chains', async () => {
-      const { assertExecutableInsertLimits } = await import('../engine/channelStripEngine');
+    it('enforces capability matrix at runtime for unsupported, preserved-only, and over-limit device chains', () => {
       expect(ABLETON_CAPABILITY_MATRIX.length).toBeGreaterThanOrEqual(12);
       const statuses = new Set(ABLETON_CAPABILITY_MATRIX.map((c) => c.status));
       expect(statuses.has('executable')).toBe(true);
@@ -303,7 +1106,6 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(baselineAudit.preservedOnlyDevices.length).toBe(0);
       expect(() => assertExecutableInsertLimits(project)).not.toThrow();
 
-      // Preserved-only device (e.g. MidiScale or InstrumentGroupDevice) sets canExecuteFullDsp=false and blocks un-bypassed execution
       const preservedOnlyProject = {
         ...project,
         tracks: project.tracks.map((t, idx) =>
@@ -356,7 +1158,6 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(overloadedAudit.unsupportedDevices[0].xmlTag).toBe('PluginDevice');
       expect(() => assertExecutableInsertLimits(overloadedProject)).toThrow(/INSERT_LIMIT/);
 
-      // Non-constant tempo map is rejected at runtime preflight until variable-tempo DSP scheduling is enabled
       const dynamicTempoProject = {
         ...project,
         tempoMap: [
@@ -368,3 +1169,4 @@ describe('G1–G8 Strengthening Contracts', () => {
     });
   });
 });
+

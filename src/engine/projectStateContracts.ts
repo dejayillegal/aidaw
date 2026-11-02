@@ -1,5 +1,6 @@
 import { assertAudioSettings } from './audioSettingsContracts';
 import {
+  assertValidPpq,
   MAX_SUPPORTED_TIMELINE_BARS,
   validateAndNormalizeMeterMap,
   validateAndNormalizeTempoMap,
@@ -14,7 +15,13 @@ export function assertProjectState(project: AbletonProjectState): void {
   if (project.arrangementLengthBars !== undefined && (!Number.isSafeInteger(project.arrangementLengthBars) || project.arrangementLengthBars < 1 || project.arrangementLengthBars > MAX_SUPPORTED_TIMELINE_BARS)) fail('invalid arrangement extent');
   if (project.creationMode !== undefined && project.creationMode !== 'sketch' && project.creationMode !== 'full-track') fail('invalid creation mode');
   if (project.requestedDurationBars !== undefined && (!Number.isSafeInteger(project.requestedDurationBars) || project.requestedDurationBars < 1 || project.requestedDurationBars > MAX_SUPPORTED_TIMELINE_BARS)) fail('invalid requested duration bars');
-  if (project.ppq !== undefined && (!Number.isSafeInteger(project.ppq) || project.ppq <= 0)) fail('invalid PPQ resolution');
+  if (project.ppq !== undefined) {
+    try {
+      assertValidPpq(project.ppq);
+    } catch (err) {
+      fail(err instanceof Error ? err.message.replace(/^TIMELINE_INPUT:\s*/, '') : 'invalid PPQ resolution');
+    }
+  }
   if (project.tempoMap !== undefined) {
     if (!Array.isArray(project.tempoMap)) fail('invalid tempoMap');
     try {

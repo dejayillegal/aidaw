@@ -1,8 +1,16 @@
 import { OrderedAudioSum, connectOrderedSources } from './orderedAudioSum';
-import { noteIsInsideClip, playbackRegion, positionAtBeat } from './timelineCoordinates';
+import {
+  assertValidPpq,
+  noteIsInsideClip,
+  noteProbabilityPasses,
+  playbackRegion,
+  positionAtBeat,
+  sessionEventsInWindow,
+  validateAndNormalizeMeterMap,
+  validateAndNormalizeTempoMap,
+} from './timelineCoordinates';
 import {
   AbletonDevice,
-  AbletonDeviceParam,
   AbletonProjectState,
   AbletonTrack,
   AudioActiveRegion,
@@ -16,9 +24,18 @@ import {
   TransportConfig,
 } from '../types/ableton';
 import { composeEffectiveTrackGain, resolveEffectiveAudibility, assertExecutableInsertLimits } from './channelStripEngine';
-import { classifyAbletonDeviceTag } from './abletonCapabilityMatrix';
+import {
+  classifyAbletonDeviceTag,
+  computeDeviceParameterHash,
+  evaluateTrackMidiDeviceChain,
+  isAudioEffectInsertTag,
+  isInstrumentDeviceTag,
+  readDeviceParamNumber,
+  readDeviceParamString,
+  verifyDeviceConversionRecord,
+} from './abletonCapabilityMatrix';
 import { computeDeterministicHash } from './alsXmlEngine';
-import { noteProbabilityPasses, sessionEventsInWindow } from './timelineCoordinates';
+import { assertProjectState } from './projectStateContracts';
 
 function midiToFreq(midi: number, transposeSemitones = 0, fineTuneCents = 0): number {
   const totalSemitones = midi + transposeSemitones + fineTuneCents / 100;
@@ -156,17 +173,29 @@ function createNoiseBuffer(ctx: BaseAudioContext): AudioBuffer {
 
 export interface InsertProcessorInstance {
   id: string;
+  xmlTag?: string;
   type: string;
   bypassed: boolean;
+  parameterHash: string;
   input: AudioNode;
   output: AudioNode;
+  hasStatefulTail?: boolean;
+  tailDecaySeconds?: number;
+  updateParams?: (device: AbletonDevice, now: number) => void;
+  muteInputForTailDecay?: (now: number) => void;
+  dispose?: () => void;
 }
 
 export interface TrackChannelRuntime {
   trackId: string;
   inputNode: GainNode;
   voiceSum: OrderedAudioSum;
+  chainInputGain: GainNode;
+  chainOutputGain: GainNode;
   insertProcessors: InsertProcessorInstance[];
+  structuralSignature: string;
+  reconciliationCount: number;
+  disposedProcessorIds: string[];
   insertFilter?: BiquadFilterNode;
   faderGain: GainNode;
   muteSoloGate: GainNode;
@@ -206,7 +235,7 @@ interface AudioBusGraph {
   offlineRetirements: { at: number; nodes: AudioNode[]; releaseMix: () => void }[];
 }
 
-function buildAudioBusGraph(
+export function buildAudioBusGraph(
   ctx: BaseAudioContext,
   tempo: number,
   masterBus: MasterBusConfig,
@@ -353,164 +382,883 @@ export function buildDeviceInsertProcessor(
   ctx: BaseAudioContext,
   device: AbletonDevice
 ): InsertProcessorInstance {
+  const rawTag = device.xmlTag || device.type || '';
+  const parameterHash = computeDeviceParameterHash({
+    xmlTag: rawTag,
+    parameters: device.parameters || [],
+  });
+
   if (device.bypassed) {
     const bypassGain = ctx.createGain();
     bypassGain.gain.value = 1.0;
     return {
       id: device.id,
-      type: device.type || device.xmlTag,
+      xmlTag: rawTag,
+      type: rawTag,
       bypassed: true,
+      parameterHash,
       input: bypassGain,
       output: bypassGain,
+      dispose: () => {
+        try {
+          bypassGain.disconnect();
+        } catch {
+          /* already disconnected */
+        }
+      },
     };
   }
 
-  const tag = (device.xmlTag || device.type || '').toLowerCase();
-
-  // 1. Utility Gain
-  if (tag.includes('utility') || tag.includes('gain')) {
-    const gainNode = ctx.createGain();
-    const gainParam = device.parameters?.find((p: AbletonDeviceParam) => p.name.toLowerCase().includes('gain'));
-    const gainVal = gainParam ? (typeof gainParam.value === 'number' ? gainParam.value : parseFloat(gainParam.value)) : 0;
-    gainNode.gain.value = gainParam ? dbToGain(gainVal) : 1.0;
-    return { id: device.id, type: 'utility', bypassed: false, input: gainNode, output: gainNode };
-  }
-
-  // 2. EQ Eight / Parametric EQ (3-Band surgical filter)
-  if (tag.includes('eq') || tag.includes('eqeight')) {
-    const low = ctx.createBiquadFilter();
-    low.type = 'lowshelf';
-    low.frequency.value = 80;
-    low.gain.value = 0;
-
-    const mid = ctx.createBiquadFilter();
-    mid.type = 'peaking';
-    mid.frequency.value = 1200;
-    mid.Q.value = 1.0;
-    mid.gain.value = 0;
-
-    const high = ctx.createBiquadFilter();
-    high.type = 'highshelf';
-    high.frequency.value = 6500;
-    high.gain.value = 0;
-
-    low.connect(mid);
-    mid.connect(high);
-    return { id: device.id, type: 'eq', bypassed: false, input: low, output: high };
-  }
-
-  // 3. Auto Filter
-  if (tag.includes('filter') || tag.includes('autofilter')) {
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    const cutParam = device.parameters?.find((p: AbletonDeviceParam) => p.name.toLowerCase().includes('cutoff'));
-    const cutVal = cutParam ? (typeof cutParam.value === 'number' ? cutParam.value : parseFloat(cutParam.value)) : 1800;
-    filter.frequency.value = cutVal;
-    filter.Q.value = 1.5;
-    return { id: device.id, type: 'filter', bypassed: false, input: filter, output: filter };
-  }
-
-  // 4. Saturator / Soft Clipper
-  if (tag.includes('saturat')) {
-    const shaper = ctx.createWaveShaper();
-    const samples = 1024;
-    const curve = new Float32Array(samples);
-    const drive = 2.0;
-    for (let i = 0; i < samples; ++i) {
-      const x = (i * 2) / (samples - 1) - 1;
-      curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
-    }
-    shaper.curve = curve;
-    return { id: device.id, type: 'saturator', bypassed: false, input: shaper, output: shaper };
-  }
-
-  // 5. Compressor / Glue Compressor
-  if (tag.includes('compressor')) {
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.knee.value = 6;
-    comp.ratio.value = 3.0;
-    comp.attack.value = 0.02;
-    comp.release.value = 0.12;
-    return { id: device.id, type: 'compressor', bypassed: false, input: comp, output: comp };
-  }
-
-  // 6. Delay / Echo
-  if (tag.includes('delay') || tag.includes('echo')) {
-    const inGain = ctx.createGain();
-    const delayNode = ctx.createDelay(1.0);
-    delayNode.delayTime.value = 0.22;
-    const fbGain = ctx.createGain();
-    fbGain.gain.value = 0.35;
-    const filterNode = ctx.createBiquadFilter();
-    filterNode.type = 'bandpass';
-    filterNode.frequency.value = 1200;
-    const outGain = ctx.createGain();
-
-    inGain.connect(outGain);
-    inGain.connect(filterNode);
-    filterNode.connect(delayNode);
-    delayNode.connect(fbGain);
-    fbGain.connect(delayNode);
-    delayNode.connect(outGain);
-
-    return { id: device.id, type: 'delay', bypassed: false, input: inGain, output: outGain };
-  }
-
-  // 7. Chorus / Modulation
-  if (tag.includes('chorus')) {
-    const inGain = ctx.createGain();
-    const delayNode = ctx.createDelay(0.1);
-    delayNode.delayTime.value = 0.015;
-    const outGain = ctx.createGain();
-    inGain.connect(outGain);
-    inGain.connect(delayNode);
-    delayNode.connect(outGain);
-    return { id: device.id, type: 'chorus', bypassed: false, input: inGain, output: outGain };
-  }
-
-  // 8. Distortion / Overdrive / Roar
-  if (tag.includes('distortion') || tag.includes('overdrive') || tag.includes('roar')) {
-    const shaper = ctx.createWaveShaper();
-    const samples = 1024;
-    const curve = new Float32Array(samples);
-    for (let i = 0; i < samples; ++i) {
-      const x = (i * 2) / (samples - 1) - 1;
-      curve[i] = Math.max(-0.85, Math.min(0.85, x * 3.5));
-    }
-    shaper.curve = curve;
-    return { id: device.id, type: 'distortion', bypassed: false, input: shaper, output: shaper };
-  }
-
-  // 9. Limiter
-  if (tag.includes('limiter')) {
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -0.5;
-    comp.knee.value = 0;
-    comp.ratio.value = 20.0;
-    comp.attack.value = 0.001;
-    comp.release.value = 0.05;
-    return { id: device.id, type: 'limiter', bypassed: false, input: comp, output: comp };
-  }
-
-  const rawTag = device.xmlTag || device.type || '';
+  const capabilityStatus = classifyAbletonDeviceTag(rawTag);
   if (
     rawTag &&
     (device.browserDspSupported === false ||
-      classifyAbletonDeviceTag(rawTag) === 'unsupported' ||
-      classifyAbletonDeviceTag(rawTag) === 'preserved-only')
+      capabilityStatus === 'unsupported' ||
+      capabilityStatus === 'preserved-only')
   ) {
     throw new Error(
       `UNSUPPORTED_DEVICE: Cannot build browser insert processor for un-bypassed <${rawTag}> (${device.id}); bypass or remove the device first.`
     );
   }
 
+  if (capabilityStatus === 'converted') {
+    const verification = verifyDeviceConversionRecord({ ...device, xmlTag: rawTag });
+    if (!verification.isValid) {
+      throw new Error(
+        `CONVERSION_REQUIRED: Cannot build converted processor for <${rawTag}> (${device.id}) with ${verification.status} conversion record (${verification.reason}).`
+      );
+    }
+  }
+
+  const tag = rawTag.toLowerCase();
+
+  // Instruments, MIDI processors, and voice modulators execute in the MIDI/voice stage,
+  // so their channel-strip slot acts as a unity bridge while preserving slot indexing.
+  if (!isAudioEffectInsertTag(rawTag)) {
+    const bridge = ctx.createGain();
+    bridge.gain.value = 1.0;
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: rawTag || 'bridge',
+      bypassed: false,
+      parameterHash,
+      input: bridge,
+      output: bridge,
+      dispose: () => {
+        try {
+          bridge.disconnect();
+        } catch {
+          /* already disconnected */
+        }
+      },
+    };
+  }
+
+  const setAudioParamSmooth = (param: AudioParam, value: number, now: number) => {
+    if (typeof param.setTargetAtTime === 'function' && now > 0) {
+      param.setTargetAtTime(value, now, 0.012);
+    } else {
+      param.value = value;
+    }
+  };
+
+  // 1. Utility (Gain + Stereo Balance + Mute)
+  if (rawTag === 'Utility' || tag.includes('utility')) {
+    const gainNode = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    const applyUtility = (dev: AbletonDevice, now: number) => {
+      const gainDb = readDeviceParamNumber(dev, 'Gain', 0);
+      const balance = readDeviceParamNumber(dev, 'Balance', 0);
+      const mute = readDeviceParamNumber(dev, 'Mute', 0) >= 0.5;
+      const linear = mute ? 0 : dbToGain(gainDb);
+      const pan = Math.max(-1, Math.min(1, balance / 50));
+      setAudioParamSmooth(gainNode.gain, linear, now);
+      setAudioParamSmooth(panner.pan, pan, now);
+    };
+    applyUtility(device, 0);
+    gainNode.connect(panner);
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'utility',
+      bypassed: false,
+      parameterHash,
+      input: gainNode,
+      output: panner,
+      updateParams: applyUtility,
+      dispose: () => {
+        for (const n of [gainNode, panner]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 2. EQ Eight (Band 1 HPF + Band 2 Surgical Notch/Peaking + Band 3 High Shelf)
+  if (rawTag === 'EQEight' || tag.includes('eq')) {
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass';
+    hpf.Q.value = 0.707;
+
+    const notch = ctx.createBiquadFilter();
+    notch.type = 'peaking';
+
+    const high = ctx.createBiquadFilter();
+    high.type = 'highshelf';
+    high.frequency.value = 6500;
+    high.gain.value = 0;
+
+    const applyEq = (dev: AbletonDevice, now: number) => {
+      const hpfHz = readDeviceParamNumber(dev, 'Band 1 HPF', 35);
+      const notchHz = readDeviceParamNumber(dev, 'Sub Notch', 55);
+      const notchGainDb = readDeviceParamNumber(dev, 'Notch Gain', -3.5);
+      const notchQ = readDeviceParamNumber(dev, 'Notch Q', 2.4);
+      setAudioParamSmooth(hpf.frequency, Math.max(20, Math.min(1000, hpfHz)), now);
+      setAudioParamSmooth(notch.frequency, Math.max(30, Math.min(4000, notchHz)), now);
+      setAudioParamSmooth(notch.gain, Math.max(-18, Math.min(18, notchGainDb)), now);
+      setAudioParamSmooth(notch.Q, Math.max(0.3, Math.min(12, notchQ)), now);
+    };
+    applyEq(device, 0);
+
+    hpf.connect(notch);
+    notch.connect(high);
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'eq',
+      bypassed: false,
+      parameterHash,
+      input: hpf,
+      output: high,
+      updateParams: applyEq,
+      dispose: () => {
+        for (const n of [hpf, notch, high]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 3. Auto Filter
+  if (rawTag === 'AutoFilter' || tag.includes('filter')) {
+    const filter = ctx.createBiquadFilter();
+    const trimGain = ctx.createGain();
+    const applyFilter = (dev: AbletonDevice, now: number) => {
+      const fType = readDeviceParamString(dev, 'FilterType', 'Lowpass').toLowerCase();
+      filter.type = fType.includes('high')
+        ? 'highpass'
+        : fType.includes('band')
+        ? 'bandpass'
+        : 'lowpass';
+      const cutoff = readDeviceParamNumber(dev, 'Cutoff', 1800);
+      const res = readDeviceParamNumber(dev, 'Resonance', 0.35);
+      const envModDb = readDeviceParamNumber(dev, 'EnvMod', 0);
+      setAudioParamSmooth(filter.frequency, Math.max(30, Math.min(18500, cutoff)), now);
+      setAudioParamSmooth(filter.Q, Math.max(0.5, Math.min(14, 0.7 + res * 8.5)), now);
+      setAudioParamSmooth(trimGain.gain, dbToGain(envModDb), now);
+    };
+    applyFilter(device, 0);
+    filter.connect(trimGain);
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'filter',
+      bypassed: false,
+      parameterHash,
+      input: filter,
+      output: trimGain,
+      updateParams: applyFilter,
+      dispose: () => {
+        for (const n of [filter, trimGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 4. Saturator
+  if (rawTag === 'Saturator' || tag.includes('saturat')) {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const preDriveGain = ctx.createGain();
+    const shaper = ctx.createWaveShaper();
+    const wetTrimGain = ctx.createGain();
+    const outGain = ctx.createGain();
+
+    const applySaturator = (dev: AbletonDevice, now: number) => {
+      const driveDb = readDeviceParamNumber(dev, 'Drive', 8);
+      const outputDb = readDeviceParamNumber(dev, 'Output', -2);
+      const dryWetPct = readDeviceParamNumber(dev, 'DryWet', 100);
+      const wet = Math.max(0, Math.min(1, dryWetPct <= 1 && dryWetPct > 0 ? dryWetPct : dryWetPct / 100));
+      const driveFactor = Math.max(0.6, 1.0 + (driveDb / 12) * 1.8);
+      shaper.curve = createSaturationCurve(driveFactor);
+      setAudioParamSmooth(preDriveGain.gain, dbToGain(driveDb * 0.45), now);
+      setAudioParamSmooth(wetTrimGain.gain, dbToGain(outputDb) * wet, now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet, now);
+    };
+    applySaturator(device, 0);
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(preDriveGain);
+    preDriveGain.connect(shaper);
+    shaper.connect(wetTrimGain);
+    wetTrimGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'saturator',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      updateParams: applySaturator,
+      dispose: () => {
+        for (const n of [inGain, dryGain, preDriveGain, shaper, wetTrimGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 5. Compressor2 / GlueCompressor
+  if (rawTag === 'Compressor2' || rawTag === 'GlueCompressor' || tag.includes('compressor')) {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const comp = ctx.createDynamicsCompressor();
+    const makeupGain = ctx.createGain();
+    const outGain = ctx.createGain();
+
+    const applyCompressor = (dev: AbletonDevice, now: number) => {
+      const isGlue = rawTag === 'GlueCompressor';
+      const threshold = readDeviceParamNumber(dev, 'Threshold', isGlue ? -14 : -18);
+      const ratio = readDeviceParamNumber(dev, 'Ratio', 4);
+      const attackMs = readDeviceParamNumber(dev, 'Attack', isGlue ? 15 : 6);
+      const releaseMs = readDeviceParamNumber(dev, 'Release', isGlue ? 110 : 90);
+      const makeupDb = readDeviceParamNumber(
+        dev,
+        isGlue ? 'Makeup' : 'MakeupGain',
+        isGlue ? 2 : 0
+      );
+      const dryWetPct = readDeviceParamNumber(dev, 'DryWet', 100);
+      const wet = Math.max(0, Math.min(1, dryWetPct <= 1 && dryWetPct > 0 ? dryWetPct : dryWetPct / 100));
+
+      setAudioParamSmooth(comp.threshold, Math.max(-60, Math.min(0, threshold)), now);
+      setAudioParamSmooth(comp.ratio, Math.max(1, Math.min(20, ratio)), now);
+      setAudioParamSmooth(comp.attack, Math.max(0.001, Math.min(0.2, attackMs / 1000)), now);
+      setAudioParamSmooth(comp.release, Math.max(0.01, Math.min(1.0, releaseMs / 1000)), now);
+      setAudioParamSmooth(makeupGain.gain, dbToGain(makeupDb) * wet, now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet, now);
+    };
+    applyCompressor(device, 0);
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(comp);
+    comp.connect(makeupGain);
+    makeupGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'compressor',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      updateParams: applyCompressor,
+      dispose: () => {
+        for (const n of [inGain, dryGain, comp, makeupGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 6. Delay / Echo (Stateful Feedback Delay)
+  if (rawTag === 'Delay' || rawTag === 'Echo' || tag.includes('delay') || tag.includes('echo')) {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const wetInputGate = ctx.createGain();
+    wetInputGate.gain.value = 1.0;
+    const delayNode = ctx.createDelay(2.0);
+    const fbGain = ctx.createGain();
+    const filterNode = ctx.createBiquadFilter();
+    filterNode.type = 'lowpass';
+    const wetGain = ctx.createGain();
+    const outGain = ctx.createGain();
+
+    let tailDecaySeconds = 0.5;
+    const applyDelay = (dev: AbletonDevice, now: number) => {
+      const delayTimeMs = readDeviceParamNumber(dev, 'DelayTime', rawTag === 'Echo' ? 335 : 280);
+      const rawFb = readDeviceParamNumber(dev, 'Feedback', rawTag === 'Echo' ? 0.42 : 0.35);
+      const fb = Math.max(0, Math.min(0.92, rawFb > 1 ? rawFb / 100 : rawFb));
+      const cutoffHz = readDeviceParamNumber(dev, 'FilterCutoff', 2600);
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', rawTag === 'Echo' ? 35 : 32);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+      const delaySec = Math.max(0.01, Math.min(1.5, delayTimeMs / 1000));
+      tailDecaySeconds = Math.min(2.5, delaySec * (1 / Math.max(0.08, 1 - fb)));
+
+      setAudioParamSmooth(delayNode.delayTime, delaySec, now);
+      setAudioParamSmooth(fbGain.gain, fb, now);
+      setAudioParamSmooth(filterNode.frequency, Math.max(300, Math.min(10000, cutoffHz)), now);
+      setAudioParamSmooth(wetGain.gain, wet, now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet * 0.35, now);
+    };
+    applyDelay(device, 0);
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(wetInputGate);
+    wetInputGate.connect(filterNode);
+    filterNode.connect(delayNode);
+    delayNode.connect(fbGain);
+    fbGain.connect(filterNode);
+    delayNode.connect(wetGain);
+    wetGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'delay',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      hasStatefulTail: true,
+      tailDecaySeconds,
+      updateParams: applyDelay,
+      muteInputForTailDecay: (now: number) => {
+        setAudioParamSmooth(wetInputGate.gain, 0, now);
+      },
+      dispose: () => {
+        fbGain.gain.value = 0;
+        for (const n of [inGain, dryGain, wetInputGate, delayNode, fbGain, filterNode, wetGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 7. ChorusEnsemble (LFO Modulated Chorus)
+  if (rawTag === 'ChorusEnsemble' || tag.includes('chorus')) {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const delayNode = ctx.createDelay(0.1);
+    delayNode.delayTime.value = 0.015;
+    const wetGain = ctx.createGain();
+    const outGain = ctx.createGain();
+    const lfo = typeof ctx.createOscillator === 'function' ? ctx.createOscillator() : null;
+    if (lfo) lfo.type = 'sine';
+    const lfoDepth = ctx.createGain();
+
+    const applyChorus = (dev: AbletonDevice, now: number) => {
+      const rateHz = readDeviceParamNumber(dev, 'Rate', 0.65);
+      const amountPct = readDeviceParamNumber(dev, 'Amount', 50);
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', 45);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+      if (lfo) setAudioParamSmooth(lfo.frequency, Math.max(0.05, Math.min(8, rateHz)), now);
+      setAudioParamSmooth(lfoDepth.gain, (Math.max(0, Math.min(100, amountPct)) / 100) * 0.008, now);
+      setAudioParamSmooth(wetGain.gain, wet, now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet * 0.3, now);
+    };
+    applyChorus(device, 0);
+
+    if (lfo) {
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(delayNode.delayTime);
+      lfo.start(Math.max(0, ctx.currentTime));
+    }
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(delayNode);
+    delayNode.connect(wetGain);
+    wetGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'chorus',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      updateParams: applyChorus,
+      dispose: () => {
+        if (lfo) {
+          try {
+            lfo.stop();
+          } catch {
+            /* ignore */
+          }
+          try {
+            lfo.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+        for (const n of [lfoDepth, inGain, dryGain, delayNode, wetGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 8. Roar / Overdrive
+  if (rawTag === 'Roar' || rawTag === 'Overdrive' || tag.includes('overdrive') || tag.includes('roar')) {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const driveGain = ctx.createGain();
+    const shaper = ctx.createWaveShaper();
+    const toneFilter = ctx.createBiquadFilter();
+    toneFilter.type = rawTag === 'Overdrive' ? 'peaking' : 'lowpass';
+    const wetGain = ctx.createGain();
+    const outGain = ctx.createGain();
+
+    const applyDistortion = (dev: AbletonDevice, now: number) => {
+      const rawDrive = readDeviceParamNumber(dev, 'Drive', rawTag === 'Roar' ? 12 : 45);
+      const normDrive = rawDrive <= 1.5 ? rawDrive * 18 : rawDrive;
+      const toneHz = readDeviceParamNumber(dev, 'Tone', rawTag === 'Roar' ? 3200 : 2800);
+      const outputDb = readDeviceParamNumber(dev, 'Output', -2);
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', 100);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+
+      shaper.curve = createSaturationCurve(1.1 + (normDrive / 25) * 2.2);
+      setAudioParamSmooth(driveGain.gain, 1.0 + normDrive * 0.03, now);
+      setAudioParamSmooth(toneFilter.frequency, Math.max(200, Math.min(12000, toneHz)), now);
+      if (rawTag === 'Overdrive') {
+        setAudioParamSmooth(toneFilter.gain, 4.5, now);
+      }
+      setAudioParamSmooth(wetGain.gain, dbToGain(outputDb) * wet, now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet, now);
+    };
+    applyDistortion(device, 0);
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(driveGain);
+    driveGain.connect(shaper);
+    shaper.connect(toneFilter);
+    toneFilter.connect(wetGain);
+    wetGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'distortion',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      updateParams: applyDistortion,
+      dispose: () => {
+        for (const n of [inGain, dryGain, driveGain, shaper, toneFilter, wetGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 9. Limiter
+  if (rawTag === 'Limiter' || tag.includes('limiter')) {
+    const preGain = ctx.createGain();
+    const comp = ctx.createDynamicsCompressor();
+    comp.knee.value = 0;
+    comp.ratio.value = 20.0;
+    comp.attack.value = 0.001;
+    const shaper = ctx.createWaveShaper();
+    const ceilingGain = ctx.createGain();
+
+    const applyLimiter = (dev: AbletonDevice, now: number) => {
+      const gainDb = readDeviceParamNumber(dev, 'Gain', 0);
+      const ceilingDb = readDeviceParamNumber(dev, 'Ceiling', -0.3);
+      const releaseMs = readDeviceParamNumber(dev, 'Release', 85);
+      shaper.curve = createTransparentLimiterCurve(ceilingDb);
+      setAudioParamSmooth(preGain.gain, dbToGain(gainDb), now);
+      setAudioParamSmooth(comp.threshold, Math.max(-24, Math.min(-0.1, ceilingDb)), now);
+      setAudioParamSmooth(comp.release, Math.max(0.01, Math.min(0.5, releaseMs / 1000)), now);
+      setAudioParamSmooth(ceilingGain.gain, dbToGain(Math.min(0, ceilingDb)), now);
+    };
+    applyLimiter(device, 0);
+
+    preGain.connect(comp);
+    comp.connect(shaper);
+    shaper.connect(ceilingGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'limiter',
+      bypassed: false,
+      parameterHash,
+      input: preGain,
+      output: ceilingGain,
+      updateParams: applyLimiter,
+      dispose: () => {
+        for (const n of [preGain, comp, shaper, ceilingGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 10. DrumBuss (Converted Per-Insert Sub-Boom + Crunch Waveshaper + Damping)
+  if (rawTag === 'DrumBuss') {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const boomFilter = ctx.createBiquadFilter();
+    boomFilter.type = 'peaking';
+    boomFilter.frequency.value = 54;
+    boomFilter.Q.value = 2.2;
+    const crunchFilter = ctx.createBiquadFilter();
+    crunchFilter.type = 'peaking';
+    crunchFilter.frequency.value = 1850;
+    crunchFilter.Q.value = 1.4;
+    const shaper = ctx.createWaveShaper();
+    const dampFilter = ctx.createBiquadFilter();
+    dampFilter.type = 'lowpass';
+    const wetGain = ctx.createGain();
+    const outGain = ctx.createGain();
+
+    const applyDrumBuss = (dev: AbletonDevice, now: number) => {
+      const rawDrive = readDeviceParamNumber(dev, 'Drive', 35);
+      const drivePct = rawDrive <= 1 && rawDrive > 0 ? rawDrive * 100 : rawDrive;
+      const rawBoom = readDeviceParamNumber(dev, 'Boom', 25);
+      const boomPct = rawBoom <= 1 && rawBoom > 0 ? rawBoom * 100 : rawBoom;
+      const crunchPct = readDeviceParamNumber(dev, 'Crunch', 20);
+      const dampHz = readDeviceParamNumber(dev, 'Damp', 11000);
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', 100);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+
+      shaper.curve = createSaturationCurve(1.0 + (drivePct / 100) * 2.4);
+      setAudioParamSmooth(boomFilter.gain, (boomPct / 100) * 9.0, now);
+      setAudioParamSmooth(crunchFilter.gain, (crunchPct / 100) * 6.5, now);
+      setAudioParamSmooth(dampFilter.frequency, Math.max(500, Math.min(20000, dampHz)), now);
+      setAudioParamSmooth(wetGain.gain, wet * (1 + (drivePct / 100) * 0.15), now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet, now);
+    };
+    applyDrumBuss(device, 0);
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(boomFilter);
+    boomFilter.connect(crunchFilter);
+    crunchFilter.connect(shaper);
+    shaper.connect(dampFilter);
+    dampFilter.connect(wetGain);
+    wetGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'drumbuss',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      updateParams: applyDrumBuss,
+      dispose: () => {
+        for (const n of [inGain, dryGain, boomFilter, crunchFilter, shaper, dampFilter, wetGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 11. Reverb / HybridReverb (Converted Per-Insert Algorithmic Multi-Tap Diffuser)
+  if (rawTag === 'Reverb' || rawTag === 'HybridReverb') {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const wetInputGate = ctx.createGain();
+    wetInputGate.gain.value = 1.0;
+    const preDelay = ctx.createDelay(0.5);
+    const dampingFilter = ctx.createBiquadFilter();
+    dampingFilter.type = 'lowpass';
+    const comb1 = ctx.createDelay(0.2);
+    comb1.delayTime.value = rawTag === 'HybridReverb' ? 0.043 : 0.037;
+    const comb2 = ctx.createDelay(0.2);
+    comb2.delayTime.value = rawTag === 'HybridReverb' ? 0.061 : 0.053;
+    const fb1 = ctx.createGain();
+    const fb2 = ctx.createGain();
+    const wetGain = ctx.createGain();
+    const outGain = ctx.createGain();
+
+    let tailDecaySeconds = 2.4;
+    const applyReverb = (dev: AbletonDevice, now: number) => {
+      const rawDecay = readDeviceParamNumber(dev, 'DecayTime', rawTag === 'HybridReverb' ? 3.2 : 2.4);
+      const decaySec = Math.max(0.2, Math.min(15, rawDecay > 25 ? rawDecay / 1000 : rawDecay));
+      const preDelayMs = readDeviceParamNumber(dev, 'PreDelay', rawTag === 'HybridReverb' ? 24 : 18);
+      const dampHz = readDeviceParamNumber(dev, 'HighCut', rawTag === 'HybridReverb' ? 5400 : 4800);
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', rawTag === 'HybridReverb' ? 40 : 35);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+
+      tailDecaySeconds = Math.min(4.0, decaySec);
+      const fbGainVal = Math.min(0.91, Math.max(0.15, Math.pow(0.001, 0.045 / decaySec)));
+      setAudioParamSmooth(preDelay.delayTime, Math.max(0.001, Math.min(0.25, preDelayMs / 1000)), now);
+      setAudioParamSmooth(dampingFilter.frequency, Math.max(400, Math.min(16000, dampHz)), now);
+      setAudioParamSmooth(fb1.gain, fbGainVal, now);
+      setAudioParamSmooth(fb2.gain, fbGainVal * 0.96, now);
+      setAudioParamSmooth(wetGain.gain, wet * 0.75, now);
+      setAudioParamSmooth(dryGain.gain, 1 - wet * 0.35, now);
+    };
+    applyReverb(device, 0);
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(wetInputGate);
+    wetInputGate.connect(preDelay);
+    preDelay.connect(dampingFilter);
+    dampingFilter.connect(comb1);
+    dampingFilter.connect(comb2);
+    comb1.connect(fb1);
+    fb1.connect(dampingFilter);
+    comb2.connect(fb2);
+    fb2.connect(dampingFilter);
+    comb1.connect(wetGain);
+    comb2.connect(wetGain);
+    wetGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'reverb',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      hasStatefulTail: true,
+      tailDecaySeconds,
+      updateParams: applyReverb,
+      muteInputForTailDecay: (now: number) => {
+        setAudioParamSmooth(wetInputGate.gain, 0, now);
+      },
+      dispose: () => {
+        fb1.gain.value = 0;
+        fb2.gain.value = 0;
+        for (const n of [inGain, dryGain, wetInputGate, preDelay, dampingFilter, comb1, comb2, fb1, fb2, wetGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 12. AutoPan (Converted LFO Stereo Panner + Amplitude Tremolo)
+  if (rawTag === 'AutoPan') {
+    const inGain = ctx.createGain();
+    const tremoloGain = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    const lfo = typeof ctx.createOscillator === 'function' ? ctx.createOscillator() : null;
+    const panDepth = ctx.createGain();
+    const tremDepth = ctx.createGain();
+
+    const applyAutoPan = (dev: AbletonDevice, now: number) => {
+      const rateHz = readDeviceParamNumber(dev, 'Rate', 1.5);
+      const rawAmount = readDeviceParamNumber(dev, 'Amount', 65);
+      const amountNorm = Math.max(0, Math.min(1, rawAmount <= 1 && rawAmount > 0 ? rawAmount : rawAmount / 100));
+      const shape = readDeviceParamString(dev, 'Shape', 'Sine').toLowerCase();
+      if (lfo) {
+        lfo.type = shape.includes('tri') ? 'triangle' : 'sine';
+        setAudioParamSmooth(lfo.frequency, Math.max(0.05, Math.min(20, rateHz)), now);
+      }
+      setAudioParamSmooth(panDepth.gain, amountNorm * 0.9, now);
+      setAudioParamSmooth(tremDepth.gain, amountNorm * 0.35, now);
+      setAudioParamSmooth(tremoloGain.gain, 1.0 - amountNorm * 0.2, now);
+    };
+    applyAutoPan(device, 0);
+
+    if (lfo) {
+      lfo.connect(panDepth);
+      panDepth.connect(panner.pan);
+      lfo.connect(tremDepth);
+      tremDepth.connect(tremoloGain.gain);
+      lfo.start(Math.max(0, ctx.currentTime));
+    }
+
+    inGain.connect(tremoloGain);
+    tremoloGain.connect(panner);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'autopan',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: panner,
+      updateParams: applyAutoPan,
+      dispose: () => {
+        if (lfo) {
+          try {
+            lfo.stop();
+          } catch {
+            /* ignore */
+          }
+          try {
+            lfo.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+        for (const n of [panDepth, tremDepth, inGain, tremoloGain, panner]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
+  // 13. Erosion (Converted Short-Delay Audio-Rate FM Grit Processor)
+  if (rawTag === 'Erosion') {
+    const inGain = ctx.createGain();
+    const dryGain = ctx.createGain();
+    const modDelay = ctx.createDelay(0.05);
+    modDelay.delayTime.value = 0.003;
+    const gritShaper = ctx.createWaveShaper();
+    const wetGain = ctx.createGain();
+    const outGain = ctx.createGain();
+    const modOsc = typeof ctx.createOscillator === 'function' ? ctx.createOscillator() : null;
+    if (modOsc) modOsc.type = 'sine';
+    const modBand = ctx.createBiquadFilter();
+    modBand.type = 'bandpass';
+    const modDepth = ctx.createGain();
+
+    const applyErosion = (dev: AbletonDevice, now: number) => {
+      const freqHz = readDeviceParamNumber(dev, 'Frequency', 2400);
+      const rawAmount = readDeviceParamNumber(dev, 'Amount', 40);
+      const amountNorm = Math.max(0, Math.min(1, rawAmount <= 1 && rawAmount > 0 ? rawAmount : rawAmount / 100));
+      const widthQ = readDeviceParamNumber(dev, 'Width', 2.0);
+      if (modOsc) setAudioParamSmooth(modOsc.frequency, Math.max(100, Math.min(14000, freqHz)), now);
+      setAudioParamSmooth(modBand.frequency, Math.max(100, Math.min(14000, freqHz)), now);
+      setAudioParamSmooth(modBand.Q, Math.max(0.3, Math.min(8, widthQ)), now);
+      setAudioParamSmooth(modDepth.gain, amountNorm * 0.0022, now);
+      gritShaper.curve = createSaturationCurve(1.0 + amountNorm * 2.0);
+      setAudioParamSmooth(wetGain.gain, amountNorm * 0.85, now);
+      setAudioParamSmooth(dryGain.gain, 1.0 - amountNorm * 0.35, now);
+    };
+    applyErosion(device, 0);
+
+    if (modOsc) {
+      modOsc.connect(modBand);
+      modBand.connect(modDepth);
+      modDepth.connect(modDelay.delayTime);
+      modOsc.start(Math.max(0, ctx.currentTime));
+    }
+
+    inGain.connect(dryGain);
+    dryGain.connect(outGain);
+    inGain.connect(modDelay);
+    modDelay.connect(gritShaper);
+    gritShaper.connect(wetGain);
+    wetGain.connect(outGain);
+
+    return {
+      id: device.id,
+      xmlTag: rawTag,
+      type: 'erosion',
+      bypassed: false,
+      parameterHash,
+      input: inGain,
+      output: outGain,
+      updateParams: applyErosion,
+      dispose: () => {
+        if (modOsc) {
+          try {
+            modOsc.stop();
+          } catch {
+            /* ignore */
+          }
+          try {
+            modOsc.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+        for (const n of [modBand, modDepth, inGain, dryGain, modDelay, gritShaper, wetGain, outGain]) {
+          try {
+            n.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+  }
+
   const pass = ctx.createGain();
   pass.gain.value = 1.0;
-  return { id: device.id, type: 'passthrough', bypassed: false, input: pass, output: pass };
+  return {
+    id: device.id,
+    xmlTag: rawTag,
+    type: 'passthrough',
+    bypassed: false,
+    parameterHash,
+    input: pass,
+    output: pass,
+    dispose: () => {
+      try {
+        pass.disconnect();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
 }
 
-function getOrCreateTrackChannelRuntime(
+function computeTrackChainStructuralSignature(devices: readonly AbletonDevice[]): string {
+  return devices.map((d) => `${d.id}:${d.xmlTag || d.type || ''}:${Boolean(d.bypassed)}`).join('|');
+}
+
+export function getOrCreateTrackChannelRuntime(
   ctx: BaseAudioContext,
   bus: AudioBusGraph,
   track: AbletonTrack,
@@ -545,12 +1293,18 @@ function getOrCreateTrackChannelRuntime(
   const targetDel = Math.max(0, Math.min(1, mixer.delaySend || 0));
   const targetCutoff = Math.max(40, Math.min(18000, mixer.filterCutoffHz || 1200));
 
+  const devices = track.devices || [];
+  const nextSignature = computeTrackChainStructuralSignature(devices);
+
   if (!channel) {
     const inputNode = ctx.createGain();
+    const chainInputGain = ctx.createGain();
+    const chainOutputGain = ctx.createGain();
     const insertProcessors: InsertProcessorInstance[] = [];
-    let lastNode: AudioNode = inputNode;
 
-    const devices = track.devices || [];
+    inputNode.connect(chainInputGain);
+    let lastNode: AudioNode = chainInputGain;
+
     for (const dev of devices) {
       const proc = buildDeviceInsertProcessor(ctx, dev);
       insertProcessors.push(proc);
@@ -558,10 +1312,12 @@ function getOrCreateTrackChannelRuntime(
       lastNode = proc.output;
     }
 
+    lastNode.connect(chainOutputGain);
+
     const faderGain = ctx.createGain();
     faderGain.gain.value = targetFaderLinear;
 
-    lastNode.connect(faderGain);
+    chainOutputGain.connect(faderGain);
 
     const muteSoloGate = ctx.createGain();
     muteSoloGate.gain.value = targetGateLinear;
@@ -604,7 +1360,12 @@ function getOrCreateTrackChannelRuntime(
       trackId: track.id,
       inputNode,
       voiceSum: new OrderedAudioSum(ctx, inputNode),
+      chainInputGain,
+      chainOutputGain,
       insertProcessors,
+      structuralSignature: nextSignature,
+      reconciliationCount: 0,
+      disposedProcessorIds: [],
       faderGain,
       muteSoloGate,
       panner,
@@ -622,6 +1383,118 @@ function getOrCreateTrackChannelRuntime(
     bus.trackChannels.set(track.id, channel);
   } else {
     const now = ctx.currentTime;
+
+    // Reconcile insert device chain:
+    if (channel.structuralSignature === nextSignature) {
+      // Same device chain topology & bypass states: update AudioParams in place if parameters changed
+      for (let i = 0; i < devices.length; i++) {
+        const dev = devices[i];
+        const proc = channel.insertProcessors[i];
+        if (!proc) continue;
+        const nextHash = computeDeviceParameterHash({
+          xmlTag: dev.xmlTag || dev.type || '',
+          parameters: dev.parameters || [],
+        });
+        if (proc.parameterHash !== nextHash) {
+          if (classifyAbletonDeviceTag(dev.xmlTag || dev.type || '') === 'converted' && !dev.bypassed) {
+            const verification = verifyDeviceConversionRecord(dev);
+            if (!verification.isValid) {
+              throw new Error(
+                `CONVERSION_REQUIRED: ${track.name} contains converted device <${dev.xmlTag}> (${dev.id}) with ${verification.status} conversion record (${verification.reason}).`
+              );
+            }
+          }
+          proc.updateParams?.(dev, now);
+          proc.parameterHash = nextHash;
+        }
+      }
+    } else {
+      // Structural chain change (insertion, deletion, reorder, or bypass toggle):
+      // 1. Build and validate new processor chain BEFORE disconnecting the old chain.
+      const nextProcessors: InsertProcessorInstance[] = [];
+      try {
+        for (const dev of devices) {
+          nextProcessors.push(buildDeviceInsertProcessor(ctx, dev));
+        }
+      } catch (err) {
+        for (const built of nextProcessors) {
+          built.dispose?.();
+        }
+        throw err;
+      }
+
+      const nextChainInput = ctx.createGain();
+      const nextChainOutput = ctx.createGain();
+      let cursorNode: AudioNode = nextChainInput;
+      for (const proc of nextProcessors) {
+        cursorNode.connect(proc.input);
+        cursorNode = proc.output;
+      }
+      cursorNode.connect(nextChainOutput);
+
+      // Click-safe audio-clock transition
+      if (now > 0 && typeof nextChainOutput.gain.setValueAtTime === 'function') {
+        nextChainOutput.gain.setValueAtTime(0.0001, now);
+        nextChainOutput.gain.linearRampToValueAtTime(1.0, now + 0.012);
+      } else {
+        nextChainOutput.gain.value = 1.0;
+      }
+
+      channel.inputNode.connect(nextChainInput);
+      nextChainOutput.connect(channel.faderGain);
+
+      const prevChainInput = channel.chainInputGain;
+      const prevChainOutput = channel.chainOutputGain;
+      const prevProcessors = channel.insertProcessors;
+
+      // Stop feeding new dry input into the old chain immediately; let stateful delay/reverb tails decay briefly if active
+      try {
+        channel.inputNode.disconnect(prevChainInput);
+      } catch {
+        prevChainInput.gain.value = 0;
+      }
+
+      const hasActiveTail = prevProcessors.some((p) => p.hasStatefulTail && !p.bypassed);
+      for (const oldProc of prevProcessors) {
+        if (oldProc.hasStatefulTail && !oldProc.bypassed) {
+          oldProc.muteInputForTailDecay?.(now);
+        }
+        channel.disposedProcessorIds.push(oldProc.id);
+      }
+
+      const disposeOldChain = () => {
+        for (const oldProc of prevProcessors) {
+          oldProc.dispose?.();
+        }
+        try {
+          prevChainInput.disconnect();
+        } catch {
+          /* ignore */
+        }
+        try {
+          prevChainOutput.disconnect();
+        } catch {
+          /* ignore */
+        }
+      };
+
+      const isOffline = typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext;
+      if (isOffline || !hasActiveTail || now === 0) {
+        disposeOldChain();
+      } else {
+        if (typeof prevChainOutput.gain.setTargetAtTime === 'function') {
+          prevChainOutput.gain.setTargetAtTime(0.0001, now, 0.025);
+        }
+        disposeOldChain();
+      }
+
+      channel.chainInputGain = nextChainInput;
+      channel.chainOutputGain = nextChainOutput;
+      channel.insertProcessors = nextProcessors;
+      channel.structuralSignature = nextSignature;
+      channel.reconciliationCount += 1;
+    }
+
     if (channel.currentFaderLinear !== targetFaderLinear) channel.faderGain.gain.setTargetAtTime(targetFaderLinear, now, 0.012);
     if (channel.currentGateLinear !== targetGateLinear) channel.muteSoloGate.gain.setTargetAtTime(targetGateLinear, now, 0.008);
     if (channel.currentPan !== targetPan) channel.panner.pan.setTargetAtTime(targetPan, now, 0.012);
@@ -642,9 +1515,164 @@ function getOrCreateTrackChannelRuntime(
 }
 
 /**
- * Schedules a single Ableton track MIDI note at exact Web Audio clock time `whenSec`.
- * Supports all 8 techno archetypes: kick, rumble, percussion, synth, hats, acid, ride, pad.
+ * Resolves the track's active instrument device and synthesis parameters while keeping
+ * `track.archetype` as the compositional role.
+ * - If all instrument devices on the track are bypassed, or if the track's instrument was removed, returns `active: false` (silence).
+ * - If the track's instrument was replaced with another Ableton instrument (`Operator`, `UltraAnalog`, `InstrumentVector`, `Drift`, `Collision`, `OriginalSimpler`, `DrumGroupDevice`), dispatches to that instrument's synthesis engine.
  */
+export interface ResolvedTrackInstrumentSpec {
+  active: boolean;
+  instrumentTag: string;
+  synthesisRole: 'kick' | 'rumble' | 'acid' | 'percussion' | 'ride' | 'hats' | 'pad' | 'synth';
+  pitchOffsetSemitones: number;
+  decayScale: number;
+  cutoffScale: number;
+  resonanceAdd: number;
+  driveScale: number;
+  detuneCentsOverride?: number;
+  waveformOverride?: OscillatorType;
+}
+
+export function resolveTrackInstrumentSynthesis(track: AbletonTrack): ResolvedTrackInstrumentSpec {
+  const defaultRole: ResolvedTrackInstrumentSpec['synthesisRole'] =
+    track.archetype === 'existing' ? 'synth' : track.archetype;
+
+  const instrumentDevices = (track.devices || []).filter((d) =>
+    isInstrumentDeviceTag(d.xmlTag || d.type || '')
+  );
+
+  if (instrumentDevices.length === 0) {
+    // A MIDI track whose instrument device has been deleted produces no synthesized audio.
+    if (track.type === 'midi') {
+      return {
+        active: false,
+        instrumentTag: 'none',
+        synthesisRole: defaultRole,
+        pitchOffsetSemitones: 0,
+        decayScale: 1,
+        cutoffScale: 1,
+        resonanceAdd: 0,
+        driveScale: 1,
+      };
+    }
+    return {
+      active: true,
+      instrumentTag: 'AudioTrack',
+      synthesisRole: defaultRole,
+      pitchOffsetSemitones: 0,
+      decayScale: 1,
+      cutoffScale: 1,
+      resonanceAdd: 0,
+      driveScale: 1,
+    };
+  }
+
+  const activeInst = [...instrumentDevices].reverse().find((d) => !d.bypassed);
+  if (!activeInst) {
+    return {
+      active: false,
+      instrumentTag: instrumentDevices[0].xmlTag,
+      synthesisRole: defaultRole,
+      pitchOffsetSemitones: 0,
+      decayScale: 1,
+      cutoffScale: 1,
+      resonanceAdd: 0,
+      driveScale: 1,
+    };
+  }
+
+  const tag = activeInst.xmlTag || activeInst.type || '';
+  let synthesisRole: ResolvedTrackInstrumentSpec['synthesisRole'] = defaultRole;
+  if (tag === 'Operator') {
+    synthesisRole = 'rumble';
+  } else if (tag === 'UltraAnalog') {
+    synthesisRole = 'acid';
+  } else if (tag === 'InstrumentVector') {
+    synthesisRole = 'synth';
+  } else if (tag === 'Drift') {
+    synthesisRole = 'pad';
+  } else if (tag === 'Collision') {
+    synthesisRole = 'percussion';
+  } else if (tag === 'OriginalSimpler') {
+    synthesisRole = track.archetype === 'ride' ? 'ride' : 'hats';
+  } else if (tag === 'DrumGroupDevice') {
+    synthesisRole =
+      track.archetype === 'percussion' || track.archetype === 'hats' || track.archetype === 'ride'
+        ? track.archetype
+        : 'kick';
+  }
+
+  let pitchOffsetSemitones = 0;
+  let decayScale = 1.0;
+  let cutoffScale = 1.0;
+  let resonanceAdd = 0.0;
+  let driveScale = 1.0;
+  let detuneCentsOverride: number | undefined;
+  let waveformOverride: OscillatorType | undefined;
+
+  for (const param of activeInst.parameters || []) {
+    const pName = param.name.trim().toLowerCase();
+    const numVal = typeof param.value === 'number' ? param.value : Number.parseFloat(String(param.value));
+    if ((pName === 'pitch' || pName === 'transpose' || pName === 'coarse') && Number.isFinite(numVal)) {
+      pitchOffsetSemitones += Math.max(-24, Math.min(24, numVal));
+    } else if ((pName === 'decay' || pName === 'strikedecay') && Number.isFinite(numVal)) {
+      const baseDecay = tag === 'OriginalSimpler' ? 0.18 : tag === 'Collision' ? 0.28 : 0.42;
+      if (Math.abs(numVal - baseDecay) > 0.01) {
+        decayScale = Math.max(0.25, Math.min(3.5, numVal / baseDecay));
+      }
+    } else if ((pName === 'filtercutoffhz' || pName === 'cutoff') && Number.isFinite(numVal)) {
+      const baseCut =
+        tag === 'DrumGroupDevice'
+          ? 4500
+          : tag === 'OriginalSimpler'
+          ? 7500
+          : tag === 'Collision'
+          ? 2600
+          : tag === 'InstrumentVector'
+          ? 2200
+          : 1800;
+      if (Math.abs(numVal - baseCut) > 25) {
+        cutoffScale = Math.max(0.25, Math.min(3.5, numVal / baseCut));
+      }
+    } else if ((pName === 'filterresonance' || pName === '303reso' || pName === 'resonance') && Number.isFinite(numVal)) {
+      if (Math.abs(numVal - 0.82) > 0.02 && Math.abs(numVal - 0.35) > 0.02) {
+        resonanceAdd = Math.max(-0.3, Math.min(0.6, numVal - 0.4));
+      }
+    } else if ((pName === 'macrocontrols.0' || pName === 'drive' || pName === 'punch') && Number.isFinite(numVal)) {
+      if (Math.abs(numVal - 80) > 15) {
+        driveScale = Math.max(0.4, Math.min(2.2, 0.5 + (numVal / 127) * 1.2));
+      }
+    } else if ((pName === 'osc a level' || pName === 'accent') && Number.isFinite(numVal)) {
+      if (Math.abs(numVal - 0.92) > 0.05 && Math.abs(numVal - 0.65) > 0.05) {
+        driveScale = Math.max(0.3, Math.min(2.2, numVal * 1.3));
+      }
+    } else if ((pName === 'detune' || pName === 'drift mod') && Number.isFinite(numVal)) {
+      if (Math.abs(numVal - 14) > 1 && Math.abs(numVal - 0.48) > 0.05) {
+        detuneCentsOverride = numVal <= 1 ? numVal * 35 : numVal;
+      }
+    } else if (pName === 'osc a wave' || pName === 'osc 1 wave') {
+      const w = String(param.value).toLowerCase();
+      if (w.includes('sq')) waveformOverride = 'square';
+      else if (w.includes('tri')) waveformOverride = 'triangle';
+      else if (w.includes('saw')) waveformOverride = 'sawtooth';
+      else if (w.includes('sin')) waveformOverride = 'sine';
+    }
+  }
+
+  return {
+    active: true,
+    instrumentTag: tag,
+    synthesisRole,
+    pitchOffsetSemitones,
+    decayScale,
+    cutoffScale,
+    resonanceAdd,
+    driveScale,
+    detuneCentsOverride,
+    waveformOverride,
+  };
+}
+
 function computeInsertChainGainMultiplier(track: AbletonTrack): {
   gainMultiplier: number;
   saturationBoost: number;
@@ -658,21 +1686,42 @@ function computeInsertChainGainMultiplier(track: AbletonTrack): {
     if (dev.bypassed) continue;
     const tag = dev.xmlTag || (dev as any).type || '';
     if (tag === 'Utility') {
-      const gainParam = dev.parameters.find((p) => p.name.toLowerCase().includes('gain'));
-      const gainDb = typeof gainParam?.value === 'number' ? gainParam.value : parseFloat(String(gainParam?.value ?? '0')) || 0;
-      gainMultiplier *= dbToGain(gainDb);
+      const gainDb = readDeviceParamNumber(dev, 'Gain', 0);
+      const mute = readDeviceParamNumber(dev, 'Mute', 0) >= 0.5;
+      gainMultiplier *= mute ? 0 : dbToGain(gainDb);
     } else if (tag === 'Saturator' || tag === 'Roar' || tag === 'Overdrive' || tag === 'DrumBuss') {
-      const driveParam = dev.parameters.find((p) => p.name.toLowerCase().includes('drive'));
-      const rawDrive = typeof driveParam?.value === 'number' ? driveParam.value : parseFloat(String(driveParam?.value ?? '6')) || 6;
+      const rawDrive = readDeviceParamNumber(dev, 'Drive', 6);
       const driveVal = rawDrive <= 1.5 ? rawDrive * 10 : rawDrive;
-      saturationBoost += Math.max(0.15, Math.min(12, driveVal)) * 0.08;
-      gainMultiplier *= 1 + Math.max(0.2, Math.min(12, driveVal)) * 0.035;
+      const boomVal = tag === 'DrumBuss' ? readDeviceParamNumber(dev, 'Boom', 0) : 0;
+      saturationBoost += Math.max(0.15, Math.min(18, driveVal)) * 0.08 + (boomVal / 100) * 0.25;
+      gainMultiplier *= 1 + Math.max(0.2, Math.min(18, driveVal)) * 0.035 + (boomVal / 100) * 0.12;
     } else if (tag === 'Limiter') {
-      const ceilParam = dev.parameters.find((p) => p.name.toLowerCase().includes('ceiling'));
-      const ceilDb = typeof ceilParam?.value === 'number' ? ceilParam.value : parseFloat(String(ceilParam?.value ?? '-0.3')) || -0.3;
+      const ceilDb = readDeviceParamNumber(dev, 'Ceiling', -0.3);
+      const gainDb = readDeviceParamNumber(dev, 'Gain', 0);
+      gainMultiplier *= dbToGain(gainDb * 0.5);
       limiterCeilingLinear = Math.min(limiterCeilingLinear, dbToGain(ceilDb));
     } else if (tag === 'Compressor2' || tag === 'GlueCompressor') {
-      gainMultiplier *= 0.96;
+      const makeupDb = readDeviceParamNumber(dev, tag === 'GlueCompressor' ? 'Makeup' : 'MakeupGain', 0);
+      gainMultiplier *= 0.96 * dbToGain(makeupDb * 0.5);
+    } else if (tag === 'AutoFilter') {
+      const cutoffHz = readDeviceParamNumber(dev, 'Cutoff', 1800);
+      const fType = readDeviceParamString(dev, 'FilterType', 'Lowpass').toLowerCase();
+      if (fType.includes('high') && cutoffHz > 500) {
+        gainMultiplier *= Math.max(0.25, 1 - Math.min(0.65, (cutoffHz - 500) / 8000));
+      } else if (cutoffHz < 600) {
+        gainMultiplier *= Math.max(0.35, 0.55 + (cutoffHz / 600) * 0.45);
+      }
+    } else if (tag === 'EQEight') {
+      const notchGainDb = readDeviceParamNumber(dev, 'Notch Gain', -3.5);
+      gainMultiplier *= dbToGain(notchGainDb * 0.18);
+    } else if (tag === 'Reverb' || tag === 'HybridReverb' || tag === 'Delay' || tag === 'Echo' || tag === 'ChorusEnsemble') {
+      const mix = readDeviceParamNumber(dev, 'DryWet', 35);
+      const normMix = mix <= 1 && mix > 0 ? mix : mix / 100;
+      gainMultiplier *= 1 + normMix * 0.12;
+    } else if (tag === 'AutoPan' || tag === 'Erosion') {
+      const amt = readDeviceParamNumber(dev, 'Amount', 40);
+      const normAmt = amt <= 1 && amt > 0 ? amt : amt / 100;
+      gainMultiplier *= 1 + (tag === 'Erosion' ? normAmt * 0.15 : -normAmt * 0.1);
     }
   }
   return { gainMultiplier, saturationBoost, limiterCeilingLinear };
@@ -690,6 +1739,13 @@ function scheduleTrackVoiceAtTime(
   project?: AbletonProjectState,
   stopAtSeconds?: number
 ) {
+  const instSpec = resolveTrackInstrumentSynthesis(track);
+  if (!instSpec.active) {
+    // Ensure channel runtime is still created/reconciled even if the instrument is bypassed or deleted
+    getOrCreateTrackChannelRuntime(ctx, bus, track, project);
+    return;
+  }
+
   const nodes: AudioNode[] = [];
   const sources: AudioScheduledSourceNode[] = [];
   let latestStop = ctx.currentTime;
@@ -703,10 +1759,10 @@ function scheduleTrackVoiceAtTime(
   };
   const time = Math.max(ctx.currentTime, whenSec);
   const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
-  const velGain = Math.pow(velNorm, 1.35);
-  const durSec = Math.max(0.045, note.duration / beatsPerSecond);
+  const velGain = Math.pow(velNorm, 1.35) * instSpec.driveScale;
+  const durSec = Math.max(0.045, (note.duration / beatsPerSecond) * instSpec.decayScale);
 
-  const mixer = track.mixer || {
+  const rawMixer = track.mixer || {
     volumeDb: 0,
     pan: 0,
     transposeSemitones: 0,
@@ -717,17 +1773,32 @@ function scheduleTrackVoiceAtTime(
     filterCutoffHz: 800,
     filterResonance: 0.3,
   };
+  const mixer: TrackMixerParams = {
+    ...rawMixer,
+    transposeSemitones: (rawMixer.transposeSemitones || 0) + instSpec.pitchOffsetSemitones,
+    filterCutoffHz: Math.max(40, Math.min(18000, (rawMixer.filterCutoffHz || 800) * instSpec.cutoffScale)),
+    filterResonance: Math.max(0.05, Math.min(0.98, (rawMixer.filterCutoffHz ? rawMixer.filterResonance : 0.3) + instSpec.resonanceAdd)),
+  };
+
+  // Check active Lfo device on track for modulation overrides
+  const activeLfoDev = (track.devices || []).find((d) => !d.bypassed && d.xmlTag === 'Lfo');
+  const effLfoRate = activeLfoDev
+    ? readDeviceParamNumber(activeLfoDev, 'Rate', humanization.lfoRateHz)
+    : humanization.lfoRateHz;
+  const effLfoDepth = activeLfoDev
+    ? readDeviceParamNumber(activeLfoDev, 'Depth', humanization.lfoDepth)
+    : humanization.lfoDepth;
 
   const autoNorm = evaluateAutomationAtBeat(track.automationPoints, note.time, (project?.arrangementLengthBars || 16) * 4);
-  const lfoPhase = Math.sin(2 * Math.PI * humanization.lfoRateHz * time);
-  const lfoModFactor = 1 + lfoPhase * humanization.lfoDepth * 0.45;
+  const lfoPhase = Math.sin(2 * Math.PI * effLfoRate * time);
+  const lfoModFactor = 1 + lfoPhase * effLfoDepth * 0.45;
 
   // Quarter-note Kick Sidechain Ducking envelope calculation
   const beatPhase = ((note.time % 1) + 1) % 1;
   const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
   const isNearKick = beatPhase < 0.22 || beatPhase > 0.94;
   const initialDuckGain =
-    track.archetype === 'kick'
+    instSpec.synthesisRole === 'kick'
       ? 1.0
       : isNearKick
       ? 1.0 - scDepth * 0.88
@@ -748,7 +1819,7 @@ function scheduleTrackVoiceAtTime(
   const targetDuckGain = Math.max(0.0001, initialDuckGain);
   voiceEnvelopeGain.gain.setValueAtTime(0.0001, time);
   voiceEnvelopeGain.gain.linearRampToValueAtTime(targetDuckGain, time + 0.006);
-  if (track.archetype !== 'kick' && scDepth > 0.05 && isNearKick) {
+  if (instSpec.synthesisRole !== 'kick' && scDepth > 0.05 && isNearKick) {
     voiceEnvelopeGain.gain.linearRampToValueAtTime(
       1.0,
       time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
@@ -757,7 +1828,7 @@ function scheduleTrackVoiceAtTime(
 
   // Optional Spectral Auto-Ducking EQEight Fundamental Notch node
   let voiceDestination: AudioNode = voiceEnvelopeGain;
-  if (track.spectralDucking?.enabled && track.archetype !== 'kick') {
+  if (track.spectralDucking?.enabled && instSpec.synthesisRole !== 'kick') {
     const eqNotch = own(ctx.createBiquadFilter());
     eqNotch.type = 'peaking';
     eqNotch.frequency.setValueAtTime(track.spectralDucking.notchFreqHz || 55, time);
@@ -787,7 +1858,7 @@ function scheduleTrackVoiceAtTime(
   // immediately affect sustaining audio without waiting for next note event
   const releaseMix = trackChannel.voiceSum.add(voiceEnvelopeGain);
 
-  if (track.archetype === 'kick') {
+  if (instSpec.synthesisRole === 'kick') {
     // =========================================================================
     // 1. 909 PUNCH KICK + TRANSIENT CLICK + DRUM BUSS WARM SATURATOR
     // =========================================================================
@@ -799,20 +1870,20 @@ function scheduleTrackVoiceAtTime(
     const bodyGain = own(ctx.createGain());
     const clickGain = own(ctx.createGain());
     const shaper = own(ctx.createWaveShaper());
-    shaper.curve = createSaturationCurve(1.65);
+    shaper.curve = createSaturationCurve(1.65 * instSpec.driveScale);
 
     bodyOsc.type = 'sine';
     bodyOsc.frequency.setValueAtTime(158 * pitchRatio, time);
     bodyOsc.frequency.exponentialRampToValueAtTime(52 * pitchRatio, time + 0.042);
-    bodyOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.28);
+    bodyOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.28 * instSpec.decayScale);
 
     subOsc.type = 'triangle';
     subOsc.frequency.setValueAtTime(78 * pitchRatio, time);
-    subOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.18);
+    subOsc.frequency.exponentialRampToValueAtTime(36 * pitchRatio, time + 0.18 * instSpec.decayScale);
 
     const subBlend = own(ctx.createGain());
     subBlend.gain.setValueAtTime(0.28 * velGain, time);
-    subBlend.gain.exponentialRampToValueAtTime(0.001, time + 0.24);
+    subBlend.gain.exponentialRampToValueAtTime(0.001, time + 0.24 * instSpec.decayScale);
 
     clickOsc.type = 'triangle';
     clickOsc.frequency.setValueAtTime(1150 * pitchRatio, time);
@@ -821,9 +1892,10 @@ function scheduleTrackVoiceAtTime(
     clickGain.gain.setValueAtTime(0.36 * velGain, time);
     clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.016);
 
+    const kickEnd = 0.31 * instSpec.decayScale;
     bodyGain.gain.setValueAtTime(0.001, time);
     bodyGain.gain.linearRampToValueAtTime(0.92 * velGain, time + 0.003);
-    bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.31);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, time + kickEnd);
 
     bodyOsc.connect(bodyGain);
     subOsc.connect(subBlend);
@@ -836,10 +1908,10 @@ function scheduleTrackVoiceAtTime(
     bodyOsc.start(time);
     subOsc.start(time);
     clickOsc.start(time);
-    bodyOsc.stop(time + 0.33);
-    subOsc.stop(time + 0.33);
+    bodyOsc.stop(time + kickEnd + 0.02);
+    subOsc.stop(time + kickEnd + 0.02);
     clickOsc.stop(time + 0.02);
-  } else if (track.archetype === 'rumble') {
+  } else if (instSpec.synthesisRole === 'rumble') {
     // =========================================================================
     // 2. OPERATOR SUB-BASS RUMBLE (Fundamental Sine + FM Harmonic + 24dB LPF)
     // =========================================================================
@@ -850,14 +1922,14 @@ function scheduleTrackVoiceAtTime(
     const filter2 = own(ctx.createBiquadFilter());
     const voiceGain = own(ctx.createGain());
 
-    oscFund.type = 'sine';
+    oscFund.type = instSpec.waveformOverride || 'sine';
     oscFund.frequency.setValueAtTime(freq, time);
 
     oscHarm.type = 'sawtooth';
     oscHarm.frequency.setValueAtTime(freq * 2, time);
 
     const harmGain = own(ctx.createGain());
-    harmGain.gain.setValueAtTime(0.24 * (0.6 + autoNorm * 0.7), time);
+    harmGain.gain.setValueAtTime(0.24 * (0.6 + autoNorm * 0.7) * instSpec.driveScale, time);
 
     const baseCut = Math.max(55, Math.min(450, mixer.filterCutoffHz || humanization.cutoffHz));
     const macroAdd = (humanization.macroTransition / 127) * 140;
@@ -892,7 +1964,7 @@ function scheduleTrackVoiceAtTime(
     oscHarm.start(time);
     oscFund.stop(time + durSec + 0.07);
     oscHarm.stop(time + durSec + 0.07);
-  } else if (track.archetype === 'acid') {
+  } else if (instSpec.synthesisRole === 'acid') {
     // =========================================================================
     // 3. TB-303 ACID RESONANT BASSLINE (Saw + Square Blend + 24dB Diode Filter + Slide + Roar Overdrive)
     // =========================================================================
@@ -908,7 +1980,7 @@ function scheduleTrackVoiceAtTime(
     const shaper = own(ctx.createWaveShaper());
     const voiceGain = own(ctx.createGain());
 
-    oscSaw.type = 'sawtooth';
+    oscSaw.type = instSpec.waveformOverride || 'sawtooth';
     oscSq.type = 'square';
     sqBlend.gain.setValueAtTime(0.32, time);
 
@@ -948,7 +2020,7 @@ function scheduleTrackVoiceAtTime(
     diodeFilter2.frequency.exponentialRampToValueAtTime(envFloorHz * 1.1, time + durSec);
     diodeFilter2.Q.setValueAtTime(2.4, time);
 
-    shaper.curve = createSaturationCurve(isAccent ? 2.4 : 1.75);
+    shaper.curve = createSaturationCurve((isAccent ? 2.4 : 1.75) * instSpec.driveScale);
 
     const releaseSec = isSlide ? durSec + 0.09 : durSec + 0.03;
     const peakGain = (isAccent ? 0.46 : 0.34) * velGain;
@@ -968,7 +2040,7 @@ function scheduleTrackVoiceAtTime(
     oscSq.start(time);
     oscSaw.stop(time + releaseSec + 0.02);
     oscSq.stop(time + releaseSec + 0.02);
-  } else if (track.archetype === 'percussion') {
+  } else if (instSpec.synthesisRole === 'percussion') {
     // =========================================================================
     // 4. COLLISION INDUSTRIAL FM METALLIC RESONATOR + TRANSIENT EXCITER
     // =========================================================================
@@ -1002,7 +2074,7 @@ function scheduleTrackVoiceAtTime(
     filter.frequency.setValueAtTime(filterFreq, time);
     filter.Q.setValueAtTime(2.2 + mixer.filterResonance * 5.0, time);
 
-    const decay = Math.max(0.08, Math.min(0.24, durSec * 1.1));
+    const decay = Math.max(0.08, Math.min(0.65, durSec * 1.1));
     voiceGain.gain.setValueAtTime(0.001, time);
     voiceGain.gain.linearRampToValueAtTime(0.42 * velGain, time + 0.003);
     voiceGain.gain.exponentialRampToValueAtTime(0.001, time + decay);
@@ -1021,7 +2093,7 @@ function scheduleTrackVoiceAtTime(
     carrier.stop(time + decay + 0.02);
     mod1.stop(time + decay + 0.02);
     noiseSrc.stop(time + 0.03);
-  } else if (track.archetype === 'ride') {
+  } else if (instSpec.synthesisRole === 'ride') {
     // =========================================================================
     // 5. WAREHOUSE 909 RIDE CYMBAL (Inharmonic Metallic Cluster + Shimmer HPF)
     // =========================================================================
@@ -1034,7 +2106,7 @@ function scheduleTrackVoiceAtTime(
     const ratios = isBell ? [587, 845, 1188, 1740] : [465, 692, 1045, 1512];
     const metalBus = own(ctx.createGain());
     metalBus.gain.setValueAtTime(0.11 * velGain, time);
-    metalBus.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
+    metalBus.gain.exponentialRampToValueAtTime(0.001, time + 0.28 * instSpec.decayScale);
 
     const oscs = ratios.map((freqRatio) => {
       const o = source(ctx.createOscillator());
@@ -1053,7 +2125,7 @@ function scheduleTrackVoiceAtTime(
     hpf.type = 'highpass';
     hpf.frequency.setValueAtTime(Math.max(650, (mixer.filterCutoffHz || 4800) * 0.8), time);
 
-    const decaySec = (0.34 + velGain * 0.25) * (0.75 + autoNorm * 0.45);
+    const decaySec = (0.34 + velGain * 0.25) * (0.75 + autoNorm * 0.45) * instSpec.decayScale;
     const voiceGain = own(ctx.createGain());
     voiceGain.gain.setValueAtTime(0.001, time);
     voiceGain.gain.linearRampToValueAtTime(0.28 * velGain, time + 0.003);
@@ -1068,8 +2140,8 @@ function scheduleTrackVoiceAtTime(
     noise.start(time);
     oscs.forEach((o) => o.start(time));
     noise.stop(time + decaySec + 0.02);
-    oscs.forEach((o) => o.stop(time + 0.3));
-  } else if (track.archetype === 'hats') {
+    oscs.forEach((o) => o.stop(time + 0.3 * instSpec.decayScale));
+  } else if (instSpec.synthesisRole === 'hats') {
     // =========================================================================
     // 6. SIMPLER 909 METALLIC HI-HAT (Square Bank + Crisp Noise HPF)
     // =========================================================================
@@ -1096,9 +2168,10 @@ function scheduleTrackVoiceAtTime(
     hpf.frequency.setValueAtTime(isOpenHat ? baseCut * 0.82 : baseCut, time);
     hpf.Q.setValueAtTime(1.2 + mixer.filterResonance * 2.5, time);
 
-    const decayTime = isOpenHat
-      ? (0.14 + velGain * 0.22) * (0.75 + autoNorm * 0.5)
-      : (0.032 + velGain * 0.048) * (0.8 + autoNorm * 0.4);
+    const decayTime =
+      (isOpenHat
+        ? (0.14 + velGain * 0.22) * (0.75 + autoNorm * 0.5)
+        : (0.032 + velGain * 0.048) * (0.8 + autoNorm * 0.4)) * instSpec.decayScale;
 
     const voiceGain = own(ctx.createGain());
     voiceGain.gain.setValueAtTime(0.001, time);
@@ -1118,7 +2191,7 @@ function scheduleTrackVoiceAtTime(
     noise.stop(time + decayTime + 0.015);
     metal1.stop(time + 0.04);
     metal2.stop(time + 0.04);
-  } else if (track.archetype === 'pad') {
+  } else if (instSpec.synthesisRole === 'pad') {
     // =========================================================================
     // 7. DUB TECHNO ATMOSPHERIC PAD (Warm Detuned Saw/Triangle + Slow LPF Sweep)
     // =========================================================================
@@ -1128,13 +2201,14 @@ function scheduleTrackVoiceAtTime(
     const filter = own(ctx.createBiquadFilter());
     const voiceGain = own(ctx.createGain());
 
+    const padDetune = instSpec.detuneCentsOverride ?? 9;
     osc1.type = 'sawtooth';
     osc1.frequency.setValueAtTime(rootFreq, time);
-    osc1.detune.setValueAtTime(-9, time);
+    osc1.detune.setValueAtTime(-padDetune, time);
 
     osc2.type = 'triangle';
     osc2.frequency.setValueAtTime(rootFreq, time);
-    osc2.detune.setValueAtTime(9, time);
+    osc2.detune.setValueAtTime(padDetune, time);
 
     const baseCut = Math.max(200, Math.min(3600, mixer.filterCutoffHz || 780));
     const macroBoost = (humanization.macroTransition / 127) * 950;
@@ -1171,16 +2245,17 @@ function scheduleTrackVoiceAtTime(
     const filter = own(ctx.createBiquadFilter());
     const voiceGain = own(ctx.createGain());
 
+    const stabDetune = instSpec.detuneCentsOverride ?? 11;
     oscRoot.type = 'sawtooth';
     oscRoot.frequency.setValueAtTime(rootFreq, time);
 
     oscDetune.type = 'sawtooth';
     oscDetune.frequency.setValueAtTime(rootFreq, time);
-    oscDetune.detune.setValueAtTime(11, time);
+    oscDetune.detune.setValueAtTime(stabDetune, time);
 
     oscChord.type = 'triangle';
     oscChord.frequency.setValueAtTime(rootFreq * Math.pow(2, 3 / 12), time);
-    oscChord.detune.setValueAtTime(-7, time);
+    oscChord.detune.setValueAtTime(-Math.round(stabDetune * 0.65), time);
 
     const chordSubGain = own(ctx.createGain());
     chordSubGain.gain.setValueAtTime(0.48, time);
@@ -1366,7 +2441,10 @@ export function synthesizeDeterministicStereoPcm(
     const vcaComp = composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []);
     if (!singleTrackId && vcaComp.effectivelyMuted) continue;
 
-    const mixer = track.mixer || {
+    const instSpec = resolveTrackInstrumentSynthesis(track);
+    if (!instSpec.active) continue;
+
+    const rawMixer = track.mixer || {
       volumeDb: 0,
       pan: 0,
       transposeSemitones: 0,
@@ -1376,6 +2454,10 @@ export function synthesizeDeterministicStereoPcm(
       delaySend: 0.15,
       filterCutoffHz: 800,
       filterResonance: 0.3,
+    };
+    const mixer: TrackMixerParams = {
+      ...rawMixer,
+      transposeSemitones: (rawMixer.transposeSemitones || 0) + instSpec.pitchOffsetSemitones,
     };
 
     const insertMods = computeInsertChainGainMultiplier(track);
@@ -1393,7 +2475,13 @@ export function synthesizeDeterministicStereoPcm(
     for (const clip of track.clips) {
       const clipStartBeat = clip.startTime;
       const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
-      for (const note of clip.notes) {
+      const effectiveNotes = evaluateTrackMidiDeviceChain(
+        track,
+        clip.notes,
+        clipStartBeat,
+        clipEndBeat
+      );
+      for (const note of effectiveNotes) {
         if (note.time < 0 || note.time >= totalBeats) continue;
         if (note.time < clipStartBeat - 0.05 || note.time >= clipEndBeat + 0.05) continue;
         if (note.probability !== undefined && note.probability < 1.0) {
@@ -1403,26 +2491,26 @@ export function synthesizeDeterministicStereoPcm(
 
         const startSec = note.time / beatsPerSecond;
         const startFrame = Math.max(0, Math.floor(startSec * sampleRate));
-        const durSec = Math.max(0.05, Math.min(2.5, note.duration / beatsPerSecond + 0.08));
+        const durSec = Math.max(0.05, Math.min(2.5, (note.duration / beatsPerSecond) * instSpec.decayScale + 0.08));
         const noteFrames = Math.min(totalFrames - startFrame, Math.ceil(durSec * sampleRate));
         if (noteFrames <= 0) continue;
 
         const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
-        const velGain = Math.pow(velNorm, 1.35);
+        const velGain = Math.pow(velNorm, 1.35) * instSpec.driveScale * instSpec.cutoffScale;
         const baseFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
 
         const beatPhase = ((note.time % 1) + 1) % 1;
         const isNearKick = beatPhase < 0.22 || beatPhase > 0.94;
         const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
         const scFactor =
-          track.archetype === 'kick'
+          instSpec.synthesisRole === 'kick'
             ? 1.0
             : isNearKick
             ? 1.0 - scDepth * 0.72
             : 1.0 - scDepth * 0.1;
 
         const spectralNotchFactor =
-          track.spectralDucking?.enabled && track.archetype !== 'kick' && isNearKick
+          track.spectralDucking?.enabled && instSpec.synthesisRole !== 'kick' && isNearKick
             ? dbToGain(Math.min(0, (track.spectralDucking.notchGainDb || -9) * 0.35))
             : 1.0;
 
@@ -1433,29 +2521,30 @@ export function synthesizeDeterministicStereoPcm(
           const t = i / sampleRate;
           let sample = 0;
 
-          if (track.archetype === 'kick') {
-            const instFreq = 40 + 118 * Math.exp(-t * 36);
+          if (instSpec.synthesisRole === 'kick') {
+            const pitchRatio = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
+            const instFreq = (40 + 118 * Math.exp(-t * 36)) * pitchRatio;
             phase += (2 * Math.PI * instFreq) / sampleRate;
-            const env = Math.exp(-t * 9.5);
-            const click = t < 0.012 ? Math.sin(2 * Math.PI * 920 * t) * Math.exp(-t * 180) * 0.35 : 0;
-            sample = Math.tanh((Math.sin(phase) * 0.92 + click) * 1.65) * env * velGain * 0.85;
-          } else if (track.archetype === 'rumble') {
+            const env = Math.exp((-t * 9.5) / instSpec.decayScale);
+            const click = t < 0.012 ? Math.sin(2 * Math.PI * 920 * pitchRatio * t) * Math.exp(-t * 180) * 0.35 : 0;
+            sample = Math.tanh((Math.sin(phase) * 0.92 + click) * 1.65 * instSpec.driveScale) * env * velGain * 0.85;
+          } else if (instSpec.synthesisRole === 'rumble') {
             phase += (2 * Math.PI * baseFreq) / sampleRate;
             subPhase += (2 * Math.PI * baseFreq * 2) / sampleRate;
             const env = Math.min(1, t / 0.012) * Math.exp(-t / Math.max(0.08, durSec * 0.75));
             sample = (Math.sin(phase) * 0.78 + Math.sin(subPhase) * 0.22) * env * velGain * 0.65;
-          } else if (track.archetype === 'acid') {
+          } else if (instSpec.synthesisRole === 'acid') {
             const isAccent = Boolean(note.isAccent || note.velocity >= 108);
             phase += (2 * Math.PI * baseFreq) / sampleRate;
             subPhase += (2 * Math.PI * baseFreq * 2) / sampleRate;
             const sawApprox = Math.sin(phase) + 0.5 * Math.sin(subPhase);
-            const env = Math.min(1, t / 0.005) * Math.exp(-t / (isAccent ? 0.16 : 0.22));
-            const drive = isAccent ? 2.2 : 1.5 + insertMods.saturationBoost;
+            const env = Math.min(1, t / 0.005) * Math.exp(-t / ((isAccent ? 0.16 : 0.22) * instSpec.decayScale));
+            const drive = (isAccent ? 2.2 : 1.5 + insertMods.saturationBoost) * instSpec.driveScale;
             sample = Math.tanh(sawApprox * drive) * env * velGain * (isAccent ? 0.52 : 0.38);
-          } else if (track.archetype === 'hats' || track.archetype === 'ride') {
+          } else if (instSpec.synthesisRole === 'hats' || instSpec.synthesisRole === 'ride') {
             const detNoise = Math.sin(i * 12.9898 + note.pitch * 78.233) * 43758.5453;
             const white = (detNoise - Math.floor(detNoise)) * 2 - 1;
-            const decayRate = track.archetype === 'ride' ? 5.5 : note.duration > 0.3 ? 9.0 : 28.0;
+            const decayRate = (instSpec.synthesisRole === 'ride' ? 5.5 : note.duration > 0.3 ? 9.0 : 28.0) / instSpec.decayScale;
             const env = Math.exp(-t * decayRate);
             sample = white * env * velGain * 0.32;
           } else {
@@ -1544,12 +2633,25 @@ export async function synthesizeProjectToStereoFloatBuffers(
   const events: { track: AbletonTrack; note: MidiNoteEvent; time: number }[] = [];
   for (const track of project.tracks) {
     if (composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []).effectivelyMuted) continue;
-    for (const clip of track.clips) for (const note of clip.notes) {
-      if (!Number.isFinite(note.time) || !Number.isFinite(note.pitch) || !Number.isFinite(note.duration) || !Number.isFinite(note.velocity)) {
-        throw new Error('RENDER_NOTE: non-finite note data');
+    for (const clip of track.clips) {
+      for (const rawNote of clip.notes) {
+        if (!Number.isFinite(rawNote.time) || !Number.isFinite(rawNote.pitch) || !Number.isFinite(rawNote.duration) || !Number.isFinite(rawNote.velocity)) {
+          throw new Error('RENDER_NOTE: non-finite note data');
+        }
       }
-      if (note.time >= 0 && note.time < bars * 4 && noteIsInsideClip(note, clip) && shouldPlayNote(note)) {
-        events.push({ track, note, time: note.time / bps });
+      const eligibleRawNotes = clip.notes.filter(
+        (n) => n.time >= 0 && n.time < bars * 4 && noteIsInsideClip(n, clip) && shouldPlayNote(n)
+      );
+      const transformedNotes = evaluateTrackMidiDeviceChain(
+        track,
+        eligibleRawNotes,
+        clip.startTime,
+        Math.min(bars * 4, clip.startTime + clip.length)
+      );
+      for (const note of transformedNotes) {
+        if (note.time >= 0 && note.time < bars * 4) {
+          events.push({ track, note, time: note.time / bps });
+        }
       }
     }
   }
@@ -2017,6 +3119,7 @@ export class ParametricWebAudioEngine {
   private currentCpuOperation = '8-Track Lookahead Voice Scheduler + 4x True-Peak Limiter';
 
   private playbackState: PlaybackEngineState = 'idle';
+  private pendingBlockError: Error | null = null;
   private recoveryEventsCount = 0;
   private lastRecoveryTimestampMs: number | null = null;
 
@@ -2187,16 +3290,43 @@ export class ParametricWebAudioEngine {
   }
 
   private executionAllowed(): boolean {
-    try { if (this.project) assertExecutableInsertLimits(this.project); return true; }
-    catch(error) {
-      this.stop();this.playbackState='error';
-      this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);
+    try {
+      if (this.pendingBlockError) throw this.pendingBlockError;
+      if (this.project) assertExecutableInsertLimits(this.project);
+      return true;
+    } catch (error) {
+      this.emergencyShutdown(
+        `Playback blocked: ${error instanceof Error ? error.message : String(error)}`
+      );
       return false;
     }
   }
 
+  public getInstalledProjectState(): AbletonProjectState | null {
+    return this.project;
+  }
+
   public syncLiveTrackChannels(): void {
     if (!this.ctx || !this.bus || !this.project) return;
+    const validIds = new Set(this.project.tracks.map((t) => t.id));
+    for (const [trackId, ch] of this.bus.trackChannels.entries()) {
+      if (!validIds.has(trackId)) {
+        for (const proc of ch.insertProcessors) proc.dispose?.();
+        try {
+          ch.inputNode.disconnect();
+          ch.chainInputGain.disconnect();
+          ch.chainOutputGain.disconnect();
+          ch.faderGain.disconnect();
+          ch.muteSoloGate.disconnect();
+          ch.panner.disconnect();
+          ch.reverbSendGain.disconnect();
+          ch.delaySendGain.disconnect();
+        } catch {
+          /* ignore */
+        }
+        this.bus.trackChannels.delete(trackId);
+      }
+    }
     for (const track of this.project.tracks) {
       getOrCreateTrackChannelRuntime(this.ctx, this.bus, track, this.project);
     }
@@ -2344,6 +3474,85 @@ export class ParametricWebAudioEngine {
     };
   }
 
+  private preflightProjectCandidate(
+    candidateProject: AbletonProjectState,
+    candidateTransport?: TransportConfig
+  ): void {
+    assertProjectState(candidateProject);
+    if (candidateProject.ppq !== undefined) {
+      assertValidPpq(candidateProject.ppq);
+    }
+    validateAndNormalizeTempoMap(candidateProject.tempo, candidateProject.tempoMap);
+    validateAndNormalizeMeterMap(candidateProject.meterMap);
+    assertExecutableInsertLimits(candidateProject);
+
+    const effTransport = candidateTransport ?? candidateProject.audioSettings?.transport ?? this.transport;
+    const maxBeats =
+      candidateProject.audioSettings?.transport.arrangementMode === 'session'
+        ? Number.MAX_SAFE_INTEGER
+        : Math.max(
+            1,
+            candidateProject.arrangementLengthBars || effTransport.arrangementLengthBars || 16
+          ) * 4;
+    playbackRegion(
+      maxBeats,
+      candidateProject.audioSettings?.transport.arrangementMode === 'session'
+        ? { ...effTransport, loopEnabled: false }
+        : effTransport,
+      candidateProject.meterMap
+    );
+
+    if (this.ctx && typeof this.ctx.createGain === 'function') {
+      // Dry-run candidate device insert graph construction before touching active state
+      const builtTemp: InsertProcessorInstance[] = [];
+      try {
+        for (const track of candidateProject.tracks) {
+          for (const dev of track.devices || []) {
+            builtTemp.push(buildDeviceInsertProcessor(this.ctx, dev));
+          }
+        }
+      } finally {
+        for (const proc of builtTemp) {
+          proc.dispose?.();
+        }
+      }
+    }
+  }
+
+  public emergencyShutdown(reason?: string): void {
+    // Emergency shutdown is completely independent of coordinate conversion errors.
+    try {
+      this.currentBeat = this.getCurrentBeat();
+    } catch {
+      /* Preserve last valid currentBeat when timing/meter conversion is invalid */
+    }
+    if (this.bus) {
+      for (const retire of [...this.bus.activeVoices]) {
+        try {
+          retire();
+        } catch {
+          /* ignore voice retirement failure */
+        }
+      }
+    }
+    this.isPlaying = false;
+    this.lastSchedulerPerfMs = 0;
+    if (this.schedulerTimerId !== null) {
+      clearInterval(this.schedulerTimerId);
+      this.schedulerTimerId = null;
+    }
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.scheduledNoteKeys.clear();
+    this.sessionScheduledKeys.clear();
+    this.playbackState = 'error';
+    if (reason) {
+      this.onPlaybackStopped?.(reason);
+    }
+  }
+
   public setState(
     project: AbletonProjectState,
     humanization: HumanizationConfig,
@@ -2358,25 +3567,51 @@ export class ParametricWebAudioEngine {
     ) => void,
     onPlaybackStopped?: (reason?: string) => void
   ) {
+    if (onPlayheadUpdate) {
+      this.onPlayheadUpdate = onPlayheadUpdate;
+    }
+    if (onPlaybackStopped) {
+      this.onPlaybackStopped = onPlaybackStopped;
+    }
+
+    // Section 3: Validate domain state, timing maps, capabilities, and candidate device graph
+    // BEFORE replacing this.project or mutating active clock anchors/channels.
+    try {
+      this.preflightProjectCandidate(project, transport);
+    } catch (error) {
+      this.pendingBlockError = error instanceof Error ? error : new Error(String(error));
+      this.emergencyShutdown(`Playback blocked: ${this.pendingBlockError.message}`);
+      return;
+    }
+
+    this.pendingBlockError = null;
     const prevTempo = this.project?.tempo;
-    const modeChanged=this.project?.audioSettings?.transport.arrangementMode !== project.audioSettings?.transport.arrangementMode;
-    const previousSessionIds=new Set(this.project?.session?.events.map(e=>e.id) || []);
-    const nextEvents=new Map(project.session?.events.map(e=>[e.id,e]) || []);
-    const invalidatedTracks=new Set<string>();
+    const modeChanged =
+      this.project?.audioSettings?.transport.arrangementMode !==
+      project.audioSettings?.transport.arrangementMode;
+    const previousSessionIds = new Set(this.project?.session?.events.map((e) => e.id) || []);
+    const nextEvents = new Map(project.session?.events.map((e) => [e.id, e]) || []);
+    const invalidatedTracks = new Set<string>();
     for (const event of this.project?.session?.events || []) {
-      if (JSON.stringify(event)!==JSON.stringify(nextEvents.get(event.id))) invalidatedTracks.add(event.trackId);
+      if (JSON.stringify(event) !== JSON.stringify(nextEvents.get(event.id)))
+        invalidatedTracks.add(event.trackId);
     }
     for (const track of this.project?.tracks || []) {
-      if (JSON.stringify(track.sessionClips)!==JSON.stringify(project.tracks.find(t=>t.id===track.id)?.sessionClips)) invalidatedTracks.add(track.id);
+      if (
+        JSON.stringify(track.sessionClips) !==
+        JSON.stringify(project.tracks.find((t) => t.id === track.id)?.sessionClips)
+      )
+        invalidatedTracks.add(track.id);
     }
     // Capture with the OLD tempo before replacing project state. RAF may be suspended
     // or several frames behind the audio clock. Queued voices use the old seconds map.
-    const tempoChangedWhilePlaying = this.isPlaying && prevTempo !== undefined && (prevTempo !== project.tempo || modeChanged);
+    const tempoChangedWhilePlaying =
+      this.isPlaying && prevTempo !== undefined && (prevTempo !== project.tempo || modeChanged);
     if (tempoChangedWhilePlaying) {
       this.currentBeat = this.getCurrentBeat();
       if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
       this.scheduledNoteKeys.clear();
-    this.sessionScheduledKeys.clear();
+      this.sessionScheduledKeys.clear();
       this.loopGeneration++;
       this.anchorBeat = this.currentBeat;
       if (this.ctx) this.anchorAudioTime = this.ctx.currentTime;
@@ -2389,28 +3624,25 @@ export class ParametricWebAudioEngine {
     if (masterBus) {
       this.masterBus = masterBus;
     }
-    if (onPlayheadUpdate) {
-      this.onPlayheadUpdate = onPlayheadUpdate;
-    }
-    if (onPlaybackStopped) {
-      this.onPlaybackStopped = onPlaybackStopped;
-    }
-    try { assertExecutableInsertLimits(project); } catch(error) {
-      this.stop();this.playbackState='error';
-      this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);
-      return;
-    }
-    if (this.isPlaying && this.ctx && this.bus && project.audioSettings?.transport.arrangementMode==='session') {
+    if (
+      this.isPlaying &&
+      this.ctx &&
+      this.bus &&
+      project.audioSettings?.transport.arrangementMode === 'session'
+    ) {
       for (const trackId of invalidatedTracks) {
         for (const retire of this.bus.trackVoices?.get(trackId) || []) retire();
-        for (const [key,metadata] of this.sessionScheduledKeys) if (metadata.trackId===trackId) {
-          this.scheduledNoteKeys.delete(key);this.sessionScheduledKeys.delete(key);
+        for (const [key, metadata] of this.sessionScheduledKeys)
+          if (metadata.trackId === trackId) {
+            this.scheduledNoteKeys.delete(key);
+            this.sessionScheduledKeys.delete(key);
+          }
+      }
+      for (const event of project.session?.events || [])
+        if (!previousSessionIds.has(event.id)) {
+          const at = this.anchorAudioTime + (event.atBeat - this.anchorBeat) / (project.tempo / 60);
+          for (const retire of this.bus.trackVoices?.get(event.trackId) || []) retire(at);
         }
-      }
-      for (const event of project.session?.events || []) if (!previousSessionIds.has(event.id)) {
-        const at=this.anchorAudioTime+(event.atBeat-this.anchorBeat)/(project.tempo/60);
-        for (const retire of this.bus.trackVoices?.get(event.trackId) || []) retire(at);
-      }
     }
 
     if (this.ctx && this.bus) {
@@ -2453,8 +3685,12 @@ export class ParametricWebAudioEngine {
       this.bus.delayNodeR.delayTime.setTargetAtTime(threeSixteenthSec * 2, now, 0.03);
 
       // Immediately sync all persistent per-track channel strips in real time
-      this.syncLiveTrackChannels();
-
+      try {
+        this.syncLiveTrackChannels();
+      } catch (err) {
+        this.pendingBlockError = err instanceof Error ? err : new Error(String(err));
+        this.emergencyShutdown(`Playback blocked: ${this.pendingBlockError.message}`);
+      }
     }
   }
 
@@ -2493,7 +3729,10 @@ export class ParametricWebAudioEngine {
   }
 
   public start(fromStart = false) {
-    if (this.project) assertExecutableInsertLimits(this.project);
+    if (this.pendingBlockError) throw this.pendingBlockError;
+    if (this.project) {
+      this.preflightProjectCandidate(this.project, this.transport);
+    }
     this.ensureContext();
     if (!this.ctx) return;
     this.syncLiveTrackChannels();
@@ -2525,9 +3764,21 @@ export class ParametricWebAudioEngine {
   }
 
   public stop() {
-    // Freeze at the audible clock position, independently of visual rendering.
-    this.currentBeat = this.getCurrentBeat();
-    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
+    // Freeze at the audible clock position, independently of visual rendering or coordinate conversion failures.
+    try {
+      this.currentBeat = this.getCurrentBeat();
+    } catch {
+      /* Preserve last valid currentBeat when timing/meter conversion fails */
+    }
+    if (this.bus) {
+      for (const retire of [...this.bus.activeVoices]) {
+        try {
+          retire();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     this.isPlaying = false;
     this.lastSchedulerPerfMs = 0;
     if (this.schedulerTimerId !== null) {
@@ -2817,73 +4068,85 @@ export class ParametricWebAudioEngine {
         this.stop();this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);return;
       }
     } else {
-    this.project.tracks.forEach((track) => {
-      track.clips.forEach((clip) => {
-        const clipStartBeat = clip.startTime;
-        const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
-        clip.notes.forEach((note) => {
-          // Match the offline timeline contract: half-open clip span and seeded eligibility.
-          if (!noteIsInsideClip(note, clip) || !shouldPlayNote(note)) return;
-
-          if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
-            if (
-              region.enabled &&
-              (note.time < loopStartBeat || note.time >= loopEndBeat)
-            ) {
-              return;
-            }
-            const key = `${this.loopGeneration}_${track.id}_${clip.id}_${note.id}`;
-            if (!this.scheduledNoteKeys.has(key)) {
-              const noteAudioTime =
-                this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
-              // Never burst-fire expired notes if scheduler was delayed
-              if (noteAudioTime >= nowAudio - 0.015) {
-                this.scheduledNoteKeys.add(key);
-                scheduleTrackVoiceAtTime(
-                  this.ctx!,
-                  this.bus!,
-                  this.noiseBuffer!,
-                  track,
-                  note,
-                  noteAudioTime,
-                  beatsPerSecond,
-                  this.humanization!,
-                  this.project!
-                );
-              }
-            }
-          }
-
-          if (region.enabled && windowEndBeat > loopEndBeat) {
-            const overflowBeats = windowEndBeat - loopEndBeat;
-            if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
-              const nextGen = this.loopGeneration + 1;
-              const wrapKey = `${nextGen}_${track.id}_${clip.id}_${note.id}`;
-              if (!this.scheduledNoteKeys.has(wrapKey)) {
-                const beatsUntilNote =
-                  loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
-                const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
-                if (noteAudioTime >= nowAudio - 0.01) {
-                  this.scheduledNoteKeys.add(wrapKey);
-                  scheduleTrackVoiceAtTime(
-                    this.ctx!,
-                    this.bus!,
-                    this.noiseBuffer!,
-                    track,
-                    note,
-                    noteAudioTime,
-                    beatsPerSecond,
-                    this.humanization!,
-                    this.project!
-                  );
+      try {
+        this.project.tracks.forEach((track) => {
+          track.clips.forEach((clip) => {
+            const clipStartBeat = clip.startTime;
+            const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
+            const eligibleNotes = clip.notes.filter(
+              (n) => noteIsInsideClip(n, clip) && shouldPlayNote(n)
+            );
+            const effectiveNotes = evaluateTrackMidiDeviceChain(
+              track,
+              eligibleNotes,
+              clipStartBeat,
+              Math.min(maxBeats, clipEndBeat)
+            );
+            effectiveNotes.forEach((note) => {
+              if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
+                if (
+                  region.enabled &&
+                  (note.time < loopStartBeat || note.time >= loopEndBeat)
+                ) {
+                  return;
+                }
+                const key = `${this.loopGeneration}_${track.id}_${clip.id}_${note.id}`;
+                if (!this.scheduledNoteKeys.has(key)) {
+                  const noteAudioTime =
+                    this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
+                  // Never burst-fire expired notes if scheduler was delayed
+                  if (noteAudioTime >= nowAudio - 0.015) {
+                    this.scheduledNoteKeys.add(key);
+                    scheduleTrackVoiceAtTime(
+                      this.ctx!,
+                      this.bus!,
+                      this.noiseBuffer!,
+                      track,
+                      note,
+                      noteAudioTime,
+                      beatsPerSecond,
+                      this.humanization!,
+                      this.project!
+                    );
+                  }
                 }
               }
-            }
-          }
-        });
-      });
-    });
 
+              if (region.enabled && windowEndBeat > loopEndBeat) {
+                const overflowBeats = windowEndBeat - loopEndBeat;
+                if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
+                  const nextGen = this.loopGeneration + 1;
+                  const wrapKey = `${nextGen}_${track.id}_${clip.id}_${note.id}`;
+                  if (!this.scheduledNoteKeys.has(wrapKey)) {
+                    const beatsUntilNote =
+                      loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
+                    const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
+                    if (noteAudioTime >= nowAudio - 0.01) {
+                      this.scheduledNoteKeys.add(wrapKey);
+                      scheduleTrackVoiceAtTime(
+                        this.ctx!,
+                        this.bus!,
+                        this.noiseBuffer!,
+                        track,
+                        note,
+                        noteAudioTime,
+                        beatsPerSecond,
+                        this.humanization!,
+                        this.project!
+                      );
+                    }
+                  }
+                }
+              }
+            });
+          });
+        });
+      } catch (error) {
+        this.emergencyShutdown(
+          `Playback blocked: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return;
+      }
     }
 
     // Evaluate master automation curve if present

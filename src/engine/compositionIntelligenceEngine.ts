@@ -2462,13 +2462,26 @@ export function createUserTrackFromRole(
     devices: [
       {
         id: `dev_${trackId}_inst`,
-        xmlTag: role.archetype === 'synth' || role.archetype === 'pad' ? 'InstrumentVector' : 'Operator',
+        xmlTag:
+          role.archetype === 'kick'
+            ? 'DrumGroupDevice'
+            : role.archetype === 'rumble'
+            ? 'Operator'
+            : role.archetype === 'percussion'
+            ? 'Collision'
+            : role.archetype === 'hats' || role.archetype === 'ride'
+            ? 'OriginalSimpler'
+            : role.archetype === 'acid'
+            ? 'UltraAnalog'
+            : role.archetype === 'pad'
+            ? 'Drift'
+            : 'InstrumentVector',
         displayName: role.name,
         category: 'instrument',
         browserDspSupported: true,
         parameters: [
-          { name: 'Filter Cutoff', value: role.defaultCutoffHz, unit: 'Hz', automationTarget: true },
-          { name: 'Resonance', value: role.defaultResonance },
+          { name: 'FilterCutoffHz', value: role.defaultCutoffHz, unit: 'Hz', automationTarget: true },
+          { name: 'FilterResonance', value: role.defaultResonance },
         ],
       },
       {

@@ -30,40 +30,20 @@ import {
   GenerateSectionArrangementProposal,
 } from './compositionIntelligenceEngine';
 
+import {
+  CONVERTED_DEVICE_TAGS,
+  EXECUTABLE_DEVICE_TAGS,
+  syncDeviceConversionRecord,
+} from './abletonCapabilityMatrix';
+
 export {
   generateSectionArrangementProposal,
   GenerateSectionArrangementProposal,
 };
 
 export const BROWSER_SUPPORTED_DEVICE_TAGS = new Set<string>([
-  'Operator',
-  'InstrumentVector',
-  'UltraAnalog',
-  'Drift',
-  'Collision',
-  'DrumGroupDevice',
-  'InstrumentGroupDevice',
-  'OriginalSimpler',
-  'EQEight',
-  'Compressor2',
-  'Roar',
-  'Saturator',
-  'Reverb',
-  'HybridReverb',
-  'Echo',
-  'DrumBuss',
-  'GlueCompressor',
-  'Limiter',
-  'AutoFilter',
-  'Overdrive',
-  'Erosion',
-  'AutoPan',
-  'ChorusEnsemble',
-  'PhaserNew',
-  'Redux2',
-  'MidiChord',
-  'MidiArpeggiator',
-  'Lfo',
+  ...EXECUTABLE_DEVICE_TAGS,
+  ...CONVERTED_DEVICE_TAGS,
 ]);
 
 export function getDefaultVcaGroups(): VcaGroupState[] {
@@ -379,6 +359,132 @@ export const ABLETON_BUILTIN_LIBRARY: AbletonLibraryDeviceTemplate[] = [
       { name: 'Release', value: 85, unit: 'ms' },
     ],
     xmlSnippet: `<Limiter Id="8209"><IsOn><Manual Value="true" /></IsOn><Ceiling><Manual Value="-0.3" /></Ceiling><Gain><Manual Value="2.0" /></Gain></Limiter>`,
+  },
+  {
+    id: 'inst_simpler',
+    xmlTag: 'OriginalSimpler',
+    displayName: 'Simpler (909 Hat / Ride Voice)',
+    category: 'instrument',
+    packName: 'Ableton Live 12 Core',
+    description: '909 hat and cymbal voice synthesizer with pitch transpose, fine tune, decay, and lowpass filter.',
+    defaultParameters: [
+      { name: 'FilterCutoffHz', value: 7500, unit: 'Hz' },
+      { name: 'Transpose', value: 0, unit: 'st' },
+      { name: 'Decay', value: 0.18, unit: 's' },
+    ],
+    xmlSnippet: `<OriginalSimpler Id="8107"><IsOn><Manual Value="true" /></IsOn><Cutoff><Manual Value="7500" /></Cutoff><Transpose><Manual Value="0" /></Transpose><Decay><Manual Value="0.18" /></Decay></OriginalSimpler>`,
+  },
+  {
+    id: 'fx_autofilter',
+    xmlTag: 'AutoFilter',
+    displayName: 'Auto Filter (24dB Resonant)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'Resonant multimode biquad filter with envelope modulation.',
+    defaultParameters: [
+      { name: 'FilterType', value: 'Lowpass' },
+      { name: 'Cutoff', value: 1200, unit: 'Hz', automationTarget: true },
+      { name: 'Resonance', value: 0.35 },
+    ],
+    xmlSnippet: `<AutoFilter Id="8210"><IsOn><Manual Value="true" /></IsOn><FilterType><Manual Value="Lowpass" /></FilterType><Cutoff><Manual Value="1200" /></Cutoff><Resonance><Manual Value="0.35" /></Resonance></AutoFilter>`,
+  },
+  {
+    id: 'fx_delay',
+    xmlTag: 'Delay',
+    displayName: 'Delay (Stereo Feedback Delay)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'Clean feedback delay line with lowpass damping filter.',
+    defaultParameters: [
+      { name: 'DelayTime', value: 280, unit: 'ms' },
+      { name: 'Feedback', value: 0.35 },
+      { name: 'DryWet', value: 32, unit: '%' },
+    ],
+    xmlSnippet: `<Delay Id="8211"><IsOn><Manual Value="true" /></IsOn><DelayTime><Manual Value="280" /></DelayTime><Feedback><Manual Value="0.35" /></Feedback><DryWet><Manual Value="32" /></DryWet></Delay>`,
+  },
+  {
+    id: 'fx_chorus_ensemble',
+    xmlTag: 'ChorusEnsemble',
+    displayName: 'Chorus-Ensemble (LFO Modulated)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'LFO-modulated stereo chorus and ensemble widener.',
+    defaultParameters: [
+      { name: 'Rate', value: 0.65, unit: 'Hz' },
+      { name: 'Amount', value: 50, unit: '%' },
+      { name: 'DryWet', value: 45, unit: '%' },
+    ],
+    xmlSnippet: `<ChorusEnsemble Id="8212"><IsOn><Manual Value="true" /></IsOn><Rate><Manual Value="0.65" /></Rate><Amount><Manual Value="50" /></Amount><DryWet><Manual Value="45" /></DryWet></ChorusEnsemble>`,
+  },
+  {
+    id: 'fx_overdrive',
+    xmlTag: 'Overdrive',
+    displayName: 'Overdrive (Midrange Diode Drive)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'Band-focused harmonic overdrive for percussion and acid leads.',
+    defaultParameters: [
+      { name: 'Drive', value: 45, unit: '%' },
+      { name: 'Tone', value: 2800, unit: 'Hz' },
+      { name: 'DryWet', value: 80, unit: '%' },
+    ],
+    xmlSnippet: `<Overdrive Id="8213"><IsOn><Manual Value="true" /></IsOn><Drive><Manual Value="45" /></Drive><Tone><Manual Value="2800" /></Tone><DryWet><Manual Value="80" /></DryWet></Overdrive>`,
+  },
+  {
+    id: 'fx_utility',
+    xmlTag: 'Utility',
+    displayName: 'Utility (Gain & Stereo Trim)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'Precision gain staging and stereo balance utility.',
+    defaultParameters: [
+      { name: 'Gain', value: 0, unit: 'dB' },
+      { name: 'Balance', value: 0 },
+    ],
+    xmlSnippet: `<Utility Id="8214"><IsOn><Manual Value="true" /></IsOn><Gain><Manual Value="0" /></Gain><Balance><Manual Value="0" /></Balance></Utility>`,
+  },
+  {
+    id: 'fx_reverb',
+    xmlTag: 'Reverb',
+    displayName: 'Reverb (Algorithmic Tank)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'Multi-tap feedback diffuser with pre-delay and high-cut damping.',
+    defaultParameters: [
+      { name: 'DecayTime', value: 2.4, unit: 's' },
+      { name: 'PreDelay', value: 18, unit: 'ms' },
+      { name: 'HighCut', value: 4800, unit: 'Hz' },
+      { name: 'DryWet', value: 35, unit: '%' },
+    ],
+    xmlSnippet: `<Reverb Id="8215"><IsOn><Manual Value="true" /></IsOn><DecayTime><Manual Value="2.4" /></DecayTime><PreDelay><Manual Value="18" /></PreDelay><HighCut><Manual Value="4800" /></HighCut><DryWet><Manual Value="35" /></DryWet></Reverb>`,
+  },
+  {
+    id: 'fx_autopan',
+    xmlTag: 'AutoPan',
+    displayName: 'Auto Pan (LFO Stereo Modulator)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'LFO-modulated stereo panner and amplitude tremolo.',
+    defaultParameters: [
+      { name: 'Rate', value: 1.5, unit: 'Hz' },
+      { name: 'Amount', value: 65, unit: '%' },
+      { name: 'Shape', value: 'Sine' },
+    ],
+    xmlSnippet: `<AutoPan Id="8216"><IsOn><Manual Value="true" /></IsOn><Rate><Manual Value="1.5" /></Rate><Amount><Manual Value="65" /></Amount><Shape Value="Sine" /></AutoPan>`,
+  },
+  {
+    id: 'fx_erosion',
+    xmlTag: 'Erosion',
+    displayName: 'Erosion (Short-Delay FM Grit)',
+    category: 'audio_effect',
+    packName: 'Ableton Live 12 Core Audio FX',
+    description: 'Audio-rate short-delay modulation for metallic grit and crunch.',
+    defaultParameters: [
+      { name: 'Frequency', value: 2400, unit: 'Hz' },
+      { name: 'Amount', value: 40, unit: '%' },
+      { name: 'Width', value: 2.0 },
+    ],
+    xmlSnippet: `<Erosion Id="8217"><IsOn><Manual Value="true" /></IsOn><Frequency><Manual Value="2400" /></Frequency><Amount><Manual Value="40" /></Amount><Width><Manual Value="2.0" /></Width></Erosion>`,
   },
   // MIDI EFFECTS & RACKS
   {
@@ -1846,9 +1952,93 @@ export function parseAbletonXmlDom(
           { name: 'Ceiling', value: devEl.querySelector('Ceiling > Manual')?.getAttribute('Value') || '-0.3', unit: 'dB' },
           { name: 'Gain', value: devEl.querySelector('Gain > Manual')?.getAttribute('Value') || '2.0', unit: 'dB' }
         );
+      } else if (tag === 'DrumGroupDevice') {
+        params.push(
+          { name: 'MacroControls.0', value: devEl.querySelector('MacroControls\\.0 > Manual')?.getAttribute('Value') || '80.0' },
+          { name: 'Pitch', value: devEl.querySelector('Pitch > Manual')?.getAttribute('Value') || '0', unit: 'st' },
+          { name: 'Decay', value: devEl.querySelector('Decay > Manual')?.getAttribute('Value') || '0.42', unit: 's' }
+        );
+      } else if (tag === 'InstrumentVector') {
+        params.push(
+          { name: 'FilterCutoffHz', value: devEl.querySelector('Cutoff > Manual')?.getAttribute('Value') || '2200', unit: 'Hz' },
+          { name: 'Detune', value: devEl.querySelector('UnisonDetune > Manual')?.getAttribute('Value') || '14', unit: 'ct' }
+        );
+      } else if (tag === 'Collision') {
+        params.push(
+          { name: 'FilterCutoffHz', value: devEl.querySelector('Brightness > Manual, Cutoff > Manual')?.getAttribute('Value') || '2600', unit: 'Hz' },
+          { name: 'StrikeDecay', value: devEl.querySelector('Decay > Manual')?.getAttribute('Value') || '0.28', unit: 's' }
+        );
+      } else if (tag === 'OriginalSimpler') {
+        params.push(
+          { name: 'FilterCutoffHz', value: devEl.querySelector('Cutoff > Manual')?.getAttribute('Value') || '7500', unit: 'Hz' },
+          { name: 'Transpose', value: devEl.querySelector('Transpose > Manual')?.getAttribute('Value') || '0', unit: 'st' },
+          { name: 'Decay', value: devEl.querySelector('Decay > Manual')?.getAttribute('Value') || '0.18', unit: 's' }
+        );
+      } else if (tag === 'Saturator' || tag === 'Overdrive') {
+        params.push(
+          { name: 'Drive', value: devEl.querySelector('Drive > Manual')?.getAttribute('Value') || (tag === 'Saturator' ? '8' : '45'), unit: tag === 'Saturator' ? 'dB' : '%' },
+          { name: 'DryWet', value: devEl.querySelector('DryWet > Manual')?.getAttribute('Value') || '100', unit: '%' }
+        );
+      } else if (tag === 'DrumBuss') {
+        const rawDrive = parseFloat(devEl.querySelector('Drive > Manual')?.getAttribute('Value') || '0.35');
+        const rawBoom = parseFloat(devEl.querySelector('Boom > Manual')?.getAttribute('Value') || '0.25');
+        params.push(
+          { name: 'Drive', value: rawDrive <= 1 ? Math.round(rawDrive * 100) : rawDrive, unit: '%' },
+          { name: 'Boom', value: rawBoom <= 1 ? Math.round(rawBoom * 100) : rawBoom, unit: '%' },
+          { name: 'Damp', value: devEl.querySelector('Damp > Manual')?.getAttribute('Value') || '11000', unit: 'Hz' },
+          { name: 'DryWet', value: devEl.querySelector('DryWet > Manual')?.getAttribute('Value') || '100', unit: '%' }
+        );
+      } else if (tag === 'Delay' || tag === 'Echo') {
+        const rawFb = parseFloat(devEl.querySelector('Feedback > Manual')?.getAttribute('Value') || '0.42');
+        params.push(
+          { name: 'DelayTime', value: devEl.querySelector('DelayTime > Manual')?.getAttribute('Value') || (tag === 'Echo' ? '335' : '280'), unit: 'ms' },
+          { name: 'Feedback', value: Number.isFinite(rawFb) ? rawFb : 0.42 },
+          { name: 'DryWet', value: devEl.querySelector('DryWet > Manual')?.getAttribute('Value') || '35', unit: '%' }
+        );
+      } else if (tag === 'ChorusEnsemble') {
+        params.push(
+          { name: 'Rate', value: devEl.querySelector('Rate > Manual')?.getAttribute('Value') || '0.65', unit: 'Hz' },
+          { name: 'Amount', value: devEl.querySelector('Amount > Manual')?.getAttribute('Value') || '50', unit: '%' },
+          { name: 'DryWet', value: devEl.querySelector('DryWet > Manual')?.getAttribute('Value') || '45', unit: '%' }
+        );
+      } else if (tag === 'GlueCompressor') {
+        params.push(
+          { name: 'Threshold', value: devEl.querySelector('Threshold > Manual')?.getAttribute('Value') || '-14', unit: 'dB' },
+          { name: 'Ratio', value: devEl.querySelector('Ratio > Manual')?.getAttribute('Value') || '4', unit: ':1' },
+          { name: 'Makeup', value: devEl.querySelector('Makeup > Manual')?.getAttribute('Value') || '2', unit: 'dB' }
+        );
+      } else if (tag === 'Utility') {
+        params.push(
+          { name: 'Gain', value: devEl.querySelector('Gain > Manual')?.getAttribute('Value') || '0', unit: 'dB' },
+          { name: 'Balance', value: devEl.querySelector('Balance > Manual')?.getAttribute('Value') || '0' }
+        );
+      } else if (tag === 'Erosion') {
+        params.push(
+          { name: 'Frequency', value: devEl.querySelector('Frequency > Manual')?.getAttribute('Value') || '2400', unit: 'Hz' },
+          { name: 'Amount', value: devEl.querySelector('Amount > Manual')?.getAttribute('Value') || '40', unit: '%' }
+        );
+      } else if (tag === 'AutoPan') {
+        params.push(
+          { name: 'Rate', value: devEl.querySelector('Rate > Manual')?.getAttribute('Value') || '1.5', unit: 'Hz' },
+          { name: 'Amount', value: devEl.querySelector('Amount > Manual')?.getAttribute('Value') || '65', unit: '%' }
+        );
+      } else if (tag === 'MidiChord') {
+        params.push(
+          { name: 'Shift1', value: devEl.querySelector('Shift1 > Manual')?.getAttribute('Value') || '3', unit: 'st' },
+          { name: 'Shift2', value: devEl.querySelector('Shift2 > Manual')?.getAttribute('Value') || '7', unit: 'st' },
+          { name: 'Shift3', value: devEl.querySelector('Shift3 > Manual')?.getAttribute('Value') || '12', unit: 'st' }
+        );
+      } else if (tag === 'MidiArpeggiator') {
+        params.push(
+          { name: 'Rate', value: devEl.querySelector('Rate > Manual')?.getAttribute('Value') || '0.25', unit: 'beats' },
+          { name: 'Gate', value: devEl.querySelector('Gate > Manual')?.getAttribute('Value') || '75', unit: '%' },
+          { name: 'Steps', value: devEl.querySelector('Steps > Manual')?.getAttribute('Value') || '3' },
+          { name: 'Distance', value: devEl.querySelector('Distance > Manual')?.getAttribute('Value') || '7', unit: 'st' }
+        );
       } else if (tag === 'Lfo') {
         params.push(
-          { name: 'Rate (Unsynced)', value: devEl.querySelector('Rate > Manual')?.getAttribute('Value') || '0.10', unit: 'Hz' },
+          { name: 'Rate', value: devEl.querySelector('Rate > Manual')?.getAttribute('Value') || '0.10', unit: 'Hz' },
+          { name: 'Depth', value: devEl.querySelector('Depth > Manual')?.getAttribute('Value') || '0.42' },
           { name: 'Waveform', value: devEl.querySelector('Waveform')?.getAttribute('Value') || 'Sine' },
           { name: 'Target', value: devEl.querySelector('ModulationTarget')?.getAttribute('Parameter') || 'AutoFilter.Cutoff', automationTarget: true }
         );
@@ -1873,7 +2063,7 @@ export function parseAbletonXmlDom(
         devId === '8801' ||
         devId === '8802';
 
-      return {
+      return syncDeviceConversionRecord({
         id: devId,
         xmlTag: tag,
         displayName: displayMap[tag] || tag,
@@ -1895,7 +2085,7 @@ export function parseAbletonXmlDom(
         bypassed,
         isUserCreated: !isGenerated && !isAutoDuckInjected,
         browserDspSupported: BROWSER_SUPPORTED_DEVICE_TAGS.has(tag),
-      };
+      });
     });
 
     const lfoEl = trackEl.querySelector('Lfo');

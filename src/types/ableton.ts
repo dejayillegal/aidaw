@@ -185,6 +185,18 @@ export interface AbletonDeviceParam {
   automationTarget?: boolean;
 }
 
+export interface DeviceConversionRecord {
+  sourceDeviceId: string;
+  xmlTag: string;
+  sourceParameterHash: string;
+  conversionVersion: number;
+  conversionKind: 'midi_note_transformer' | 'audio_insert_dsp' | 'voice_modulation_lfo';
+  generatedDescriptor: Record<string, string | number | boolean>;
+  supportedSemantics: string[];
+  limitations: string[];
+  status: 'valid' | 'invalidated' | 'unconverted';
+}
+
 export interface AbletonDevice {
   id: string;
   xmlTag: string; // e.g., 'Operator', 'Reverb', 'AutoFilter', 'DrumBuss', 'Lfo', 'EQEight', 'Limiter'
@@ -197,6 +209,8 @@ export interface AbletonDevice {
   isUserCreated?: boolean; // True if imported from user's original .als and protected from destructive overwrite
   browserDspSupported?: boolean; // True when Web Audio channel strip renders this device's DSP
   selectionReasoning?: string;
+  conversionRecord?: DeviceConversionRecord;
+  approximationApproved?: boolean;
 }
 
 export interface AbletonLibraryDeviceTemplate {
@@ -885,6 +899,13 @@ export interface AbletonProjectState {
   arrangementSections?: ArrangementSectionNode[];
   lastGenerationIdentity?: GenerationIdentityRecord;
   alsValidation?: AlsValidationReport;
+  compositionPlan?: {
+    generatorVersion: string;
+    styleId: string;
+    formId: string;
+    tonalPlan: string[];
+    motifSignatures: string[];
+  };
 }
 
 export interface StarterTemplateMeta {

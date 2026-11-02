@@ -12,29 +12,81 @@ import type {
  * Divisible by 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 32, 40, 48, 60, 64, 80, 96, 120, 160, 192, 240, 320, 480.
  */
 export const CANONICAL_PPQ = 960;
+export const SUPPORTED_PPQ_RESOLUTIONS = [96, 192, 240, 480, 960, 1920, 3840] as const;
 export const MAX_SUPPORTED_TIMELINE_BARS = 4096;
 export const MAX_SUPPORTED_TICKS = MAX_SUPPORTED_TIMELINE_BARS * 4 * CANONICAL_PPQ;
 
+export function assertValidPpq(ppq: number): void {
+  if (
+    !Number.isSafeInteger(ppq) ||
+    ppq <= 0 ||
+    !(SUPPORTED_PPQ_RESOLUTIONS as readonly number[]).includes(ppq)
+  ) {
+    throw new Error(
+      `TIMELINE_INPUT: invalid or unsupported PPQ resolution ${String(ppq)} (supported: ${SUPPORTED_PPQ_RESOLUTIONS.join(', ')})`
+    );
+  }
+}
+
+export function maxSupportedTicksForPpq(ppq = CANONICAL_PPQ): number {
+  assertValidPpq(ppq);
+  return MAX_SUPPORTED_TIMELINE_BARS * 4 * ppq;
+}
+
 export function beatsToTicks(beats: number, ppq = CANONICAL_PPQ): number {
-  if (!Number.isFinite(beats) || beats < 0 || !Number.isSafeInteger(ppq) || ppq <= 0) {
+  assertValidPpq(ppq);
+  if (!Number.isFinite(beats) || beats < 0) {
     throw new Error('TIMELINE_INPUT: invalid beat or PPQ coordinate');
   }
+  const maxTicks = maxSupportedTicksForPpq(ppq);
   const rounded = Math.round(beats * ppq);
-  if (!Number.isSafeInteger(rounded) || rounded > MAX_SUPPORTED_TICKS) {
-    throw new Error(`TIMELINE_INPUT: tick coordinate ${rounded} exceeds maximum supported bound (${MAX_SUPPORTED_TICKS})`);
+  if (!Number.isSafeInteger(rounded) || rounded > maxTicks) {
+    throw new Error(
+      `TIMELINE_INPUT: tick coordinate ${rounded} exceeds maximum supported bound (${maxTicks})`
+    );
   }
   return rounded;
 }
 
 export function ticksToBeats(ticks: number, ppq = CANONICAL_PPQ): number {
-  if (!Number.isFinite(ticks) || ticks < 0 || !Number.isSafeInteger(ppq) || ppq <= 0) {
+  assertValidPpq(ppq);
+  if (!Number.isFinite(ticks) || ticks < 0) {
     throw new Error('TIMELINE_INPUT: invalid tick or PPQ coordinate');
   }
+  const maxTicks = maxSupportedTicksForPpq(ppq);
   const rounded = Math.round(ticks);
-  if (!Number.isSafeInteger(rounded) || rounded > MAX_SUPPORTED_TICKS) {
-    throw new Error(`TIMELINE_INPUT: tick coordinate ${rounded} exceeds maximum supported bound (${MAX_SUPPORTED_TICKS})`);
+  if (!Number.isSafeInteger(rounded) || rounded > maxTicks) {
+    throw new Error(
+      `TIMELINE_INPUT: tick coordinate ${rounded} exceeds maximum supported bound (${maxTicks})`
+    );
   }
   return rounded / ppq;
+}
+
+/**
+ * Explicitly decomposes a floating-point beat coordinate into canonical integer ticks
+ * and any sub-tick micro-timing remainder, so callers can choose between exact tick
+ * quantization and sub-tick micro-shift preservation.
+ */
+export function quantizeBeatToCanonicalTick(
+  beat: number,
+  ppq = CANONICAL_PPQ
+): {
+  quantizedBeat: number;
+  canonicalTicks: number;
+  subTickRemainderBeats: number;
+  isSubTick: boolean;
+} {
+  const canonicalTicks = beatsToTicks(beat, ppq);
+  const quantizedBeat = canonicalTicks / ppq;
+  const subTickRemainderBeats = beat - quantizedBeat;
+  const isSubTick = Math.abs(subTickRemainderBeats) > 1e-9;
+  return {
+    quantizedBeat,
+    canonicalTicks,
+    subTickRemainderBeats,
+    isSubTick,
+  };
 }
 
 export function snapBeatsToGridTicks(
@@ -42,6 +94,7 @@ export function snapBeatsToGridTicks(
   stepBeats: number,
   ppq = CANONICAL_PPQ
 ): { ticks: number; beats: number; quantizationErrorBeats: number; isExactTick: boolean } {
+  assertValidPpq(ppq);
   if (!Number.isFinite(beats) || beats < 0 || !Number.isFinite(stepBeats) || stepBeats <= 0) {
     throw new Error('TIMELINE_INPUT: invalid grid snap coordinates');
   }
@@ -118,6 +171,7 @@ export function beatToBarBeatTick(
   numerator: number;
   denominator: number;
 } {
+  assertValidPpq(ppq);
   if (!Number.isFinite(beat) || beat < 0) {
     throw new Error('TIMELINE_INPUT: beat must be a finite non-negative number');
   }
@@ -152,6 +206,7 @@ export function beatToBarBeatTick(
 
 /**
  * Converts 1-indexed Bar, 1-indexed Beat-in-Bar, and 0-indexed Tick-in-Beat back to 0-indexed quarter-note beats.
+ * Supports the exclusive end boundary of the final supported bar (bar = MAX_SUPPORTED_TIMELINE_BARS + 1, beatInBar = 1, tickInBeat = 0).
  */
 export function barBeatTickToBeat(
   bar: number,
@@ -160,13 +215,16 @@ export function barBeatTickToBeat(
   meterMap?: MeterChangeEvent[],
   ppq = CANONICAL_PPQ
 ): number {
+  assertValidPpq(ppq);
+  const isExclusiveMaxEndBoundary =
+    bar === MAX_SUPPORTED_TIMELINE_BARS + 1 && beatInBar === 1 && tickInBeat === 0;
   if (
     !Number.isSafeInteger(bar) ||
     bar < 1 ||
-    bar > MAX_SUPPORTED_TIMELINE_BARS ||
+    (bar > MAX_SUPPORTED_TIMELINE_BARS && !isExclusiveMaxEndBoundary) ||
     !Number.isSafeInteger(beatInBar) ||
     beatInBar < 1 ||
-    !Number.isFinite(tickInBeat) ||
+    !Number.isSafeInteger(tickInBeat) ||
     tickInBeat < 0
   ) {
     throw new Error('TIMELINE_INPUT: invalid bar/beat/tick coordinates');
@@ -184,11 +242,19 @@ export function barBeatTickToBeat(
     throw new Error('TIMELINE_INPUT: beatInBar exceeds active time signature numerator');
   }
   const quarterBeatsPerMeterBeat = 4 / active.denominator;
+  const ticksPerMeterBeat = Math.max(1, Math.round(quarterBeatsPerMeterBeat * ppq));
+  if (tickInBeat >= ticksPerMeterBeat) {
+    throw new Error(
+      `TIMELINE_INPUT: tickInBeat ${tickInBeat} exceeds ticksPerMeterBeat (${ticksPerMeterBeat})`
+    );
+  }
   const quarterBeatsPerBar = active.numerator * quarterBeatsPerMeterBeat;
   const barBeats = active.beat + (bar - active.bar) * quarterBeatsPerBar;
   const beatOffset = (beatInBar - 1) * quarterBeatsPerMeterBeat;
   const tickBeats = tickInBeat / ppq;
-  return barBeats + beatOffset + tickBeats;
+  const totalBeats = barBeats + beatOffset + tickBeats;
+  beatsToTicks(totalBeats, ppq);
+  return totalBeats;
 }
 
 export function validateAndNormalizeTempoMap(
@@ -220,7 +286,7 @@ export function validateAndNormalizeTempoMap(
 /**
  * Evaluates exact elapsed seconds at a given musical beat across constant, stepped, or piecewise-linear tempo maps.
  * For a beat-linear ramp BPM(b) = B0 + k*(b - b0) where k = (B1 - B0)/(b1 - b0),
- * integrates dt = (60 / BPM(b)) db = (60 / k) * ln(BPM(b) / B0).
+ * integrates dt = (60 / BPM(b)) db = (60 / k) * ln(1 + (k * deltaBeats) / B0).
  */
 export function beatToSecondsWithTempoMap(
   beat: number,
@@ -245,11 +311,11 @@ export function beatToSecondsWithTempoMap(
     if (next && curr.curve === 'linear') {
       const spanBeats = next.beat - curr.beat;
       const slopeBpmPerBeat = (next.bpm - curr.bpm) / spanBeats;
-      if (Math.abs(slopeBpmPerBeat) <= 1e-9) {
+      const relDelta = (slopeBpmPerBeat * deltaBeats) / curr.bpm;
+      if (Math.abs(slopeBpmPerBeat) <= 1e-12 || Math.abs(relDelta) <= 1e-12) {
         elapsedSeconds += (deltaBeats * 60) / curr.bpm;
       } else {
-        const endBpm = curr.bpm + slopeBpmPerBeat * deltaBeats;
-        elapsedSeconds += (60 / slopeBpmPerBeat) * Math.log(endBpm / curr.bpm);
+        elapsedSeconds += (60 / slopeBpmPerBeat) * Math.log1p(relDelta);
       }
     } else {
       elapsedSeconds += (deltaBeats * 60) / curr.bpm;
@@ -261,7 +327,7 @@ export function beatToSecondsWithTempoMap(
 /**
  * Exact analytic inverse mapping from elapsed seconds to musical beat across a tempo map.
  * For a beat-linear ramp with slope k = (B1 - B0)/(b1 - b0),
- * inverts dt = (60 / k) * ln(BPM(b) / B0) via b(dt) = b0 + (B0 / k) * (exp(k * dt / 60) - 1).
+ * inverts dt = (60 / k) * ln(BPM(b) / B0) via b(dt) = b0 + (B0 / k) * expm1(k * dt / 60).
  */
 export function secondsToBeatWithTempoMap(
   seconds: number,
@@ -284,16 +350,18 @@ export function secondsToBeatWithTempoMap(
     const spanBeats = next.beat - curr.beat;
     if (curr.curve === 'linear') {
       const slopeBpmPerBeat = (next.bpm - curr.bpm) / spanBeats;
+      const relSpan = ( next.bpm - curr.bpm ) / curr.bpm;
       const segSeconds =
-        Math.abs(slopeBpmPerBeat) <= 1e-9
+        Math.abs(slopeBpmPerBeat) <= 1e-12 || Math.abs(relSpan) <= 1e-12
           ? (spanBeats * 60) / curr.bpm
-          : (60 / slopeBpmPerBeat) * Math.log(next.bpm / curr.bpm);
+          : (60 / slopeBpmPerBeat) * Math.log1p(relSpan);
       if (remainingSec <= segSeconds + 1e-12) {
         const clampedSec = Math.min(remainingSec, segSeconds);
-        if (Math.abs(slopeBpmPerBeat) <= 1e-9) {
+        const exponent = (slopeBpmPerBeat * clampedSec) / 60;
+        if (Math.abs(slopeBpmPerBeat) <= 1e-12 || Math.abs(exponent) <= 1e-12) {
           return curr.beat + (clampedSec * curr.bpm) / 60;
         }
-        return curr.beat + (curr.bpm / slopeBpmPerBeat) * (Math.exp((slopeBpmPerBeat * clampedSec) / 60) - 1);
+        return curr.beat + (curr.bpm / slopeBpmPerBeat) * Math.expm1(exponent);
       }
       remainingSec -= segSeconds;
     } else {
@@ -392,11 +460,23 @@ export function playbackRegion(
   if (!Number.isFinite(totalBeats) || totalBeats <= 0) throw new Error('TIMELINE_INPUT: invalid extent');
   let start: number;
   let end: number;
-  if (meterMap && meterMap.length > 0 && Number.isSafeInteger(transport.loopStartBar) && transport.loopStartBar >= 1 && Number.isSafeInteger(transport.loopLengthBars) && transport.loopLengthBars >= 1) {
+  if (
+    Number.isSafeInteger(transport.loopStartBar) &&
+    transport.loopStartBar >= 1 &&
+    transport.loopStartBar <= MAX_SUPPORTED_TIMELINE_BARS &&
+    Number.isSafeInteger(transport.loopLengthBars) &&
+    transport.loopLengthBars >= 1
+  ) {
     start = Math.max(0, barBeatTickToBeat(transport.loopStartBar, 1, 0, meterMap));
-    const endBar = Math.min(MAX_SUPPORTED_TIMELINE_BARS, transport.loopStartBar + transport.loopLengthBars);
+    const endBar = Math.min(
+      MAX_SUPPORTED_TIMELINE_BARS + 1,
+      transport.loopStartBar + transport.loopLengthBars
+    );
     end = Math.min(totalBeats, barBeatTickToBeat(endBar, 1, 0, meterMap));
   } else {
+    if (meterMap && meterMap.length > 0) {
+      validateAndNormalizeMeterMap(meterMap);
+    }
     start = Math.max(0, (transport.loopStartBar - 1) * 4);
     end = Math.min(totalBeats, start + transport.loopLengthBars * 4);
   }
@@ -408,5 +488,139 @@ export function positionAtBeat(rawBeat: number, totalBeats: number, region: Retu
   if (region.enabled && rawBeat >= region.end) return region.start + ((rawBeat - region.start) % region.span);
   return Math.max(0, Math.min(totalBeats, rawBeat));
 }
+
+/**
+ * Unified MusicalTimeService consumed across timeline/ruler/playhead, arrangement extent,
+ * loop boundaries, transport seek/follow, note duration conversion, automation domain clamping,
+ * Session launch quantization, and offline render duration.
+ */
+export const MusicalTimeService = {
+  canonicalPpq: CANONICAL_PPQ,
+  supportedPpqResolutions: SUPPORTED_PPQ_RESOLUTIONS,
+  maxSupportedBars: MAX_SUPPORTED_TIMELINE_BARS,
+
+  barsToBeats(
+    bars: number,
+    startBar = 1,
+    meterMap?: MeterChangeEvent[],
+    ppq = CANONICAL_PPQ
+  ): number {
+    if (!Number.isFinite(bars) || bars < 0) {
+      throw new Error('TIMELINE_INPUT: bars must be a finite non-negative number');
+    }
+    if (bars === 0) return 0;
+    const clampedStart = Math.max(1, Math.min(MAX_SUPPORTED_TIMELINE_BARS, Math.floor(startBar)));
+    const clampedEnd = Math.min(
+      MAX_SUPPORTED_TIMELINE_BARS + 1,
+      clampedStart + Math.round(bars)
+    );
+    const startBeat = barBeatTickToBeat(clampedStart, 1, 0, meterMap, ppq);
+    const endBeat = barBeatTickToBeat(clampedEnd, 1, 0, meterMap, ppq);
+    return Math.max(0, endBeat - startBeat);
+  },
+
+  arrangementTotalBeats(
+    project: Pick<
+      AbletonProjectState,
+      'arrangementLengthBars' | 'audioSettings' | 'tracks' | 'meterMap' | 'ppq'
+    >,
+    minBars = 16
+  ): number {
+    const ppq = project.ppq || CANONICAL_PPQ;
+    const declaredBars = Math.max(
+      minBars,
+      project.audioSettings?.transport?.arrangementLengthBars || 0,
+      project.arrangementLengthBars || 0
+    );
+    const declaredBeats = this.barsToBeats(declaredBars, 1, project.meterMap, ppq);
+    let maxClipEndBeat = 0;
+    for (const track of project.tracks || []) {
+      for (const clip of track.clips || []) {
+        const endBeat = (clip.startTime || 0) + (clip.length || 0);
+        if (endBeat > maxClipEndBeat) {
+          maxClipEndBeat = endBeat;
+        }
+      }
+    }
+    const maxSupportedBeats = barBeatTickToBeat(
+      MAX_SUPPORTED_TIMELINE_BARS + 1,
+      1,
+      0,
+      project.meterMap,
+      ppq
+    );
+    return Math.min(maxSupportedBeats, Math.max(declaredBeats, maxClipEndBeat));
+  },
+
+  arrangementDurationSeconds(
+    project: Pick<
+      AbletonProjectState,
+      | 'tempo'
+      | 'tempoMap'
+      | 'meterMap'
+      | 'arrangementLengthBars'
+      | 'audioSettings'
+      | 'tracks'
+      | 'ppq'
+    >,
+    totalBeatsOverride?: number,
+    tailSeconds = 0
+  ): number {
+    const totalBeats =
+      typeof totalBeatsOverride === 'number' && Number.isFinite(totalBeatsOverride)
+        ? totalBeatsOverride
+        : this.arrangementTotalBeats(project);
+    const musicalSeconds = beatToSecondsWithTempoMap(totalBeats, project.tempo, project.tempoMap);
+    return musicalSeconds + Math.max(0, tailSeconds);
+  },
+
+  noteDurationSeconds(
+    startBeat: number,
+    durationBeats: number,
+    baseTempo: number,
+    tempoMap?: TempoAutomationPoint[]
+  ): number {
+    const safeStart = Math.max(0, startBeat);
+    const safeEnd = Math.max(safeStart + 0.01, safeStart + Math.max(0.01, durationBeats));
+    return Math.max(
+      0.005,
+      beatToSecondsWithTempoMap(safeEnd, baseTempo, tempoMap) -
+        beatToSecondsWithTempoMap(safeStart, baseTempo, tempoMap)
+    );
+  },
+
+  clampBeatToArrangement(beat: number, totalBeats: number): number {
+    if (!Number.isFinite(beat) || !Number.isFinite(totalBeats) || totalBeats <= 0) {
+      throw new Error('TIMELINE_INPUT: invalid beat or arrangement extent');
+    }
+    return Math.max(0, Math.min(totalBeats, beat));
+  },
+
+  quantizeSessionLaunchBeat(
+    currentBeat: number,
+    quantizationBeats: number,
+    ppq = CANONICAL_PPQ
+  ): number {
+    assertValidPpq(ppq);
+    if (!Number.isFinite(currentBeat) || currentBeat < 0) {
+      throw new Error('TIMELINE_INPUT: invalid currentBeat for Session quantization');
+    }
+    if (!Number.isFinite(quantizationBeats) || quantizationBeats <= 0) {
+      return quantizeBeatToCanonicalTick(currentBeat, ppq).quantizedBeat;
+    }
+    const nextSlot = Math.ceil((currentBeat - 1e-9) / quantizationBeats) * quantizationBeats;
+    return quantizeBeatToCanonicalTick(Math.max(0, nextSlot), ppq).quantizedBeat;
+  },
+
+  formatBarBeatTick(
+    beat: number,
+    meterMap?: MeterChangeEvent[],
+    ppq = CANONICAL_PPQ
+  ): string {
+    const coord = beatToBarBeatTick(beat, meterMap, ppq);
+    return `${coord.bar}.${coord.beatInBar}.${ String(coord.tickInBeat).padStart(3, '0') }`;
+  },
+};
+
 
 
