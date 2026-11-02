@@ -171,3 +171,13 @@ it('loads an empty native project directly from validated canonical state withou
   expect(report.compatibilityStatus).not.toContain('Native Verified');
   expect(report.diagnostics.join(' ')).toContain('NOT TESTED');
 });
+
+it('rejects invalid project audio settings from ALS metadata before installing them', () => {
+  const doc = new DOMParser().parseFromString(fixture().rawXmlModified, 'application/xml');
+  const node = doc.createElement('ParametricAudioSettings'); node.setAttribute('Version', '1');
+  doc.querySelector('LiveSet')!.appendChild(node);
+  for (const settings of [null, { humanization, masterBus: { ...master, delayFeedback: 'bad' }, transport }]) {
+    node.textContent = JSON.stringify(settings);
+    expect(() => parseAlsXmlString(new XMLSerializer().serializeToString(doc))).toThrow(/PROJECT_SETTINGS/);
+  }
+});

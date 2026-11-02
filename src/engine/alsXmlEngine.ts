@@ -1,3 +1,4 @@
+import { assertAudioSettings } from './audioSettingsContracts';
 import { assertProjectState } from './projectStateContracts';
 import {
   AbletonDevice,
@@ -2242,6 +2243,7 @@ export function parseAbletonXmlDom(
   if (settingsNode) {
     if (settingsNode.getAttribute('Version') !== '1') throw new Error('PROJECT_SETTINGS_VERSION: unsupported settings metadata');
     try { audioSettings = JSON.parse(settingsNode.textContent || 'null'); } catch { throw new Error('PROJECT_SETTINGS: malformed settings metadata'); }
+    assertAudioSettings(audioSettings!);
   }
   const parsedProject: AbletonProjectState = {
     audioSettings,

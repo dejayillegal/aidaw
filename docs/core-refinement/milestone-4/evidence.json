@@ -10,8 +10,8 @@
     {
       "command": "npm test -- --reporter=json --outputFile=/tmp/aidaw-m4-tests.json",
       "status": "PASS",
-      "tests": 114,
-      "passed": 114,
+      "tests": 115,
+      "passed": 115,
       "failed": 0,
       "success": true
     },
@@ -32,9 +32,25 @@
       "tests": 12
     }
   ],
-  "browser": "NOT TESTED locally on final source. Associated PR retains CI result.",
+  "browser": "Initial exact-head CI failed. Native IndexedDB stress passed in push run41419495363; compact recovery warning hidden. PR run41419534748 failed existing repeated PCM max tolerance. Corrections/final CI results recorded in PR8.",
   "physicalAndroid": "BLOCKED",
   "nativeLive": "NOT TESTED",
   "listening": "NOT TESTED",
-  "sustainedCpuRss": "NOT TESTED"
+  "sustainedCpuRss": "NOT TESTED",
+  "initialCi": {
+    "head": "4ff2f535b97f9d23e325284af8aa4269efa4ee48",
+    "prRun": 41419534748,
+    "pushRun": 41419495363,
+    "status": "FAIL",
+    "nativeRecoveryStress": "PASS",
+    "futureRecoveryUi": "FAIL: hidden below desktop width",
+    "repeatPcmFailure": {
+      "maxError": 0.0020829439163208008,
+      "rmsError": 4.246274119809149e-05,
+      "frame": 104031,
+      "maxTolerance": 0.001,
+      "rmsTolerance": 0.0001,
+      "rootCause": "UNCONFIRMED"
+    }
+  }
 }

@@ -21,6 +21,7 @@ const masterBus = {
 };
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const ascii = (bytes, at, size) => String.fromCharCode(...new Uint8Array(bytes, at, size));
+let referenceProjectSignature = '';
 let referencePcm;
 const sha256 = async (bytes) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
   .map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -222,6 +223,11 @@ window.recovery = {
     const { xml } = buildStarterAbletonXml('berghain-134', seed, bars);
     const project = parseAlsXmlString(xml);
     project.arrangementLengthBars = bars;
+    const projectSignature = await sha256(new TextEncoder().encode(JSON.stringify({ tempo: project.tempo, rootKey: project.rootKey, tracks: project.tracks }, (key, value) => key === 'createdAt' ? undefined : value)));
+    if (bars === 4 && !master) {
+      assert(!referenceProjectSignature || referenceProjectSignature === projectSignature, 'Repeated audio fixture changed canonical musical inputs');
+      referenceProjectSignature = projectSignature;
+    }
     const musicalDuration = bars * 4 * 60 / project.tempo;
     const progress = [];
     let lastPrinted = -1;
@@ -247,7 +253,7 @@ window.recovery = {
     const verified = await inspectWav(result.blob, master ? 48000 : 44100, 24, expectedDuration, musicalDuration);
     if (master) assert(result.report.wavHeaderValid && !result.report.segmentedRenderUsed,
       'Master export did not report a valid continuous rendering');
-    return { bars, seed, master, musicalDuration, ...verified,
+    return { bars, seed, master, projectSignature, musicalDuration, ...verified,
       progressEvents: progress.length, wallTimeMs: Math.round(performance.now() - started) };
   },
 };
