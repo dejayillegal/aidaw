@@ -43,6 +43,16 @@ try {
   page.setDefaultTimeout(20000);
   await page.goto(`${origin}/tests/recovery-browser.html`);
   await page.waitForFunction(() => typeof window.recovery?.runAudioCase === 'function');
+  report.projectRecovery = await page.evaluate(() => window.recovery.runRecoveryCase());
+  console.log(JSON.stringify({ projectRecovery: report.projectRecovery }));
+  await page.evaluate(() => window.recovery.futureUiJournal('seed'));
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.goto(origin);
+  await page.getByRole('alert').filter({ hasText: /^Recovery blocked: RECOVERY_VERSION/ }).waitFor({ state: 'visible' });
+  await page.goto(`${origin}/tests/recovery-browser.html`);
+  await page.waitForFunction(() => typeof window.recovery?.futureUiJournal === 'function');
+  report.futureRecoveryUi = await page.evaluate(() => window.recovery.futureUiJournal('verify'));
+  console.log(JSON.stringify({ futureRecoveryUi: report.futureRecoveryUi }));
   for (const testCase of [...Array.from({ length: 8 }, () => ({ bars: 4 })), { bars: 64 }, { bars: 4, master: true }]) {
     console.log(`Rendering ${testCase.bars} bars${testCase.master ? ' / mastering' : ''} in Chromium...`);
     let timeout;
@@ -86,6 +96,7 @@ try {
   await page.goto(`${origin}/tests/recovery-browser.html`);
   await page.waitForFunction(() => typeof window.recovery?.runTimeoutGuardCase === 'function');
   report.timeoutGuard = await page.evaluate(() => window.recovery.runTimeoutGuardCase());
+
   assert.deepEqual(report.pageErrors, [], 'Uncaught browser runtime errors');
   assert.deepEqual(report.consoleErrors, [], 'Browser console errors');
   report.status = 'PASS';

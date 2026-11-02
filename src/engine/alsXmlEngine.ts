@@ -1,3 +1,4 @@
+import { assertAudioSettings } from './audioSettingsContracts';
 import { assertProjectState } from './projectStateContracts';
 import {
   AbletonDevice,
@@ -126,11 +127,10 @@ export async function computeSha256Hex(input: string | Uint8Array): Promise<stri
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
     } catch {
-      // Fallback below
+      // Never substitute a non-cryptographic fingerprint for SHA-256.
     }
   }
-  const text = typeof input === 'string' ? input : new TextDecoder().decode(bytes);
-  return computeDeterministicHash(text) + computeDeterministicHash(text.split('').reverse().join(''));
+  throw new Error('SHA256_UNAVAILABLE: Web Crypto SHA-256 is required; no non-cryptographic substitute is permitted');
 }
 
 export const STARTER_TEMPLATES: StarterTemplateMeta[] = [
@@ -1723,7 +1723,7 @@ export function parseAbletonXmlDom(
 
   trackNodes.forEach((trackEl, idx) => {
     const isMidi = trackEl.tagName === 'MidiTrack';
-    const trackId = trackEl.getAttribute('Id') || `${idx + 1}`;
+    const trackId = trackEl.getAttribute('Data-Parametric-TrackId') || trackEl.getAttribute('Id') || `${idx + 1}`;
     const effectiveName =
       trackEl.querySelector('Name > EffectiveName')?.getAttribute('Value') ||
       trackEl.querySelector('Name > UserName')?.getAttribute('Value') ||
@@ -1747,6 +1747,9 @@ export function parseAbletonXmlDom(
       archetype = 'synth';
     else if (lowerName.includes('hat') || lowerName.includes('909')) archetype = 'hats';
 
+    if (trackEl.getAttribute('Data-Parametric-DeviceExecution') === 'browser-only') {
+      compatibilityWarnings.push(`Track ${trackId}: MIDI is serialized; its browser device state is preserved as metadata, not a native Ableton instrument.`);
+    }
     const colorMap: Record<TechnoArchetype, string> = {
       kick: '#F59E0B',
       rumble: '#38BDF8',
@@ -2180,7 +2183,7 @@ export function parseAbletonXmlDom(
       catch { throw new Error('PROJECT_STATE: malformed track metadata'); }
       // Read only this application's serialized projection; never overlay native IDs/devices/clips.
       appState = Object.fromEntries(Object.entries(appState).filter(([key]) =>
-        ['mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb'].includes(key)));
+        ['devices', 'mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb'].includes(key)));
     }
     tracks.push({
       id: trackId,
@@ -2247,7 +2250,16 @@ export function parseAbletonXmlDom(
   const formattedOriginal = rawXmlBaseline ?? xmlString;
   const rawByteSize = new TextEncoder().encode(formattedModified).length;
 
+  const settingsNode = xmlDoc.querySelector('Ableton > LiveSet > ParametricAudioSettings');
+  let audioSettings: AbletonProjectState['audioSettings'];
+  if (settingsNode) {
+    if (settingsNode.getAttribute('Version') !== '1') throw new Error('PROJECT_SETTINGS_VERSION: unsupported settings metadata');
+    try { audioSettings = JSON.parse(settingsNode.textContent || 'null'); } catch { throw new Error('PROJECT_SETTINGS: malformed settings metadata'); }
+    assertAudioSettings(audioSettings!);
+  }
   const parsedProject: AbletonProjectState = {
+    audioSettings,
+    humanizationSeed: abletonRoot?.hasAttribute('Data-Parametric-HumanizationSeed') ? Number(abletonRoot.getAttribute('Data-Parametric-HumanizationSeed')) : undefined,
     fileName,
     compatibilityWarnings,
     generationSeed: abletonRoot?.hasAttribute('Data-Parametric-GenerationSeed')
@@ -2276,7 +2288,7 @@ export function parseAbletonXmlDom(
     estimatedGzipByteSize: Math.round(rawByteSize * 0.14),
     lastActionLog: `Parsed ${tracks.length} tracks (${totalNotesCount} <MidiNoteEvent> nodes) across ${arrangementLengthBars} bars at ${tempo} BPM in ${detectedRoot} ${scaleNameAttr || 'Phrygian'}.`,
   };
-  if (xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
+  if (settingsNode || xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
   return parsedProject;
 }
 
@@ -2569,7 +2581,7 @@ export function syncTrackClipsToXml(
 
   if (doc.querySelector('parsererror')) throw new Error('CLIP_SYNC_XML: invalid source XML');
   const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
-  const targetTrack = trackEls.find(el => el.getAttribute('Id') === trackId) ||
+  const targetTrack = trackEls.find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === trackId) ||
     trackEls.find((el, i) => `track_${i}_${el.getAttribute('Id') || i}` === trackId);
   if (!targetTrack) throw new Error(`CLIP_SYNC_TRACK: MIDI track ${trackId} not found`);
   if (new Set(clips.map(c => c.id)).size !== clips.length) throw new Error('CLIP_SYNC_ID: duplicate clip identity');
@@ -2968,7 +2980,7 @@ export function syncLocatorsAndMixerToXml(
 
   tracks.forEach((t) => {
     const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(
-      (el) => el.getAttribute('Id') === t.id
+      (el) => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === t.id
     );
     if (!trackEl) return;
     trackEl.setAttribute('Data-Base-Volume-Db', String(t.mixer.volumeDb));
@@ -2977,7 +2989,7 @@ export function syncLocatorsAndMixerToXml(
     if (!appState) { appState = xmlDoc.createElement('ParametricTrackState'); trackEl.appendChild(appState); }
     appState.setAttribute('Version', '1');
     appState.setAttribute('AutomationParameter', 'parametric:filter-energy');
-    appState.textContent = JSON.stringify({ mixer: t.mixer, muted: t.muted, soloed: t.soloed,
+    appState.textContent = JSON.stringify({ devices: t.devices, mixer: t.mixer, muted: t.muted, soloed: t.soloed,
       locked: t.locked, automationPoints: t.automationPoints, vcaGroupId: t.vcaGroupId,
       automationGainOffsetDb: t.automationGainOffsetDb });
   });
@@ -2986,6 +2998,23 @@ export function syncLocatorsAndMixerToXml(
 }
 
 /** Serialize the existing canonical domain. Unchanged clip/unknown XML is left intact. */
+export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: string): AbletonProjectState {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const projected = new Map<string, AbletonDevice[]>();
+  for (const track of Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'))) {
+    const node = track.querySelector(':scope > ParametricTrackState');
+    if (!node) continue;
+    const state = JSON.parse(node.textContent || '{}');
+    projected.set(track.getAttribute('Data-Parametric-TrackId') || track.getAttribute('Id') || '', state.devices || []);
+    delete state.devices; node.textContent = JSON.stringify(state);
+  }
+  const parsed = parseAbletonXmlDom(new XMLSerializer().serializeToString(doc), fileName, baseline);
+  parsed.tracks = parsed.tracks.map(track => ({ ...track, devices: [
+    ...(projected.get(track.id) || []).filter(device => !track.devices.some(native => native.id === device.id)), ...track.devices,
+  ] }));
+  return parsed;
+}
+
 export function synchronizeProjectStateToXml(
   project: AbletonProjectState,
   previous?: AbletonProjectState
@@ -2996,11 +3025,38 @@ export function synchronizeProjectStateToXml(
   if (doc.querySelector('parsererror') || !doc.querySelector('Ableton > LiveSet')) {
     throw new Error('PROJECT_XML: invalid Ableton project');
   }
+  const tracksNode = doc.querySelector('LiveSet > Tracks');
+  if (!tracksNode) throw new Error('PROJECT_XML: missing Tracks');
+  const present = new Map(Array.from(tracksNode.children).map(node => [node.getAttribute('Data-Parametric-TrackId') || node.getAttribute('Id'), node]));
+  const used = new Set(Array.from(doc.querySelectorAll('[Id]')).map(node => node.getAttribute('Id')));
+  let nextId = 10000;
+  for (const track of project.tracks) {
+    if (present.has(track.id)) continue;
+    if (track.type !== 'midi' || !track.isGenerated) throw new Error(`PROJECT_XML: cannot materialize track ${track.id}`);
+    while (used.has(String(nextId))) nextId++;
+    const node = doc.createElement('MidiTrack'); node.setAttribute('Id', String(nextId)); used.add(String(nextId++));
+    node.setAttribute('Data-Parametric-TrackId', track.id);
+    node.setAttribute('Data-Parametric-DeviceExecution', 'browser-only');
+    const name = doc.createElement('Name');
+    for (const key of ['EffectiveName', 'UserName']) { const n = doc.createElement(key); n.setAttribute('Value', track.name); name.appendChild(n); }
+    node.appendChild(name);
+    const chain = doc.createElement('DeviceChain'); node.appendChild(chain);
+    const instrumentChain = doc.createElement('MidiToAudioDeviceChain'); instrumentChain.appendChild(doc.createElement('Devices')); chain.appendChild(instrumentChain);
+    tracksNode.appendChild(node);
+    injectMultipleMidiClipsXmlNodes(doc, node, track.clips);
+  }
   const root = doc.querySelector('Ableton')!;
+  if (project.humanizationSeed !== undefined) root.setAttribute('Data-Parametric-HumanizationSeed', String(project.humanizationSeed));
   root.setAttribute('Data-Parametric-ArrangementBars', String(project.arrangementLengthBars || 16));
   const tempo = doc.querySelector('MasterTrack Tempo Manual') || doc.querySelector('Tempo > Manual');
   if (!tempo) throw new Error('PROJECT_XML: missing tempo target');
   tempo.setAttribute('Value', String(project.tempo));
+  if (project.audioSettings) {
+    let node = doc.querySelector('LiveSet > ParametricAudioSettings');
+    if (!node) { node = doc.createElement('ParametricAudioSettings'); doc.querySelector('LiveSet')!.appendChild(node); }
+    node.setAttribute('Version', '1'); node.textContent = JSON.stringify(project.audioSettings);
+  }
+
   xml = new XMLSerializer().serializeToString(doc);
   const serialized = previous ? null : parseAbletonXmlDom(xml, project.fileName);
   const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
@@ -3977,11 +4033,11 @@ export class TechnoHeuristicEngine {
       targetTrack.querySelector('DeviceChain') || targetTrack.appendChild(xmlDoc.createElement('DeviceChain'));
 
     const existingMidiToAudio = deviceChain.querySelector('MidiToAudioDeviceChain');
-    if (existingMidiToAudio) existingMidiToAudio.remove();
-
+    if (!existingMidiToAudio) {
     const chainXml = TechnoHeuristicEngine.getDeviceChainXmlTemplate(archetype, humanization);
     const chainDoc = new DOMParser().parseFromString(chainXml, 'application/xml');
     deviceChain.insertBefore(xmlDoc.importNode(chainDoc.documentElement, true), deviceChain.firstChild);
+    }
 
     const tempoNode =
       xmlDoc.querySelector('MasterTrack Tempo Manual') ||
@@ -4020,149 +4076,51 @@ export class TechnoHeuristicEngine {
     totalBars = 16,
     bpmOverride?: number
   ): string {
-    const parser = new DOMParser();
-    const sanitizedXml = currentXml.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
-    const xmlDoc = parser.parseFromString(sanitizedXml, 'application/xml');
-    const trackNodes = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack'));
-    const totalBeats = totalBars * 4;
-    const tempoNode =
-      xmlDoc.querySelector('MasterTrack Tempo Manual') ||
-      xmlDoc.querySelector('Tempo > Manual') ||
-      xmlDoc.querySelector('Tempo');
-    const xmlTempo = parseFloat(tempoNode?.getAttribute('Value') || tempoNode?.textContent || '134');
-    const effectiveBpm =
-      typeof bpmOverride === 'number' && bpmOverride >= 40
-        ? bpmOverride
-        : Number.isFinite(xmlTempo) && xmlTempo >= 40
-        ? xmlTempo
-        : 134;
-
-    trackNodes.forEach((trackEl, tIdx) => {
-      const rawEffName =
-        trackEl.querySelector('Name > EffectiveName')?.getAttribute('Value') ||
-        trackEl.querySelector('Name > UserName')?.getAttribute('Value') ||
-        '';
-      const name = rawEffName.toLowerCase();
-      const trackIdAttr = trackEl.getAttribute('Id') || `${tIdx + 1}`;
-
-      let arch: TechnoArchetype = 'existing';
-      if (name.includes('kick')) arch = 'kick';
-      else if (name.includes('acid') || name.includes('303')) arch = 'acid';
-      else if (name.includes('ride') || name.includes('cymbal')) arch = 'ride';
-      else if (name.includes('pad') || name.includes('atmo')) arch = 'pad';
-      else if (name.includes('sub') || name.includes('rumble') || name.includes('bass')) arch = 'rumble';
-      else if (name.includes('perc') || name.includes('industrial') || name.includes('collision')) arch = 'percussion';
-      else if (name.includes('synth') || name.includes('stab') || name.includes('wavetable') || name.includes('dub')) arch = 'synth';
-      else if (name.includes('hat') || name.includes('909')) arch = 'hats';
-
-      const clipEl = trackEl.querySelector('MidiClip');
-      if (!clipEl) return;
-
-      const rawClipName = (clipEl.querySelector('Name')?.getAttribute('Value') || 'Clip').replace(/_j\d+$/, '');
-      const loopEndAttr = clipEl.querySelector('Loop > LoopEnd')?.getAttribute('Value');
-      const loopEndBeats = loopEndAttr ? parseFloat(loopEndAttr) : 4.0;
-      const trackSeed = seed + tIdx * 37;
-      const activeCurve =
-        trackVelocityCurves?.[trackIdAttr] ||
-        trackVelocityCurves?.[rawEffName] ||
-        trackVelocityCurves?.[arch] ||
-        getDefaultVelocityCurveForArchetype(arch);
-
-      if (arch === 'existing' || Math.abs(loopEndBeats % 4) > 0.01) {
-        // Re-humanize existing custom or poly-metered <MidiNoteEvent> nodes in place
-        const noteEls = Array.from(clipEl.querySelectorAll('MidiNoteEvent'));
-        const pts = activeCurve.points;
-        const numPts = pts.length || 16;
-        const minVel = Math.max(1, Math.min(126, activeCurve.minVelocity));
-        const maxVel = Math.max(minVel + 1, Math.min(127, activeCurve.maxVelocity));
-        const intensity = Math.max(0, Math.min(1, activeCurve.intensity));
-
-        noteEls.forEach((nEl, nIdx) => {
-          const currentTime = parseFloat(nEl.getAttribute('Time') || '0');
-          const currentVel = parseFloat(nEl.getAttribute('Velocity') || '100');
-          const quantizedTime = Math.round(currentTime * 4) / 4;
-          const isDownbeat = Math.abs(quantizedTime % 1) < 0.001;
-          const maxShift = humanization.microTimingMaxShiftBeats;
-          const shift = isDownbeat
-            ? 0
-            : Math.max(-maxShift, Math.min(maxShift, gaussianRandom(0.002, maxShift * 0.65, trackSeed + nIdx)));
-          const zeroBased16th = Math.round(quantizedTime / 0.25);
-          const isEven16th = (zeroBased16th + 1) % 2 === 0;
-          const swingOffset =
-            isEven16th && (humanization.swingStrength ?? 0) > 0
-              ? ((humanization.swingStrength ?? 0) / 100) * MAX_SIXTEENTH_SWING_SHIFT_BEATS
-              : 0;
-          const shuffleOffset = computeDillaShuffleOffsetBeats(
-            quantizedTime,
-            humanization.shuffleSwing ?? 0,
-            effectiveBpm
-          );
-          nEl.setAttribute(
-            'Time',
-            Math.max(0, quantizedTime + shift + swingOffset + shuffleOffset).toFixed(3)
-          );
-
-          const normPos =
-            activeCurve.scopeMode === 'arrangement_16bar'
-              ? (((quantizedTime % totalBeats) + totalBeats) % totalBeats) / totalBeats
-              : (((quantizedTime % 4) + 4) % 4) / 4;
-          const exactIdx = normPos * (numPts - 1);
-          const i0 = Math.max(0, Math.min(numPts - 1, Math.floor(exactIdx)));
-          const i1 = Math.max(0, Math.min(numPts - 1, i0 + 1));
-          const frac = exactIdx - i0;
-          const curveNorm = pts[i0] * (1 - frac) + pts[i1] * frac;
-          const curveVel = minVel + curveNorm * (maxVel - minVel);
-          const blended = currentVel * (1 - intensity) + curveVel * intensity;
-          const jitterFactor =
-            1 + (seededRandom(trackSeed + nIdx * 13) * 2 - 1) * (humanization.velocityVariancePct * 0.65);
-          const finalVel = Math.max(1, Math.min(127, Math.round(blended * jitterFactor)));
-          nEl.setAttribute('Velocity', `${finalVel}`);
-        });
-      } else {
-        const baseNotes = TechnoHeuristicEngine.generateHumanizedMidiArray(
-          arch,
-          rootKey,
-          humanization,
-          undefined,
-          trackSeed,
-          totalBars,
-          effectiveBpm
-        );
-        const curvedNotes = applyTrackVelocityCurveToNotes(
-          baseNotes,
-          activeCurve,
-          humanization,
-          trackSeed,
-          totalBeats
-        );
-
-        trackEl.setAttribute('Data-Velocity-Preset', activeCurve.preset);
-        injectMidiClipXmlNode(
-          xmlDoc,
-          trackEl,
-          `${rawClipName}_j${seed % 100}`,
-          0,
-          totalBeats,
-          curvedNotes,
-          loopEndBeats
-        );
+    const doc = new DOMParser().parseFromString(currentXml, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('HUMANIZATION_XML: invalid source');
+    const tempo = bpmOverride || Number(doc.querySelector('Tempo > Manual')?.getAttribute('Value')) || 134;
+    for (const [trackIndex, track] of Array.from(doc.querySelectorAll('Tracks > MidiTrack')).entries()) {
+      const name = track.querySelector('Name > EffectiveName')?.getAttribute('Value') || '';
+      const id = track.getAttribute('Data-Parametric-TrackId') || track.getAttribute('Id') || String(trackIndex);
+      const curve = trackVelocityCurves?.[id] || trackVelocityCurves?.[name];
+      const clips = Array.from(track.querySelectorAll('DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events > MidiClip'));
+      for (const [clipIndex, clip] of clips.entries()) {
+        const start = Number(clip.querySelector('CurrentStart')?.getAttribute('Value') || 0);
+        const end = Number(clip.querySelector('CurrentEnd')?.getAttribute('Value') || totalBars * 4);
+        for (const [index, note] of Array.from(clip.querySelectorAll('MidiNoteEvent')).entries()) {
+          const quantized = Number(note.getAttribute('Data-Parametric-QuantizedTime') ?? note.getAttribute('Time') ?? 0);
+          const baseVelocity = Number(note.getAttribute('Data-Parametric-BaseVelocity') ?? note.getAttribute('Velocity') ?? 100);
+          const noteSeed = seed + trackIndex * 37 + clipIndex * 997 + index * 13;
+          const shift = Math.abs(quantized % 1) < 0.000001 ? 0 : gaussianRandom(0, humanization.microTimingMaxShiftBeats * 0.5, noteSeed);
+          const sixteenth = Math.round(quantized / 0.25);
+          const swing = sixteenth % 2 === 1 ? (humanization.swingStrength || 0) / 100 * MAX_SIXTEENTH_SWING_SHIFT_BEATS : 0;
+          const time = quantized + Math.max(-humanization.microTimingMaxShiftBeats, Math.min(humanization.microTimingMaxShiftBeats, shift)) + swing + computeDillaShuffleOffsetBeats(quantized, humanization.shuffleSwing || 0, tempo);
+          note.setAttribute('Data-Parametric-QuantizedTime', String(quantized));
+          note.setAttribute('Data-Parametric-BaseVelocity', String(baseVelocity));
+          note.setAttribute('Time', String(Math.max(start, Math.min(end - 0.000001, time))));
+          let velocity = baseVelocity;
+          if (curve?.points.length) {
+            const phase = ((quantized % 4) + 4) % 4 / 4;
+            const position = phase * (curve.points.length - 1);
+            const lo = Math.floor(position), hi = Math.min(curve.points.length - 1, lo + 1);
+            const value = curve.points[lo] * (1 - position + lo) + curve.points[hi] * (position - lo);
+            const target = curve.minVelocity + value * (curve.maxVelocity - curve.minVelocity);
+            velocity = velocity * (1 - curve.intensity) + target * curve.intensity;
+          }
+          velocity *= 1 + (seededRandom(noteSeed) * 2 - 1) * humanization.velocityVariancePct;
+          note.setAttribute('Velocity', String(Math.max(1, Math.min(127, Math.round(velocity)))));
+        }
       }
-
-      const dc = trackEl.querySelector('DeviceChain');
-      if (dc && arch !== 'kick') {
-        injectAnalogDriftXmlNode(xmlDoc, dc, humanization.lfoRateHz, humanization.lfoDepth);
-      }
-    });
-
-    const serializer = new XMLSerializer();
-    return formatXmlString(serializer.serializeToString(xmlDoc));
+    }
+    return formatXmlString(new XMLSerializer().serializeToString(doc));
   }
+
 }
 
 /**
  * Primary content-preserving Ableton Live (.als) XML string parser (v7.1 P0-001).
- * Strictly preserves 100% of original track structures, clip boundaries, timings,
- * automation envelopes, and native devices without destructive automatic transformations.
+ * Retains the original XML for incremental projection and opaque state preservation.
+ * Supported-field parsing is not a guarantee of complete native Live fidelity.
  * Automatic section proposals are decoupled into GenerateSectionArrangementProposal.
  */
 export function parseAbletonXmlString(

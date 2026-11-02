@@ -1,6 +1,7 @@
+import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
 import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
 import { saveExportBlob } from './services/fileExportService';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AbletonProjectState,
   AutomationPoint,
@@ -13,6 +14,7 @@ import {
   MidiToolTransformationId,
    NoteGridDivision,
   PolyrhythmConfig,
+  ProjectAudioSettings,
   QueuedProjectRecord,
   SpectralDuckingConfig,
   TechnoArchetype,
@@ -37,6 +39,7 @@ import {
   injectLibraryDeviceIntoTrackXml,
   injectMidiClipXmlNode,
   parseAbletonXmlDom,
+  parseNativeDeviceEdit,
   STARTER_TEMPLATES,
   syncTrackClipsToXml,
   synchronizeProjectStateToXml,
@@ -144,49 +147,6 @@ type MobileDawSection =
   | 'project';
 type DesktopBottomTab = 'composer' | 'devices' | 'mix_console' | 'pads' | 'spectrum';
 
-const DEFAULT_HUMANIZATION: HumanizationConfig = {
-  microTimingMaxShiftBeats: 0.015,
-  swingStrength: 0,
-  shuffleSwing: 0,
-  velocityVariancePct: 0.08,
-  ghostVelocityMin: 20,
-  ghostVelocityMax: 45,
-  lfoRateHz: 0.1,
-  lfoDepth: 0.42,
-  cutoffHz: 145.0,
-  macroTransition: 42,
-};
-
-const DEFAULT_TRANSPORT: TransportConfig = {
-  loopEnabled: true,
-  loopStartBar: 1,
-  loopLengthBars: 4,
-  arrangementLengthBars: 16,
-  metronomeEnabled: false,
-  followPlayhead: true,
-  showAutomationLanes: false,
-};
-
-const DEFAULT_MASTER_BUS: MasterBusConfig = {
-  masterVolumeDb: 0,
-  glueCompressionDrive: 0.35,
-  reverbDecaySec: 3.2,
-  reverbReturnLevel: 0.45,
-  delayFeedback: 0.42,
-  delayReturnLevel: 0.4,
-  subBassMonoCutoffHz: 120,
-  limiterCeilingDbtp: -1.0,
-  limiterReleaseMs: 85,
-  limiterLookaheadMs: 4,
-  targetIntegratedLufs: -14.0,
-  masterAutomationPoints: [
-    { beat: 0, value: 0.55 },
-    { beat: 32, value: 0.52 },
-    { beat: 48, value: 0.55 },
-    { beat: 64, value: 0.55 },
-  ],
-};
-
 const ARCHETYPE_CATALOG: {
   archetype: TechnoArchetype;
   title: string;
@@ -245,13 +205,14 @@ const ARCHETYPE_CATALOG: {
   },
 ];
 
-function enrichProjectWithAnalysis(
+export function enrichProjectWithAnalysis(
   rawState: AbletonProjectState,
   formId: MacroArrangementFormId
 ): AbletonProjectState {
   const totalBars = rawState.arrangementLengthBars || 16;
   const musicalProfile = analyzeProjectMusicalProfile(rawState);
-  const arrangementSections = generateSectionArrangementPlan(formId, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
+  const effectiveForm = rawState.lastGenerationIdentity?.macroFormId || formId;
+  const arrangementSections = rawState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
   const alsValidation = validateAlsProjectCadence(rawState.rawXmlModified);
   return {
     ...rawState,
@@ -267,9 +228,6 @@ export default function App() {
   const [mobileSection, setMobileSection] = useState<MobileDawSection>('arrange');
   const [desktopBottomTab, setDesktopBottomTab] = useState<DesktopBottomTab>('composer');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('berghain-134');
-  const [humanization, setHumanization] = useState<HumanizationConfig>(DEFAULT_HUMANIZATION);
-  const [transport, setTransport] = useState<TransportConfig>(DEFAULT_TRANSPORT);
-  const [masterBus, setMasterBus] = useState<MasterBusConfig>(DEFAULT_MASTER_BUS);
 
   // Granular Clear Arrangement state
   const [clearOptions, setClearOptions] = useState<ClearArrangementOptions>({
@@ -280,11 +238,8 @@ export default function App() {
     resetMixerToNeutral: false,
   });
 
-  const [compositionSeed, setCompositionSeed] = useState<number>(
+  const [initialCompositionSeed] = useState<number>(
     () => Math.floor(Math.random() * 1000000) + 101
-  );
-  const [jitterSeed, setJitterSeed] = useState<number>(
-    () => compositionSeed + 79
   );
   const [activeStrategyId, setActiveStrategyId] =
     useState<CompositionStrategyId>('hypnotic_evolving');
@@ -292,11 +247,18 @@ export default function App() {
     useState<MacroArrangementFormId>('hypnotic_longform');
 
   const [project, setProject] = useState<AbletonProjectState>(() => {
-    const seed = compositionSeed;
+    const seed = initialCompositionSeed;
     const { xml, meta } = buildStarterAbletonXml('berghain-134', seed);
     const parsed = parseAbletonXmlDom(xml, meta.name, xml);
     return enrichProjectWithAnalysis(parsed, 'hypnotic_longform');
   });
+
+  const compositionSeed = project.lastGenerationIdentity?.compositionSeed ?? project.generationSeed ?? initialCompositionSeed;
+  const jitterSeed = project.humanizationSeed ?? project.lastGenerationIdentity?.humanizationSeed ?? compositionSeed + 79;
+  const settings = useMemo(() => projectAudioSettings(project), [project.audioSettings, project.arrangementLengthBars]);
+  const humanization = settings.humanization;
+  const masterBus = settings.masterBus;
+  const transport = useMemo(() => ({ ...settings.transport, arrangementLengthBars: project.arrangementLengthBars || 16 }), [settings.transport, project.arrangementLengthBars]);
 
   // A pointer to the same current domain object, for ordered commands within a single React batch.
   const projectRef = useRef(project);
@@ -411,25 +373,48 @@ export default function App() {
   // Subscribe to ProjectQueueService & StudioCommandBus
   useEffect(() => {
     const unsubQueue = projectQueueService.subscribe(() => {
+      const persistence = projectQueueService.getPersistenceStatus();
+      if (persistence.status === 'error') setStatusMessage(`Recovery storage warning: ${persistence.error}. Save a native project file.`);
       setQueueItems(projectQueueService.getAllItems());
+      commandTargetRef.current = projectQueueService.getActiveQueueId() || 'default_workstation_project';
       setActiveQueueId(projectQueueService.getActiveQueueId());
     });
     const unsubCmd = studioCommandBus.subscribe(() => {
       setCommandBusTick((t) => t + 1);
     });
+    let cancelled = false;
     if (projectQueueService.getAllItems().length === 0) {
-      void projectQueueService.enqueueProjectFromXml(
-        project.fileName,
-        project.rawXmlModified || project.rawXml || ''
-      );
+      const initial = projectRef.current;
+      void projectQueueService.restorePersistedProjects().then(async restored => {
+        if (cancelled) return;
+        if (restored && projectRef.current === initial) {
+          projectRef.current = restored; setProject(restored);
+          setSelectedTrackId(restored.tracks[0]?.id || '1');
+          if (restored.lastGenerationIdentity) {
+            setActiveStrategyId(restored.lastGenerationIdentity.strategyId);
+            setActiveFormId(restored.lastGenerationIdentity.macroFormId);
+          }
+          setStatusMessage(`Recovered ${restored.fileName}. ${projectQueueService.getPersistenceStatus().error || ''}`);
+        } else if (!restored && projectQueueService.getAllItems().length === 0) {
+          const recovery = projectQueueService.getPersistenceStatus();
+          if (recovery.status === 'error') {
+            setStatusMessage(`Recovery blocked: ${recovery.error}. Open a compatible saved project; stored records are unchanged.`);
+          } else {
+            await projectQueueService.enqueueProjectFromXml(initial.fileName, initial.rawXmlModified || initial.rawXml || '');
+          }
+        }
+      }).catch(error => { if (!cancelled) setStatusMessage(`Recovery failed: ${String(error)}. Open a saved project file.`); });
     }
     return () => {
+      cancelled = true;
       unsubQueue();
       unsubCmd();
     };
   }, []);
 
   const currentProjectQueueKey = activeQueueId || 'default_workstation_project';
+  const commandTargetRef = useRef(currentProjectQueueKey);
+  commandTargetRef.current = currentProjectQueueKey;
 
   const handleExecuteProjectCommand = useCallback(
     (
@@ -469,7 +454,7 @@ export default function App() {
       });
       try {
         const next = studioCommandBus.executeMutation(
-          currentProjectQueueKey, label, category, projectRef.current, mutator
+          currentProjectQueueKey, label, category, projectRef.current, mutator, { activeProjectQueueId: commandTargetRef.current }
         );
         const enriched = enrichProjectWithAnalysis(next, activeFormId);
         projectRef.current = enriched;
@@ -482,6 +467,16 @@ export default function App() {
     },
     [currentProjectQueueKey, activeFormId, activeQueueId]
   );
+
+  const updateAudioSettings = <K extends keyof ProjectAudioSettings>(key: K, update: React.SetStateAction<ProjectAudioSettings[K]>) => {
+    handleExecuteProjectCommand(`Update ${key}`, 'mixer', draft => {
+      const current = projectAudioSettings(draft);
+      const next = typeof update === 'function' ? (update as (value: ProjectAudioSettings[K]) => ProjectAudioSettings[K])(current[key]) : update;
+      return { ...draft, audioSettings: { ...current, [key]: next } };
+    });
+  };
+  const setMasterBus = (update: React.SetStateAction<MasterBusConfig>) => updateAudioSettings('masterBus', update);
+  const setTransport = (update: React.SetStateAction<TransportConfig>) => updateAudioSettings('transport', update);
 
   const handleUndo = useCallback(() => {
     const restored = studioCommandBus.undo(currentProjectQueueKey);
@@ -547,11 +542,6 @@ export default function App() {
     );
   }, [project, humanization, transport, masterBus]);
 
-  useEffect(() => {
-    const bars = project.arrangementLengthBars || 16;
-    setTransport(prev => prev.arrangementLengthBars === bars ? prev : { ...prev, arrangementLengthBars: bars });
-  }, [project.arrangementLengthBars]);
-
   const [includeMidiHumanization, setIncludeMidiHumanization] = useState<boolean>(true);
 
   const handleExportClipToMidi = useCallback(
@@ -610,6 +600,9 @@ export default function App() {
   ): AbletonProjectState => {
     return {
       ...nextState,
+      audioSettings: prevState.audioSettings,
+      humanizationSeed: prevState.humanizationSeed,
+      lastGenerationIdentity: prevState.lastGenerationIdentity,
       arrangementLengthBars:
         prevState.arrangementLengthBars || nextState.arrangementLengthBars || 16,
       tracks: nextState.tracks.map((ut) => {
@@ -659,8 +652,7 @@ export default function App() {
     setPlayheadBeat(0);
     const freshSeed = Math.floor(Math.random() * 10000000) + 1;
     setSelectedTemplateId(templateId);
-    setCompositionSeed(freshSeed);
-    setJitterSeed(freshSeed + 79);
+
 
     const nextForm: MacroArrangementFormId =
       templateId === 'tresor-138'
@@ -687,9 +679,9 @@ export default function App() {
     if (loadRevision !== starterLoadRevision.current) return;
     projectQueueService.switchActiveProject(record.queueId);
     projectQueueService.updateWorkingProjectState(record.queueId, enriched);
-    setProject(enriched);
-    setTransport({ ...DEFAULT_TRANSPORT, arrangementLengthBars: enriched.arrangementLengthBars });
-    setMasterBus({ ...DEFAULT_MASTER_BUS });
+    const installed = { ...enriched, audioSettings: projectAudioSettings(enriched) };
+    projectRef.current = installed;
+    setProject(installed);
     setSelectedTrackId(enriched.tracks[0]?.id || '1');
     setStatusMessage(
       `Loaded & Analyzed: ${meta.name} (${enriched.tempo} BPM · ${enriched.rootKey} ${enriched.scale} · Strategy: ${nextStrategy}).`
@@ -796,8 +788,7 @@ export default function App() {
           ? explicitSeed
           : Math.floor(Math.random() * 10000000) + 1;
       const nextHumSeed = Math.floor(Math.random() * 1000000) + 1;
-      setCompositionSeed(nextCompSeed);
-      setJitterSeed(nextHumSeed);
+
 
       let updatedXml = TechnoHeuristicEngine.injectTechnoLayerIntoXml(
         project.rawXmlModified,
@@ -897,7 +888,7 @@ export default function App() {
         activeFormId
       );
 
-      setProject(enriched);
+      handleExecuteProjectCommand('Generate Layer', 'clip_edit', () => enriched);
 
       const injectedTrack = enriched.tracks.find((t) => t.archetype === archetype);
       if (injectedTrack) {
@@ -928,8 +919,7 @@ export default function App() {
     ];
     const baseCompSeed = Math.floor(Math.random() * 10000000) + 1;
     const baseHumSeed = Math.floor(Math.random() * 1000000) + 1;
-    setCompositionSeed(baseCompSeed);
-    setJitterSeed(baseHumSeed);
+
 
     const sharedSections = generateSectionArrangementPlan(activeFormId, totalBars, baseCompSeed);
     // Full-arrangement composition also withdraws the existing unlocked kick during
@@ -1052,7 +1042,7 @@ export default function App() {
 
   // Handler: Spectral Auto-Ducking (Dynamic EQEight notch + Compressor2 sidechain into XML & DSP)
   const handleApplySpectralAutoDuck = (trackId: string, config: SpectralDuckingConfig) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Apply Spectral Auto Duck', 'mixer', (prev) => {
       const targetTrack = prev.tracks.find((t) => t.id === trackId);
       if (!targetTrack) return prev;
 
@@ -1067,7 +1057,7 @@ export default function App() {
         kickId
       );
 
-      const reParsed = parseAbletonXmlDom(updatedXml, prev.fileName, prev.rawXmlOriginal);
+      const reParsed = parseNativeDeviceEdit(updatedXml, prev.fileName, prev.rawXmlOriginal);
       const preserved = preserveTrackStates(reParsed, prev);
 
       const updatedTracks = preserved.tracks.map((t) => {
@@ -1101,7 +1091,7 @@ export default function App() {
 
   // Handler: Inject Ableton Live 12 Built-in Library Device into Track XML
   const handleInjectLibraryDevice = (trackId: string, templateId: string) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Insert Library Device', 'mixer', (prev) => {
       const targetTrack = prev.tracks.find((t) => t.id === trackId);
       if (!targetTrack) return prev;
 
@@ -1112,7 +1102,7 @@ export default function App() {
         templateId
       );
 
-      const reParsed = parseAbletonXmlDom(updatedXml, prev.fileName, prev.rawXmlOriginal);
+      const reParsed = parseNativeDeviceEdit(updatedXml, prev.fileName, prev.rawXmlOriginal);
       const preserved = preserveTrackStates(reParsed, prev);
 
       const updatedTracks = preserved.tracks.map((t) => {
@@ -1141,36 +1131,18 @@ export default function App() {
 
   // Handler: AI Smart Leveling & Anti-Distortion Mix Calibration
   const handleApplySmartLeveling = () => {
-    const calibration = computeAiSmartMixCalibration(project);
-    setMasterBus((prev) => ({
-      ...prev,
-      ...calibration.masterBusPatch,
-    }));
-
-    setProject((prev) => {
-      const updatedTracks = prev.tracks.map((t) => {
-        const patch = calibration.trackMixerPatches[t.id];
-        if (!patch) return t;
-        return {
-          ...t,
-          mixer: {
-            ...t.mixer,
-            ...patch,
-          },
-        };
-      });
-      return {
-        ...prev,
-        tracks: updatedTracks,
-      };
+    handleExecuteProjectCommand('Apply Smart Leveling', 'calibration', prev => {
+      const calibration = computeAiSmartMixCalibration(prev);
+      const settings = projectAudioSettings(prev);
+      return { ...prev, rawXmlModified: calibration.updatedXml,
+        tracks: calibration.updatedTracks,
+        audioSettings: { ...settings, masterBus: { ...settings.masterBus, ...calibration.masterBusPatch } } };
     });
-
-    setStatusMessage(calibration.summary);
   };
 
   // Handler: Inject Euclidean Polyrhythm / True Polymeter Clip into Ableton XML
   const handleInjectPolyrhythmClip = (trackId: string, config: PolyrhythmConfig) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Generate Polymeter Clip', 'clip_edit', (prev) => {
       const targetTrack = prev.tracks.find((t) => t.id === trackId);
       if (!targetTrack || targetTrack.locked) return prev;
 
@@ -1241,7 +1213,7 @@ export default function App() {
     customScale?: string,
     stylePrompt?: string
   ) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Transform Chord Grid', 'clip_edit', (prev) => {
       const targetTrack = prev.tracks.find((t) => t.id === trackId);
       if (!targetTrack || !targetTrack.clips[0] || targetTrack.locked) return prev;
 
@@ -1262,21 +1234,12 @@ export default function App() {
       );
 
       const clipName = `${targetTrack.archetype.toUpperCase()}_${effectiveKey}_${gridDivision.replace('/', '_')}_${voicingSpread.toUpperCase()}`;
-      const updatedXml = syncTrackNotesToXml(
-        prev.rawXmlModified,
-        targetTrack.name,
-        targetTrack.archetype,
-        clipName,
-        transformedNotes,
-        totalBeats
-      );
-
       const updatedTracks = prev.tracks.map((t) => {
         if (t.id !== trackId) return t;
         return {
           ...t,
           clips: t.clips.map((c, idx) =>
-            idx === 0 ? { ...c, name: clipName, length: totalBeats, notes: transformedNotes } : c
+            idx === 0 ? { ...c, name: clipName, notes: transformedNotes } : c
           ),
         };
       });
@@ -1291,7 +1254,7 @@ export default function App() {
           rootKey: effectiveKey,
           scale: effectiveScale,
           tracks: updatedTracks,
-          rawXmlModified: updatedXml,
+
         },
         activeFormId
       );
@@ -1342,7 +1305,7 @@ export default function App() {
       };
     });
 
-    setProject(
+    handleExecuteProjectCommand('Clear Arrangement', 'clip_edit', () =>
       enrichProjectWithAnalysis(
         {
           ...preserved,
@@ -1379,20 +1342,10 @@ export default function App() {
       totalBars
     );
 
-    const updatedXml = syncTrackNotesToXml(
-      project.rawXmlModified,
-      targetTrack.name,
-      targetTrack.archetype,
-      targetTrack.clips[0].name,
-      transformedNotes,
-      totalBeats
-    );
-
-    setProject((prev) =>
+    handleExecuteProjectCommand('Apply MIDI Tool', 'clip_edit', (prev) =>
       enrichProjectWithAnalysis(
         {
           ...prev,
-          rawXmlModified: updatedXml,
           tracks: prev.tracks.map((t) =>
             t.id === trackId
               ? {
@@ -1417,27 +1370,20 @@ export default function App() {
   };
 
   const handleLaunchSessionScene = (sceneIdx: number, specificTrackId?: string) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Apply Scene To Arrangement', 'clip_edit', (prev) => {
       let workingXml = prev.rawXmlModified;
       const totalBeats = (prev.arrangementLengthBars || 16) * 4;
       const updatedTracks = prev.tracks.map((track) => {
-        if (specificTrackId && track.id !== specificTrackId) return track;
+        if (track.locked || (specificTrackId && track.id !== specificTrackId)) return track;
         const sceneClip = track.sessionClips?.[sceneIdx];
         if (!sceneClip || sceneClip.notes.length === 0) {
           return { ...track, activeSessionSlot: sceneIdx };
         }
-        workingXml = syncTrackNotesToXml(
-          workingXml,
-          track.name,
-          track.archetype,
-          sceneClip.name,
-          sceneClip.notes,
-          totalBeats
-        );
+        workingXml = syncTrackClipsToXml(workingXml, track.id, [sceneClip]);
         return {
           ...track,
           activeSessionSlot: sceneIdx,
-          clips: [{ ...sceneClip, length: totalBeats }],
+          clips: [{ ...sceneClip }],
         };
       });
       return enrichProjectWithAnalysis(
@@ -1451,13 +1397,14 @@ export default function App() {
     });
     setStatusMessage(
       specificTrackId
-        ? `Launched Session Clip Scene ${String.fromCharCode(65 + sceneIdx)} on Track #${specificTrackId}.`
-        : `Launched Master Session Scene ${String.fromCharCode(65 + sceneIdx)} across all tracks.`
+        ? `Applied Scene ${String.fromCharCode(65 + sceneIdx)} on Track #${specificTrackId}.`
+        : `Applied Scene ${String.fromCharCode(65 + sceneIdx)} across all tracks.`
     );
   };
 
   const handleGenerateAiVariation = async (archetype: TechnoArchetype) => {
     const aiSeed = Math.floor(Math.random() * 1000000) + 1;
+    const sourceProject = projectRef.current;
     try {
       setAiLoadingArchetype(archetype);
       setStatusMessage(
@@ -1476,85 +1423,35 @@ export default function App() {
       });
 
       const data = await res.json();
+      if (projectRef.current !== sourceProject) { setStatusMessage('Discarded a stale AI response after project edits or switch.'); return; }
       if (data.notes && Array.isArray(data.notes)) {
         handleInjectLayer(archetype, data.notes, data.clipName, data.rationale, aiSeed);
       } else {
         handleInjectLayer(archetype, undefined, undefined, undefined, aiSeed);
       }
     } catch {
-      handleInjectLayer(archetype, undefined, undefined, undefined, aiSeed);
+      if (projectRef.current === sourceProject) handleInjectLayer(archetype, undefined, undefined, undefined, aiSeed);
     } finally {
       setAiLoadingArchetype(null);
     }
   };
 
-  const handleUpdateHumanization = (partial: Partial<HumanizationConfig>) => {
-    const nextConfig = { ...humanization, ...partial };
-    setHumanization(nextConfig);
-
-    const curveLookup = buildVelocityCurveLookup(project.tracks);
-    const updatedXml = TechnoHeuristicEngine.rehumanizeAllProjectTracks(
-      project.rawXmlModified,
-      project.rootKey,
-      nextConfig,
-      jitterSeed,
-      curveLookup,
-      undefined,
-      project.tempo
-    );
-    const rawUpdatedState = parseAbletonXmlDom(
-      updatedXml,
-      project.fileName,
-      project.rawXmlOriginal
-    );
-    const updatedState = preserveTrackStates(rawUpdatedState, project);
-    setProject(enrichProjectWithAnalysis(updatedState, activeFormId));
+  const handleUpdateHumanization = (partial: Partial<HumanizationConfig>, explicitSeed = jitterSeed) => {
+    handleExecuteProjectCommand('Humanize Existing Events', 'clip_edit', prev => {
+      const oldSettings = projectAudioSettings(prev);
+      const nextConfig = { ...oldSettings.humanization, ...partial };
+      const updatedXml = TechnoHeuristicEngine.rehumanizeAllProjectTracks(prev.rawXmlModified,
+        prev.rootKey, nextConfig, explicitSeed, buildVelocityCurveLookup(prev.tracks), prev.arrangementLengthBars, prev.tempo);
+      const parsed = parseAbletonXmlDom(updatedXml, prev.fileName, prev.rawXmlOriginal);
+      const preserved = preserveTrackStates(parsed, prev);
+      return { ...preserved, humanizationSeed: explicitSeed, audioSettings: { ...oldSettings, humanization: nextConfig }, rawXmlModified: updatedXml };
+    });
   };
 
   const handleRehumanizeAll = () => {
-    const nextSeed = Math.floor(Math.random() * 1000000) + 1;
-    setJitterSeed(nextSeed);
+    const seed = Math.floor(Math.random() * 1000000) + 1;
 
-    const curveLookup = buildVelocityCurveLookup(project.tracks);
-    const updatedXml = TechnoHeuristicEngine.rehumanizeAllProjectTracks(
-      project.rawXmlModified,
-      project.rootKey,
-      humanization,
-      nextSeed,
-      curveLookup,
-      undefined,
-      project.tempo
-    );
-    const rawUpdatedState = parseAbletonXmlDom(
-      updatedXml,
-      project.fileName,
-      project.rawXmlOriginal
-    );
-    const preserved = preserveTrackStates(rawUpdatedState, project);
-
-    const updatedTracks = preserved.tracks.map((t, idx) => {
-      if (!t.sessionClips || !t.velocityCurve) return t;
-      return {
-        ...t,
-        sessionClips: t.sessionClips.map((sc, sIdx) => ({
-          ...sc,
-          notes: applyTrackVelocityCurveToNotes(
-            sc.notes,
-            t.velocityCurve,
-            humanization,
-            nextSeed + idx * 31 + sIdx * 13
-          ),
-        })),
-      };
-    });
-
-    const updatedState = { ...preserved, tracks: updatedTracks };
-    setProject(enrichProjectWithAnalysis(updatedState, activeFormId));
-
-    const activeCurveLabel = selectedTrack?.velocityCurve?.preset?.toUpperCase() || 'CUSTOM';
-    setStatusMessage(
-      `Re-seeded Jitter (Seed #${nextSeed % 1000}) · Injected ${activeCurveLabel} velocity curves & Gaussian micro-timing (±${humanization.microTimingMaxShiftBeats.toFixed(3)} b) into XML <MidiNoteEvent> nodes.`
-    );
+    handleUpdateHumanization({}, seed);
   };
 
   const handleTogglePlay = () => {
@@ -1620,7 +1517,7 @@ export default function App() {
     velocityCurve: VelocityCurveConfig,
     injectImmediately = true
   ) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Update Track Velocity Curve', 'clip_edit', (prev) => {
       let workingXml = prev.rawXmlModified;
       let updatedNoteCount = 0;
       let targetTrackName = '';
@@ -1643,16 +1540,6 @@ export default function App() {
         );
         updatedNoteCount = curvedNotes.length;
 
-        workingXml = syncTrackNotesToXml(
-          workingXml,
-          t.name,
-          t.archetype,
-          primaryClip.name,
-          curvedNotes,
-          totalBeats,
-          primaryClip.loopEndBeats
-        );
-
         const nextSessionClips = t.sessionClips?.map((sc, sIdx) => ({
           ...sc,
           notes: applyTrackVelocityCurveToNotes(
@@ -1666,7 +1553,7 @@ export default function App() {
         return {
           ...t,
           velocityCurve,
-          clips: [{ ...primaryClip, notes: curvedNotes }],
+          clips: t.clips.map((clip, index) => index === 0 ? { ...clip, notes: curvedNotes } : clip),
           sessionClips: nextSessionClips,
         };
       });
@@ -2102,21 +1989,19 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const snapshot = decodeProjectSnapshot(new TextDecoder().decode(await file.arrayBuffer()));
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const snapshot = decodeProjectSnapshot(new TextDecoder().decode(bytes));
       // Validation completes before stopping transport or changing any active project/history.
       synthEngine.stop();
       setIsPlaying(false); setPlayheadBeat(0);
       if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, project);
-      const record = await projectQueueService.enqueueProjectFromXml(snapshot.project.fileName, snapshot.project.rawXmlModified);
+      const record = await projectQueueService.enqueueProjectState(snapshot.project, file.name, bytes);
       if (record.state === 'failed' || record.state === 'unsupported') throw new Error(record.errorDetails || 'Project initialization failed');
       projectQueueService.updateWorkingProjectState(record.queueId, snapshot.project);
       projectQueueService.switchActiveProject(record.queueId);
+      projectRef.current = snapshot.project;
       setProject(snapshot.project);
-      setHumanization(snapshot.audioSettings.humanization);
-      setMasterBus(snapshot.audioSettings.masterBus);
-      setTransport(snapshot.audioSettings.transport);
-      setCompositionSeed(snapshot.project.lastGenerationIdentity?.compositionSeed ?? snapshot.project.generationSeed ?? 0);
-      setJitterSeed(snapshot.project.lastGenerationIdentity?.humanizationSeed ?? (snapshot.project.generationSeed || 0) + 79);
+
       if (snapshot.project.lastGenerationIdentity) {
         setActiveStrategyId(snapshot.project.lastGenerationIdentity.strategyId);
         setActiveFormId(snapshot.project.lastGenerationIdentity.macroFormId);
@@ -2667,7 +2552,7 @@ export default function App() {
           }
         }}
         onSyncActiveProjectFromQueue={(updatedProject) => {
-          setProject(enrichProjectWithAnalysis(updatedProject, activeFormId));
+          handleExecuteProjectCommand('Apply Queue Changes', 'calibration', () => updatedProject);
         }}
       />
 
@@ -2705,28 +2590,10 @@ export default function App() {
         isOpen={isReferenceModalOpen}
         onClose={() => setIsReferenceModalOpen(false)}
         onLoadCounterpartProject={(newProject) => {
-          const enriched = enrichProjectWithAnalysis(newProject, activeFormId);
-          setProject(enriched);
-          const safeBars = enriched.arrangementLengthBars || 16;
-          setTransport((prev) => ({
-            ...prev,
-            arrangementLengthBars: safeBars,
+          handleExecuteProjectCommand('Apply Reference Composition', 'clip_edit', prev => ({
+            ...newProject, audioSettings: projectAudioSettings(prev),
           }));
-          setMasterBus((prev) => ({
-            ...prev,
-            limiterCeilingDbtp: -1.0,
-            targetIntegratedLufs: -14.0,
-            masterAutomationPoints: [
-              { beat: 0, value: 0.96 },
-              { beat: (safeBars * 4) * 0.5, value: 0.88 },
-              { beat: (safeBars * 4) * 0.75, value: 1.0 },
-              { beat: safeBars * 4, value: 0.95 },
-            ],
-          }));
-          setSelectedTrackId(enriched.tracks[0]?.id || '1');
-          setStatusMessage(
-            `AI Reference Counterpart Loaded: ${enriched.fileName} (${enriched.tempo} BPM · ${enriched.rootKey} ${enriched.scale} · -1.0 dBTP Master Automated).`
-          );
+          setSelectedTrackId(newProject.tracks[0]?.id || '1');
         }}
       />
 

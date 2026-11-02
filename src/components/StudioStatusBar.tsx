@@ -36,7 +36,11 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
 }) => {
   const clampedWavPct = Math.max(0, Math.min(100, Math.round(wavExportProgress)));
 
+  const criticalMessage = /^(Recovery (blocked|failed|storage warning)|Edit rejected|Failed|Error)/i.test(statusMessage || '');
+
   return (
+    <>
+    {criticalMessage && <div role="alert" className="shrink-0 max-h-24 overflow-auto break-words px-3 py-2 bg-amber-950 text-amber-100 text-xs border-t border-amber-700">{statusMessage}</div>}
     <div className="h-6.5 bg-[#080A0D] border-t border-[#1C222C] px-3 flex items-center justify-between text-[10px] font-mono text-zinc-400 select-none shrink-0 z-30">
       {/* LEFT: ENGINE & AUDIO METRICS */}
       <div className="flex items-center gap-3">
@@ -90,7 +94,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
           </div>
         )}
         <span className="hidden lg:inline truncate">
-          {statusMessage || `${projectName} · Ready`}
+          {criticalMessage ? `${projectName} · Action required` : statusMessage || `${projectName} · Ready`}
         </span>
       </div>
 
@@ -112,5 +116,6 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };

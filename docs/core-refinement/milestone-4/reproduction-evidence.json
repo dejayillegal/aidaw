@@ -1,0 +1,30 @@
+{
+  "baseline": "f331b709bf17fb68f0b9ae343bfa8c433f43dde0",
+  "selectedTests": 3,
+  "failed": 3,
+  "skipped": 12,
+  "scope": "Deterministic pre-change reproduction against current main, not final branch test status",
+  "results": [
+    {
+      "name": "G1 reproduced command and recovery defects rejects wrong-typed required audio controls and non-boolean transport flags on reopen",
+      "status": "failed",
+      "failureMessages": [
+        "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/index.aTZaPVhf.js:2303:114)\n    at Proxy.<anonymous> (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/index.aTZaPVhf.js:1958:14)\n    at Proxy.methodWrapper (file:///workspace/scratch/742120232dee/aidaw/node_modules/chai/index.js:1737:25)\n    at /tmp/aidaw-m4-baseline/src/__tests__/g1Recovery.test.ts:27:65\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20"
+      ]
+    },
+    {
+      "name": "G1 reproduced command and recovery defects humanization preserves every independent clip, note identity, pitch and probability",
+      "status": "failed",
+      "failureMessages": [
+        "AssertionError: expected [ [ 'a', +0, 16 ] ] to deeply equal [ [ 'a', +0, 4 ], [ 'b', 8, 1 ] ]\n    at /tmp/aidaw-m4-baseline/src/__tests__/g1Recovery.test.ts:38:60\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
+      ]
+    },
+    {
+      "name": "keeps new user tracks and their independent clips editable and reloadable with explicit native-device limits",
+      "status": "failed",
+      "failureMessages": [
+        "Error: CLIP_SYNC_TRACK: MIDI track track_user_e2_1793610465483_8 not found\n    at syncTrackClipsToXml (/tmp/aidaw-m4-baseline/src/engine/alsXmlEngine.ts:2447:27)\n    at synchronizeProjectStateToXml (/tmp/aidaw-m4-baseline/src/engine/alsXmlEngine.ts:2887:13)\n    at StudioCommandBus.executeMutation (/tmp/aidaw-m4-baseline/src/services/commandBus.ts:77:23)\n    at /tmp/aidaw-m4-baseline/src/__tests__/g1Recovery.test.ts:79:41\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:20"
+      ]
+    }
+  ]
+}

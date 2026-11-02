@@ -22,7 +22,8 @@ describe('G1 portable project persistence', () => {
     expect(JSON.stringify(p)).toBe(before);
     expect(reopened.project.tracks).toEqual(p.tracks);
     expect(reopened.project.rawXmlOriginal).toBe(p.rawXmlOriginal);
-    expect(reopened.audioSettings).toEqual({ humanization, masterBus: master, transport });
+    const { arrangementLengthBars: derivedExtent, ...savedTransport } = transport;
+    expect(reopened.audioSettings).toEqual({ humanization, masterBus: master, transport: savedTransport });
     const reimport = parseAlsXmlString(reopened.project.rawXmlModified);
     expect(reimport.tracks[0].clips[0].notes.find(n => n.id === p.tracks[0].clips[0].notes[0].id)?.time).toBe(0.375);
     expect(decodeProjectSnapshot(encodeProjectSnapshot(reopened.project, humanization, master, transport)).project.tracks).toEqual(p.tracks);
@@ -41,7 +42,7 @@ describe('G1 portable project persistence', () => {
     const p = fixture(); p.arrangementLengthBars = 1024;
     const loaded = decodeProjectSnapshot(encodeProjectSnapshot(p, humanization, master, transport));
     expect(loaded.project.arrangementLengthBars).toBe(1024);
-    expect(loaded.audioSettings.transport.arrangementLengthBars).toBe(1024);
+    expect(loaded.audioSettings.transport.arrangementLengthBars).toBeUndefined();
     expect(parseAlsXmlString(loaded.project.rawXmlModified).arrangementLengthBars).toBe(1024);
   });
 });

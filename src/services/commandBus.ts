@@ -68,8 +68,13 @@ export class StudioCommandBus {
     label: string,
     category: ProjectCommandTransaction['category'],
     currentProject: AbletonProjectState,
-    mutator: (draft: AbletonProjectState) => AbletonProjectState
+    mutator: (draft: AbletonProjectState) => AbletonProjectState,
+    context?: { activeProjectQueueId: string; expectedRevision?: number }
   ): AbletonProjectState {
+    if (context && (context.activeProjectQueueId !== projectQueueId ||
+        (context.expectedRevision !== undefined && context.expectedRevision !== (currentProject.projectRevision || currentProject.revision || 1)))) {
+      throw new Error('COMMAND_STALE: project target or revision changed');
+    }
     const beforeSnapshot = deepCloneProject(currentProject);
     const workingDraft = deepCloneProject(currentProject);
 
@@ -83,7 +88,11 @@ export class StudioCommandBus {
       }
     }
 
-    const mutated = { ...mutator(workingDraft) };
+    const mutated = { ...mutator(workingDraft) };y
+     (mutated.audioSettings) {
+      const { arrangementLengthBars: derivedExtent, ...transport } = mutated.audioSettings.transport;
+      mutated.audioSettings = { ...mutated.audioSettings, transport };
+    }
 
     const nextRev = (currentProject.projectRevision || currentProject.revision || 1) + 1;
     mutated.revision = nextRev;

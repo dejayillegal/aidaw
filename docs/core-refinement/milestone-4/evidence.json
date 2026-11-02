@@ -1,0 +1,56 @@
+{
+  "baseline": "f331b709bf17fb68f0b9ae343bfa8c433f43dde0",
+  "scope": "Local corrective subset only. G1 FAIL; browser/SDK on final PR head pending CI.",
+  "commands": [
+    {
+      "command": "npm ci --no-audit --no-fund",
+      "status": "PASS",
+      "packages": 676
+    },
+    {
+      "command": "npm test -- --reporter=json --outputFile=/tmp/aidaw-m4-tests.json",
+      "status": "PASS",
+      "tests": 115,
+      "passed": 115,
+      "failed": 0,
+      "success": true
+    },
+    {
+      "command": "npm run lint",
+      "status": "PASS",
+      "scope": "tsc --noEmit, not ESLint"
+    },
+    {
+      "command": "npm run build",
+      "status": "PASS",
+      "minifiedJsBytesApprox": 913950,
+      "warning": "chunk exceeds 500kB"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts -p 'test_*.py'",
+      "status": "PASS",
+      "tests": 12
+    }
+  ],
+  "browser": "Initial exact-head CI failed. Native IndexedDB stress passed in push run41419495363; compact recovery warning hidden. PR run41419534748 failed existing repeated PCM max tolerance. Corrections/final CI results recorded in PR8.",
+  "physicalAndroid": "BLOCKED",
+  "nativeLive": "NOT TESTED",
+  "listening": "NOT TESTED",
+  "sustainedCpuRss": "NOT TESTED",
+  "initialCi": {
+    "head": "4ff2f535b97f9d23e325284af8aa4269efa4ee48",
+    "prRun": 41419534748,
+    "pushRun": 41419495363,
+    "status": "FAIL",
+    "nativeRecoveryStress": "PASS",
+    "futureRecoveryUi": "FAIL: hidden below desktop width",
+    "repeatPcmFailure": {
+      "maxError": 0.0020829439163208008,
+      "rmsError": 4.246274119809149e-05,
+      "frame": 104031,
+      "maxTolerance": 0.001,
+      "rmsTolerance": 0.0001,
+      "rootCause": "UNCONFIRMED"
+    }
+  }
+}
