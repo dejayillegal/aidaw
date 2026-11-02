@@ -5,7 +5,7 @@
 <p>Real Chromium Web Audio export regression. No audio mocks.</p>
 <script type="module">
 import { buildStarterAbletonXml, parseAlsXmlString, synchronizeProjectStateToXml } from '/src/engine/alsXmlEngine.ts';
-import { renderArrangementToWavBlob, synthesizeProjectToStereoFloatBuffers, shouldPlayNote } from '/src/engine/webAudioSynth.ts';
+import { ParametricWebAudioEngine, renderArrangementToWavBlob, synthesizeProjectToStereoFloatBuffers, shouldPlayNote } from '/src/engine/webAudioSynth.ts';
 import { ProjectQueueService } from '/src/services/projectQueueService.ts';
 import { executeMasterExport20 } from '/src/engine/masteringEngine.ts';
 
@@ -83,6 +83,67 @@ async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDu
 }
 
 window.recovery = {
+  async runTransportCase() {
+    const project = parseAlsXmlString(buildStarterAbletonXml('berghain-134', 777, 4).xml);
+    project.tempo = 120;
+    project.tracks = project.tracks.slice(0, 1);
+    const clip = project.tracks[0].clips[0];
+    clip.notes = Array.from({ length: 16 }, (_, i) => ({ ...clip.notes[0], id: `transport_${i}`,
+      time: i / 8, quantizedTime: i / 8, duration: 0.25, probability: 1 }));
+    const transport = { loopEnabled: false, loopStartBar: 1, loopLengthBars: 4,
+      metronomeEnabled: false, followPlayhead: true, showAutomationLanes: false };
+    const engine = new ParametricWebAudioEngine();
+    engine.setState(project, humanization, transport, masterBus);
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    let ctx;
+    try {
+      engine.start(true);
+      ctx = engine.getAudioContext();
+      assert(ctx instanceof AudioContext, 'Transport did not use native AudioContext');
+      await ctx.resume();
+      // Suspend only the visual callback. The real audio clock and scheduler keep running.
+      cancelAnimationFrame(engine.rafId); engine.rafId = null;
+      await wait(160);
+      const beforePause = engine.getCurrentBeat();
+      await wait(65);
+      const pauseLower = engine.anchorBeat + Math.max(0, ctx.currentTime - engine.anchorAudioTime) * 2;
+      engine.pause();
+      const paused = engine.getCurrentBeat();
+      const pauseUpper = engine.anchorBeat + Math.max(0, ctx.currentTime - engine.anchorAudioTime) * 2;
+      assert(paused >= pauseLower - 1e-9 && paused <= pauseUpper + 1e-9, 'Pause missed current native clock');
+      assert(paused > beforePause, 'Pause used stale visual position');
+      await wait(60);
+      assert(engine.getCurrentBeat() === paused, 'Paused transport drifted');
+      engine.start();
+      cancelAnimationFrame(engine.rafId); engine.rafId = null;
+      assert(engine.getCurrentBeat() === paused, 'Resume moved the paused position');
+      await wait(130);
+      const tempoLower = engine.getCurrentBeat();
+      const oldVoices = [...engine.bus.activeVoices];
+      assert(oldVoices.length > 0, 'Native tempo regression did not exercise queued voices');
+      engine.setState({ ...project, tempo: 90 }, humanization);
+      const tempoPosition = engine.getCurrentBeat();
+      assert(Math.abs(tempoPosition - tempoLower) <= 0.05, 'Tempo edit moved the native clock position');
+      assert(engine.scheduledNoteKeys.size === 0, 'Tempo edit retained old scheduled keys');
+      // Existing voice retirement uses a 4ms fade and stops sources at +25ms;
+      // onended removes their resource leases asynchronously on the main thread.
+      await wait(90);
+      assert(oldVoices.every(voice => !engine.bus.activeVoices.has(voice)), 'Tempo edit retained old scheduled voices after retirement');
+      const expected = tempoPosition + (ctx.currentTime - engine.anchorAudioTime) * 1.5;
+      assert(Math.abs(engine.getCurrentBeat() - expected) <= 256 / ctx.sampleRate * 1.5, 'Resume did not use new tempo');
+      engine.pause();
+      engine.seek(16);
+      assert(engine.getCurrentBeat() === 16, 'Seek altered exact arrangement endpoint');
+      engine.seek(15.999875);
+      engine.start();
+      assert(engine.getCurrentBeat() === 15.999875, 'Start discarded fractional final slice');
+      await wait(100);
+      assert(!engine.getIsPlaying() && engine.getCurrentBeat() === 16, 'Natural end did not hold endpoint');
+      return { status: 'PASS', nativeAudioContext: true, sampleRate: ctx.sampleRate, seed: 777,
+        tempoBefore: 120, tempoAfter: 90, beforePause, paused, tempoPosition,
+        retiredOldVoices: oldVoices.length, endpoint: engine.getCurrentBeat(), visualCallbackSuspended: true };
+    } finally { engine.stop(); if (ctx) await ctx.close(); }
+  },
   async futureUiJournal(action) {
     const db = await new Promise((resolve, reject) => { const request = indexedDB.open('aidaw_project_queue_db_v1', 1); request.onsuccess = () => resolve(request.result); request.onerror = reject; });
     try {

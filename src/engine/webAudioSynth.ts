@@ -2312,6 +2312,17 @@ export class ParametricWebAudioEngine {
     onPlaybackStopped?: (reason?: string) => void
   ) {
     const prevTempo = this.project?.tempo;
+    // Capture with the OLD tempo before replacing project state. RAF may be suspended
+    // or several frames behind the audio clock. Queued voices use the old seconds map.
+    const tempoChangedWhilePlaying = this.isPlaying && prevTempo !== undefined && prevTempo !== project.tempo;
+    if (tempoChangedWhilePlaying) {
+      this.currentBeat = this.getCurrentBeat();
+      if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
+      this.scheduledNoteKeys.clear();
+      this.loopGeneration++;
+      this.anchorBeat = this.currentBeat;
+      if (this.ctx) this.anchorAudioTime = this.ctx.currentTime;
+    }
     this.project = project;
     this.humanization = humanization;
     if (transport) {
@@ -2369,10 +2380,6 @@ export class ParametricWebAudioEngine {
       // Immediately sync all persistent per-track channel strips in real time
       this.syncLiveTrackChannels();
 
-      if (this.isPlaying && prevTempo && prevTempo !== project.tempo) {
-        this.anchorBeat = this.currentBeat;
-        this.anchorAudioTime = this.ctx.currentTime;
-      }
     }
   }
 
@@ -2416,10 +2423,9 @@ export class ParametricWebAudioEngine {
     this.syncLiveTrackChannels();
 
     const maxBeats = this.getMaxArrangementBeats();
-    if (fromStart || this.currentBeat >= maxBeats - 0.05) {
-      this.currentBeat = this.transport.loopEnabled
-        ? Math.max(0, (this.transport.loopStartBar - 1) * 4)
-        : 0;
+    if (fromStart || this.currentBeat >= maxBeats) {
+      const region = playbackRegion(maxBeats, this.transport);
+      this.currentBeat = region.enabled ? region.start : 0;
     }
 
     this.anchorBeat = this.currentBeat;
@@ -2442,6 +2448,8 @@ export class ParametricWebAudioEngine {
   }
 
   public stop() {
+    // Freeze at the audible clock position, independently of visual rendering.
+    this.currentBeat = this.getCurrentBeat();
     if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
     this.isPlaying = false;
     this.lastSchedulerPerfMs = 0;
@@ -2460,9 +2468,10 @@ export class ParametricWebAudioEngine {
   }
 
   public seek(beat: number) {
-    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
+    if (!Number.isFinite(beat)) throw new Error('TIMELINE_INPUT: invalid seek coordinate');
     const maxBeats = this.getMaxArrangementBeats();
-    const clamped = Math.max(0, Math.min(maxBeats - 0.01, beat));
+    const clamped = Math.max(0, Math.min(maxBeats, beat));
+    if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
     this.currentBeat = clamped;
     this.anchorBeat = clamped;
     if (this.ctx) {
@@ -2675,10 +2684,9 @@ export class ParametricWebAudioEngine {
       }
     } else {
       if (exactBeatNow >= maxBeats) {
-        this.currentBeat = 0;
         this.stop();
         if (this.onPlayheadUpdate) {
-          this.onPlayheadUpdate(0, this.humanization.cutoffHz, -60);
+          this.onPlayheadUpdate(this.currentBeat, this.humanization.cutoffHz, -60);
         }
         if (this.onPlaybackStopped) {
           this.onPlaybackStopped();

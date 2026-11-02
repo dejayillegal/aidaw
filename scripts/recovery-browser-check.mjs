@@ -46,6 +46,8 @@ try {
   page.setDefaultTimeout(20000);
   await page.goto(`${origin}/tests/recovery-browser.html`);
   await page.waitForFunction(() => typeof window.recovery?.runAudioCase === 'function');
+  report.transport = await page.evaluate(() => window.recovery.runTransportCase());
+  console.log(JSON.stringify({ transport: report.transport }));
   report.projectRecovery = await page.evaluate(() => window.recovery.runRecoveryCase());
   console.log(JSON.stringify({ projectRecovery: report.projectRecovery }));
   await page.evaluate(() => window.recovery.futureUiJournal('seed'));
