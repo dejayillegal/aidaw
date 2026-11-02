@@ -34,7 +34,6 @@ try {
   });
   report.browserVersion = browser.version(); report.playwrightVersion = playwrightVersion;
   const context = await browser.newContext();
-  // The app deliberately supports offline system fonts; this check does not depend on Google Fonts availability.
   await context.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   const page = await context.newPage();
   page.on('pageerror', (error) => report.pageErrors.push(error.message));
@@ -46,6 +45,8 @@ try {
   page.setDefaultTimeout(20000);
   await page.goto(`${origin}/tests/recovery-browser.html`);
   await page.waitForFunction(() => typeof window.recovery?.runAudioCase === 'function');
+  report.transport = await page.evaluate(() => window.recovery.runTransportCase());
+  console.log(JSON.stringify({ transport: report.transport }));
   report.projectRecovery = await page.evaluate(() => window.recovery.runRecoveryCase());
   console.log(JSON.stringify({ projectRecovery: report.projectRecovery }));
   await page.evaluate(() => window.recovery.futureUiJournal('seed'));
