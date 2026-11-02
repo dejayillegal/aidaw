@@ -1,3 +1,4 @@
+import { readAlsIdentity } from './alsIdentity';
 import { assertAudioSettings } from './audioSettingsContracts';
 import { assertProjectState } from './projectStateContracts';
 import {
@@ -1685,6 +1686,13 @@ export function buildStarterAbletonXml(
  * TASK 1: THE PARSER ENGINE
  * Parses an Ableton .als XML tree to extract Tempo, Root Key, Scale, and existing MidiTrack / AudioTrack structures.
  */
+/** Only project-owned tempo targets may define or receive the global scalar tempo. */
+function projectTempoTarget(doc: Document): Element | null {
+  return doc.querySelector('LiveSet > MasterTrack > DeviceChain > Mixer > Tempo > Manual')
+    || doc.querySelector('LiveSet > MasterTrack > Tempo > Manual')
+    || doc.querySelector('LiveSet > Tempo > Manual');
+}
+
 export function parseAbletonXmlDom(
   xmlString: string,
   fileName: string,
@@ -1702,10 +1710,7 @@ export function parseAbletonXmlDom(
   const creator = abletonRoot?.getAttribute('Creator') || 'Ableton Live 12.0';
   const schemaVersion = abletonRoot?.getAttribute('MinorVersion') || '12.0_12049';
 
-  const tempoManualNode =
-    xmlDoc.querySelector('MasterTrack Tempo Manual') ||
-    xmlDoc.querySelector('Tempo > Manual') ||
-    xmlDoc.querySelector('Tempo');
+  const tempoManualNode = projectTempoTarget(xmlDoc);
   const tempoVal = parseFloat(
     tempoManualNode?.getAttribute('Value') || tempoManualNode?.textContent || '134'
   );
@@ -1723,7 +1728,7 @@ export function parseAbletonXmlDom(
 
   trackNodes.forEach((trackEl, idx) => {
     const isMidi = trackEl.tagName === 'MidiTrack';
-    const trackId = trackEl.getAttribute('Data-Parametric-TrackId') || trackEl.getAttribute('Id') || `${idx + 1}`;
+    const trackId = readAlsIdentity(trackEl) || `${idx + 1}`;
     const effectiveName =
       trackEl.querySelector('Name > EffectiveName')?.getAttribute('Value') ||
       trackEl.querySelector('Name > UserName')?.getAttribute('Value') ||
@@ -1910,8 +1915,6 @@ export function parseAbletonXmlDom(
         clipEl.querySelector('CurrentStart')?.getAttribute('Value') || clipEl.getAttribute('Time') || '0'
       );
       const endTime = parseFloat(clipEl.querySelector('CurrentEnd')?.getAttribute('Value') || '64');
-      const length = Math.max(0.03125, endTime - startTime);
-
       const length = Math.max(0, endTime - startTime);
       if (endTime > maxEndBeatDetected) {
         maxEndBeatDetected = endTime;
@@ -1934,9 +1937,7 @@ export function parseAbletonXmlDom(
             const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
             const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
             notes.push({
-              id: nEl.getAttribute('Data-AIDAW-LogicalId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
-
-              id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
+              id: readAlsIdentity(nEl, 'NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
               time,
               quantizedTime,
               duration,
@@ -1960,9 +1961,7 @@ export function parseAbletonXmlDom(
           const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
           const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
           notes.push({
-            id: nEl.getAttribute('Data-AIDAW-LogicalId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
-
-            id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
+            id: readAlsIdentity(nEl, 'NoteId') || `${trackId}_d_${nIdx}`,
             time,
             quantizedTime,
             duration,
@@ -1981,9 +1980,7 @@ export function parseAbletonXmlDom(
       notes.sort((a, b) => a.time - b.time);
 
       return {
-        id: clipEl.getAttribute('Data-AIDAW-LogicalId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
-
-        id: clipEl.getAttribute('Data-Parametric-ClipId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
+        id: readAlsIdentity(clipEl) || `clip_${trackId}_${cIdx}`,
 
         name: clipName,
         startTime,
@@ -2465,13 +2462,13 @@ export function syncTrackClipsToXml(
 ): string {
   const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
   if (doc.querySelector('parsererror') || doc.documentElement.tagName !== 'Ableton') throw new Error('Invalid source XML');
-  const matches = Array.from(doc.querySelectorAll('Tracks > MidiTrack')).filter(el => el.getAttribute('Id') === trackId);
-  if (matches.length !== 1) throw new Error(`Target track ${trackId} missing or ambiguous`);
+  const matches = Array.from(doc.querySelectorAll('Tracks > MidiTrack')).filter(el => readAlsIdentity(el) === trackId);
+  if (matches.length !== 1) throw new Error(`CLIP_SYNC_TRACK: target track ${trackId} missing or ambiguous`);
   const track = matches[0];
   const child = (parent: Element, tag: string) => Array.from(parent.children).find(el => el.tagName === tag);
   const ensure = (parent: Element, tag: string) => child(parent, tag) || parent.appendChild(doc.createElement(tag));
   const setValue = (parent: Element, tag: string, value: string) => ensure(parent, tag).setAttribute('Value', value);
-  const identity = (el: Element, attribute = 'Id') => el.getAttribute('Data-AIDAW-LogicalId') || el.getAttribute(attribute) || '';
+  const identity = readAlsIdentity;
   const allocations = new WeakMap<Element, Map<string, { next: number; used: Set<number> }>>();
   const numericId = (parent: Element, attribute: string) => {
     let scopes = allocations.get(parent);
@@ -2493,21 +2490,21 @@ export function syncTrackClipsToXml(
     const id = state.next++; state.used.add(id); return String(id);
   };
   const requireUnique = (ids: string[], kind: string) => {
-    if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error(`Missing or duplicate ${kind} ID`);
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error(`CLIP_SYNC_ID: missing or duplicate ${kind} ID`);
   };
   const finite = (value: number, field: string) => {
-    if (!Number.isFinite(value)) throw new Error(`Invalid ${field}`);
+    if (!Number.isFinite(value)) throw new Error(`${field.startsWith('note') ? 'CLIP_SYNC_NOTE' : 'CLIP_SYNC_TIME'}: invalid ${field}`);
   };
   requireUnique(clips.map(c => c.id), 'clip');
   for (const clip of clips) {
     finite(clip.startTime, 'clip start'); finite(clip.length, 'clip length');
-    if (clip.startTime < 0 || clip.length <= 0) throw new Error('Invalid clip bounds');
+    if (clip.startTime < 0 || clip.length <= 0 || !Number.isFinite(clip.startTime + clip.length)) throw new Error('Invalid clip bounds');
     if (clip.loopEndBeats !== undefined && (!Number.isFinite(clip.loopEndBeats) || clip.loopEndBeats <= 0)) throw new Error('Invalid clip loop');
     requireUnique(clip.notes.map(n => n.id), 'note');
     for (const n of clip.notes) {
-      for (const [value, field] of [[n.time, 'note time'], [n.duration, 'note duration'], [n.velocity, 'note velocity'], [n.pitch, 'note pitch']] as const) finite(value, field);
-      if (n.duration <= 0 || !Number.isInteger(n.pitch) || n.pitch < 0 || n.pitch > 127) throw new Error('Invalid note data');
-      if (n.probability !== undefined && (!Number.isFinite(n.probability) || n.probability < 0 || n.probability > 1)) throw new Error('Invalid note probability');
+      for (const [value, field] of [[n.time, 'note time'], [n.quantizedTime, 'note grid time'], [n.duration, 'note duration'], [n.velocity, 'note velocity'], [n.pitch, 'note pitch']] as const) finite(value, field);
+      if (n.duration <= 0 || !Number.isInteger(n.pitch) || n.pitch < 0 || n.pitch > 127 || n.velocity < 1 || n.velocity > 127) throw new Error('CLIP_SYNC_NOTE: invalid note data');
+      if (n.probability !== undefined && (!Number.isFinite(n.probability) || n.probability < 0 || n.probability > 1)) throw new Error('CLIP_SYNC_NOTE: invalid note probability');
     }
   }
   let events = track.querySelector('DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events');
@@ -2523,8 +2520,8 @@ export function syncTrackClipsToXml(
       if (clip.sourceClipId && !source) throw new Error(`Source clip ${clip.sourceClipId} not found`);
       el = source ? source.cloneNode(true) as Element : doc.createElement('MidiClip');
       // Native numeric IDs remain separate from existing public generator identities.
-      el.setAttribute('Id', /^\d+$/.test(clip.id) ? clip.id : numericId(events, 'Id'));
-      el.removeAttribute('Data-AIDAW-LogicalId');
+      el.setAttribute('Id', /^\d+$/.test(clip.id) ? clip.id : numericId(doc.documentElement, 'Id'));
+      el.removeAttribute('Data-AIDAW-LogicalId'); el.removeAttribute('Data-Parametric-ClipId');
       if (el.getAttribute('Id') !== clip.id) el.setAttribute('Data-AIDAW-LogicalId', clip.id);
       events.appendChild(el);
       if (!source) {
@@ -2534,7 +2531,7 @@ export function syncTrackClipsToXml(
       }
     }
     const putNumber = (node: Element, attr: string, value: number, digits = 3) => {
-      if (Number(node.getAttribute(attr)) !== value || !node.hasAttribute(attr)) node.setAttribute(attr, value.toFixed(digits));
+      if (Number(node.getAttribute(attr)) !== value || !node.hasAttribute(attr)) node.setAttribute(attr, Number(value.toFixed(digits)) === value ? value.toFixed(digits) : String(value));
     };
     putNumber(el, 'Time', clip.startTime);
     setValue(el, 'Name', clip.name);
@@ -2559,13 +2556,14 @@ export function syncTrackClipsToXml(
         if (n.sourceNoteId && !source) throw new Error(`Source note ${n.sourceNoteId} not found`);
         note = source ? source.cloneNode(true) as Element : doc.createElement('MidiNoteEvent');
         note.setAttribute('NoteId', /^\d+$/.test(n.id) ? n.id : numericId(el, 'NoteId'));
-        note.removeAttribute('Data-AIDAW-LogicalId');
+        note.removeAttribute('Data-AIDAW-LogicalId'); note.removeAttribute('Data-Parametric-NoteId');
         if (note.getAttribute('NoteId') !== n.id) note.setAttribute('Data-AIDAW-LogicalId', n.id);
         if (!source) { note.setAttribute('OffVelocity', '64'); note.setAttribute('IsEnabled', 'true'); }
       }
       const destination = ensure(keyTrack, 'Notes');
       if (note.parentElement !== destination) destination.appendChild(note);
       putNumber(note, 'Time', n.time); putNumber(note, 'Duration', n.duration);
+      if (note.hasAttribute('Data-Parametric-QuantizedTime') || n.quantizedTime !== Math.round(n.time * 8) / 8) putNumber(note, 'Data-Parametric-QuantizedTime', n.quantizedTime);
       putNumber(note, 'Velocity', Math.max(1, Math.min(127, Math.round(n.velocity))), 0);
       if (note.hasAttribute('Pitch')) putNumber(note, 'Pitch', n.pitch, 0);
       if (n.probability !== undefined) putNumber(note, 'Probability', n.probability);
@@ -2579,27 +2577,6 @@ export function syncTrackClipsToXml(
   requireUnique(Array.from(events.children).filter(el => el.tagName === 'MidiClip').map(el => el.getAttribute('Id') || ''), 'serialized clip');
   return new XMLSerializer().serializeToString(doc);
 
-  if (doc.querySelector('parsererror')) throw new Error('CLIP_SYNC_XML: invalid source XML');
-  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
-  const targetTrack = trackEls.find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === trackId) ||
-    trackEls.find((el, i) => `track_${i}_${el.getAttribute('Id') || i}` === trackId);
-  if (!targetTrack) throw new Error(`CLIP_SYNC_TRACK: MIDI track ${trackId} not found`);
-  if (new Set(clips.map(c => c.id)).size !== clips.length) throw new Error('CLIP_SYNC_ID: duplicate clip identity');
-  for (const clip of clips) {
-    if (!Number.isFinite(clip.startTime) || clip.startTime < 0 || !Number.isFinite(clip.length) || clip.length <= 0) {
-      throw new Error('CLIP_SYNC_TIME: positive extent and nonnegative start required');
-    }
-    for (const note of clip.notes) {
-      if (![note.time, note.quantizedTime, note.duration, note.pitch, note.velocity].every(Number.isFinite) ||
-          note.duration <= 0 || !Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 ||
-          note.velocity < 1 || note.velocity > 127 ||
-          (note.probability !== undefined && (!Number.isFinite(note.probability) || note.probability < 0 || note.probability > 1))) {
-        throw new Error('CLIP_SYNC_NOTE: invalid MIDI note');
-      }
-    }
-  }
-  injectMultipleMidiClipsXmlNodes(doc, targetTrack, clips);
-  return formatXmlString(new XMLSerializer().serializeToString(doc));
 
 }
 
@@ -2942,12 +2919,13 @@ export function syncLocatorsAndMixerToXml(
   const tracks = isProject ? projectOrXml.tracks : tracksArg || [];
   const memoryLocations = isProject ? projectOrXml.memoryLocations : memoryLocationsArg;
 
-  if (!currentXml) return '';
+  if (!currentXml) throw new Error('PROJECT_XML: missing source XML');
 
   const parser = new DOMParser();
-  const sanitized = currentXml.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
-  const xmlDoc = parser.parseFromString(sanitized, 'application/xml');
-  const liveSet = xmlDoc.querySelector('LiveSet') || xmlDoc.documentElement;
+  const xmlDoc = parser.parseFromString(currentXml, 'application/xml');
+  if (xmlDoc.querySelector('parsererror')) throw new Error('PROJECT_XML: invalid source XML');
+  const liveSet = xmlDoc.querySelector('Ableton > LiveSet');
+  if (!liveSet) throw new Error('PROJECT_XML: missing LiveSet');
 
   if (memoryLocations !== undefined && liveSet) {
     let locatorsOuter = liveSet.querySelector('Locators');
@@ -2980,7 +2958,7 @@ export function syncLocatorsAndMixerToXml(
 
   tracks.forEach((t) => {
     const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(
-      (el) => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === t.id
+      (el) => readAlsIdentity(el) === t.id
     );
     if (!trackEl) return;
     trackEl.setAttribute('Data-Base-Volume-Db', String(t.mixer.volumeDb));
@@ -2994,7 +2972,7 @@ export function syncLocatorsAndMixerToXml(
       automationGainOffsetDb: t.automationGainOffsetDb });
   });
 
-  return formatXmlString(new XMLSerializer().serializeToString(xmlDoc));
+  return new XMLSerializer().serializeToString(xmlDoc);
 }
 
 /** Serialize the existing canonical domain. Unchanged clip/unknown XML is left intact. */
@@ -3005,7 +2983,7 @@ export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: s
     const node = track.querySelector(':scope > ParametricTrackState');
     if (!node) continue;
     const state = JSON.parse(node.textContent || '{}');
-    projected.set(track.getAttribute('Data-Parametric-TrackId') || track.getAttribute('Id') || '', state.devices || []);
+    projected.set(readAlsIdentity(track), state.devices || []);
     delete state.devices; node.textContent = JSON.stringify(state);
   }
   const parsed = parseAbletonXmlDom(new XMLSerializer().serializeToString(doc), fileName, baseline);
@@ -3027,7 +3005,7 @@ export function synchronizeProjectStateToXml(
   }
   const tracksNode = doc.querySelector('LiveSet > Tracks');
   if (!tracksNode) throw new Error('PROJECT_XML: missing Tracks');
-  const present = new Map(Array.from(tracksNode.children).map(node => [node.getAttribute('Data-Parametric-TrackId') || node.getAttribute('Id'), node]));
+  const present = new Map(Array.from(tracksNode.children).map(node => [readAlsIdentity(node), node]));
   const used = new Set(Array.from(doc.querySelectorAll('[Id]')).map(node => node.getAttribute('Id')));
   let nextId = 10000;
   for (const track of project.tracks) {
@@ -3048,9 +3026,11 @@ export function synchronizeProjectStateToXml(
   const root = doc.querySelector('Ableton')!;
   if (project.humanizationSeed !== undefined) root.setAttribute('Data-Parametric-HumanizationSeed', String(project.humanizationSeed));
   root.setAttribute('Data-Parametric-ArrangementBars', String(project.arrangementLengthBars || 16));
-  const tempo = doc.querySelector('MasterTrack Tempo Manual') || doc.querySelector('Tempo > Manual');
-  if (!tempo) throw new Error('PROJECT_XML: missing tempo target');
-  tempo.setAttribute('Value', String(project.tempo));
+  const tempo = projectTempoTarget(doc);
+  if (tempo) tempo.setAttribute('Value', String(project.tempo));
+  else if (project.tempo !== (previous?.tempo ?? parseAbletonXmlDom(xml, project.fileName).tempo)) {
+    throw new Error('PROJECT_XML: missing tempo target for tempo edit');
+  }
   if (project.audioSettings) {
     let node = doc.querySelector('LiveSet > ParametricAudioSettings');
     if (!node) { node = doc.createElement('ParametricAudioSettings'); doc.querySelector('LiveSet')!.appendChild(node); }
@@ -4112,7 +4092,7 @@ export class TechnoHeuristicEngine {
         }
       }
     }
-    return formatXmlString(new XMLSerializer().serializeToString(doc));
+    return new XMLSerializer().serializeToString(doc);
   }
 
 }

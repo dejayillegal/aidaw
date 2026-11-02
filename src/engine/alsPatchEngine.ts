@@ -1,3 +1,4 @@
+import { matchesAlsIdentity } from './alsIdentity';
 /**
  * Safe, Targeted Ableton Live Set (.als) XML Patch Engine (v7.1 P0-002)
  *
@@ -119,7 +120,7 @@ export class AlsPatchEngine {
    */
   private findTrackElement(doc: Document, trackId: string): Element | null {
     const tracks = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
-    const matches = tracks.filter((t) => t.getAttribute('Id') === trackId);
+    const matches = tracks.filter((t) => matchesAlsIdentity(t, trackId));
     return matches.length === 1 ? matches[0] : null;
   }
 
@@ -174,7 +175,7 @@ export class AlsPatchEngine {
     }
 
     const clipEls = Array.from(trackEl.querySelectorAll('MidiClip, AudioClip'));
-    const matches = clipEls.filter((c) => (c.getAttribute('Data-AIDAW-LogicalId') || c.getAttribute('Id')) === params.clipId);
+    const matches = clipEls.filter((c) => matchesAlsIdentity(c, params.clipId));
     const targetClip = matches.length === 1 ? matches[0] : null;
     if (!targetClip) {
       return {
@@ -259,10 +260,10 @@ export class AlsPatchEngine {
     }
 
     const trackEl = this.findTrackElement(doc, params.trackId);
-    const clips = trackEl ? Array.from(trackEl.querySelectorAll('MidiClip')).filter(c => (c.getAttribute('Data-AIDAW-LogicalId') || c.getAttribute('Id')) === params.clipId) : [];
+    const clips = trackEl ? Array.from(trackEl.querySelectorAll('MidiClip')).filter(c => matchesAlsIdentity(c, params.clipId)) : [];
     if (clips.length !== 1) return this.failure('patchNoteVelocity', `Target track/clip ${params.trackId}/${params.clipId} missing or ambiguous`);
     const noteEls = Array.from(clips[0].querySelectorAll('MidiNoteEvent'));
-    const matches = noteEls.filter(n => (n.getAttribute('Data-AIDAW-LogicalId') || n.getAttribute('NoteId') || n.getAttribute('Id')) === params.noteId);
+    const matches = noteEls.filter(n => matchesAlsIdentity(n, params.noteId, n.hasAttribute('NoteId') ? 'NoteId' : 'Id'));
     const targetNote = matches.length === 1 ? matches[0] : null;
 
     if (!targetNote) {

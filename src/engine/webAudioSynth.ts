@@ -1,3 +1,4 @@
+import { OrderedAudioSum, connectOrderedSources } from './orderedAudioSum';
 import { noteIsInsideClip, playbackRegion, positionAtBeat } from './timelineCoordinates';
 import {
   AbletonDevice,
@@ -164,6 +165,7 @@ export interface InsertProcessorInstance {
 export interface TrackChannelRuntime {
   trackId: string;
   inputNode: GainNode;
+  voiceSum: OrderedAudioSum;
   insertProcessors: InsertProcessorInstance[];
   insertFilter?: BiquadFilterNode;
   faderGain: GainNode;
@@ -183,6 +185,9 @@ export interface TrackChannelRuntime {
 
 interface AudioBusGraph {
   dryBus: GainNode;
+  drySum: OrderedAudioSum;
+  reverbSum: OrderedAudioSum;
+  delaySum: OrderedAudioSum;
   reverbSendBus: GainNode;
   delaySendBus: GainNode;
   masterGain: GainNode;
@@ -197,7 +202,7 @@ interface AudioBusGraph {
   withAnalyser?: boolean;
   trackChannels: Map<string, TrackChannelRuntime>;
   activeVoices: Set<() => void>;
-  offlineRetirements: { at: number; nodes: AudioNode[] }[];
+  offlineRetirements: { at: number; nodes: AudioNode[]; releaseMix: () => void }[];
 }
 
 function buildAudioBusGraph(
@@ -220,7 +225,6 @@ function buildAudioBusGraph(
   masterSubHpf.type = 'highpass';
   masterSubHpf.frequency.value = 26;
   masterSubHpf.Q.value = 0.707;
-  sumHeadroomGain.connect(masterSubHpf);
 
   // Master Glue Compressor (Gentle mastering bus dynamics control, 30ms punch attack)
   const compressor = ctx.createDynamicsCompressor();
@@ -230,7 +234,7 @@ function buildAudioBusGraph(
   compressor.attack.value = 0.03;
   compressor.release.value = 0.1;
 
-  // Master Brickwall Lookahead Limiter with transparent -1.0 dBTP ceiling (resolves clipping & distortion)
+  // Oversampled waveshaper ceiling; this is not a separately qualified true-peak/lookahead limiter.
   const masterLimiter = ctx.createWaveShaper();
   masterLimiter.curve = createTransparentLimiterCurve(masterBus.limiterCeilingDbtp ?? -1.0);
   masterLimiter.oversample = '4x';
@@ -258,7 +262,6 @@ function buildAudioBusGraph(
   reverbHpf.connect(reverbConvolver);
   reverbConvolver.connect(reverbLpf);
   reverbLpf.connect(reverbReturnGain);
-  reverbReturnGain.connect(masterSubHpf);
 
   // Return B: Tempo-Synced 3/16 Stereo Ping-Pong Dub Echo
   const threeSixteenthSec = Math.max(0.08, Math.min(0.9, (60 / Math.max(90, tempo)) * 0.75));
@@ -301,9 +304,9 @@ function buildAudioBusGraph(
 
   panL.connect(delayReturnGain);
   panR.connect(delayReturnGain);
-  delayReturnGain.connect(masterSubHpf);
 
-  // Mastering signal chain: subHpf -> glue compressor -> lookahead limiter (-1.0 dBTP ceiling) -> masterGain
+  // Mastering signal chain: subHpf -> glue compressor -> oversampled waveshaper -> masterGain
+  connectOrderedSources(ctx, [sumHeadroomGain, reverbReturnGain, delayReturnGain], masterSubHpf);
   masterSubHpf.connect(compressor);
   compressor.connect(masterLimiter);
   masterLimiter.connect(masterGain);
@@ -323,6 +326,9 @@ function buildAudioBusGraph(
 
   return {
     dryBus,
+    drySum: new OrderedAudioSum(ctx, dryBus),
+    reverbSum: new OrderedAudioSum(ctx, reverbSendBus),
+    delaySum: new OrderedAudioSum(ctx, delaySendBus),
     reverbSendBus,
     delaySendBus,
     masterGain,
@@ -569,20 +575,21 @@ function getOrCreateTrackChannelRuntime(
 
     if (analyser) {
       panner.connect(analyser);
-      analyser.connect(bus.dryBus);
+      bus.drySum.add(analyser);
     } else {
-      panner.connect(bus.dryBus);
+      bus.drySum.add(panner);
     }
 
     panner.connect(reverbSendGain);
-    reverbSendGain.connect(bus.reverbSendBus);
+    bus.reverbSum.add(reverbSendGain);
 
     panner.connect(delaySendGain);
-    delaySendGain.connect(bus.delaySendBus);
+    bus.delaySum.add(delaySendGain);
 
     channel = {
       trackId: track.id,
       inputNode,
+      voiceSum: new OrderedAudioSum(ctx, inputNode),
       insertProcessors,
       faderGain,
       muteSoloGate,
@@ -762,7 +769,7 @@ function scheduleTrackVoiceAtTime(
 
   // Route voice through persistent per-track channel strip so live fader/pan/mute/solo/send changes
   // immediately affect sustaining audio without waiting for next note event
-  voiceEnvelopeGain.connect(trackChannel.inputNode);
+  const releaseMix = trackChannel.voiceSum.add(voiceEnvelopeGain);
 
   if (track.archetype === 'kick') {
     // =========================================================================
@@ -1017,10 +1024,10 @@ function scheduleTrackVoiceAtTime(
       const o = source(ctx.createOscillator());
       o.type = 'square';
       o.frequency.setValueAtTime(freqRatio * pitchShift, time);
-      o.connect(metalBus);
       return o;
     });
 
+    connectOrderedSources(ctx, oscs, metalBus, own);
     const bandpass = own(ctx.createBiquadFilter());
     bandpass.type = 'bandpass';
     bandpass.frequency.setValueAtTime((isBell ? 3800 : 2900) * pitchShift, time);
@@ -1182,10 +1189,8 @@ function scheduleTrackVoiceAtTime(
     voiceGain.gain.linearRampToValueAtTime(0.28 * velGain, time + 0.008);
     voiceGain.gain.exponentialRampToValueAtTime(0.001, time + releaseTime);
 
-    oscRoot.connect(filter);
-    oscDetune.connect(filter);
     oscChord.connect(chordSubGain);
-    chordSubGain.connect(filter);
+    connectOrderedSources(ctx, [oscRoot, oscDetune, chordSubGain], filter, own);
     filter.connect(voiceGain);
     voiceGain.connect(voiceDestination);
 
@@ -1196,7 +1201,7 @@ function scheduleTrackVoiceAtTime(
     oscDetune.stop(time + releaseTime + 0.02);
     oscChord.stop(time + releaseTime + 0.02);
   }
-  if (offline) bus.offlineRetirements.push({ at: latestStop + 1, nodes });
+  if (offline) bus.offlineRetirements.push({ at: latestStop + 1, nodes, releaseMix });
   let remaining = sources.length;
   const retire = () => {
     voiceEnvelopeGain.gain.cancelScheduledValues?.(ctx.currentTime);
@@ -1209,7 +1214,7 @@ function scheduleTrackVoiceAtTime(
     if (remaining === 0) {
       // onended delivery depends on main-thread timing. Offline cleanup happens only
       // at deterministic audio-clock boundaries, preserving reproducible filter tails.
-      if (!offline) for (const owned of nodes) owned.disconnect();
+      if (!offline) { releaseMix(); for (const owned of nodes) owned.disconnect(); }
       bus.activeVoices.delete(retire);
     }
   };
@@ -1562,6 +1567,7 @@ export async function synthesizeProjectToStereoFloatBuffers(
         resetDeadline();
         bus.offlineRetirements = bus.offlineRetirements.filter(retirement => {
           if (retirement.at > ctx.currentTime) return true;
+          retirement.releaseMix();
           for (const node of retirement.nodes) node.disconnect();
           return false;
         });

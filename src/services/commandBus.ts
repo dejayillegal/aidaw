@@ -11,8 +11,6 @@ import {
   TimelineEditMode,
   TrackTakeRecord,
 } from '../types/ableton';
-import { syncLocatorsAndMixerToXml, syncTrackClipsToXml } from '../engine/alsXmlEngine';
-
 import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
 import {
   computeSelectedTrackAnalysisData,
@@ -78,18 +76,8 @@ export class StudioCommandBus {
     const beforeSnapshot = deepCloneProject(currentProject);
     const workingDraft = deepCloneProject(currentProject);
 
-    const mutated = mutator(workingDraft);
-    // Commit native content before publishing state or adding a history entry.
-    // Existing callers that already synchronized their XML remain valid.
-    for (const track of mutated.tracks) {
-      const previous = currentProject.tracks.find(t => t.id === track.id);
-      if (previous && JSON.stringify(previous.clips) !== JSON.stringify(track.clips)) {
-        mutated.rawXmlModified = syncTrackClipsToXml(mutated.rawXmlModified, track.id, track.clips);
-      }
-    }
-
-    const mutated = { ...mutator(workingDraft) };y
-     (mutated.audioSettings) {
+    const mutated = { ...mutator(workingDraft) };
+    if (mutated.audioSettings) {
       const { arrangementLengthBars: derivedExtent, ...transport } = mutated.audioSettings.transport;
       mutated.audioSettings = { ...mutated.audioSettings, transport };
     }
@@ -97,13 +85,6 @@ export class StudioCommandBus {
     const nextRev = (currentProject.projectRevision || currentProject.revision || 1) + 1;
     mutated.revision = nextRev;
     mutated.projectRevision = nextRev;
-    const mixerState = (p: AbletonProjectState) => p.tracks.map(t => ({ id: t.id, mixer: t.mixer, muted: t.muted, soloed: t.soloed }));
-    const needsMixerOrLocatorSync = JSON.stringify(mixerState(currentProject)) !== JSON.stringify(mixerState(mutated)) ||
-      JSON.stringify(currentProject.memoryLocations) !== JSON.stringify(mutated.memoryLocations);
-    const syncedXml = needsMixerOrLocatorSync ? syncLocatorsAndMixerToXml(mutated) : mutated.rawXmlModified;
-    const native = new DOMParser().parseFromString(syncedXml, 'application/xml');
-    if (native.querySelector('parsererror') || native.documentElement.tagName !== 'Ableton') throw new Error('Mutation produced invalid native XML');
-
     const syncedXml = synchronizeProjectStateToXml(mutated, currentProject);
 
     mutated.rawXmlModified = syncedXml;
@@ -224,7 +205,7 @@ export function resolveBeatForEditMode(
 ): number {
   const clamped = Math.max(0, Math.min(maxBeats - 0.0625, rawBeat));
   if (editMode === 'slip' || editMode === 'spot') {
-    return Number(clamped.toFixed(4));
+    return clamped;
   }
   const step = Math.max(0.03125, gridDivisionBeats);
   return Number((Math.round(clamped / step) * step).toFixed(4));
@@ -352,7 +333,6 @@ export function applyClipPositionWithEditMode(
   gridDivisionBeats = 1.0
 ): AbletonProjectState {
   const draft = deepCloneProject(project);
-  const maxBeats = (draft.arrangementLengthBars || 16) * 4;
   const track = draft.tracks.find((t) => t.id === trackId);
   if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
@@ -361,13 +341,13 @@ export function applyClipPositionWithEditMode(
   const clipDuration = clip.length;
   if (!Number.isFinite(clipDuration) || clipDuration <= 0) throw new Error('Invalid clip length');
 
-  const newStart = resolveBeatForEditMode(targetStartBeat, editMode, gridDivisionBeats, maxBeats);
+  const newStart = resolveBeatForEditMode(targetStartBeat, editMode, gridDivisionBeats);
   const deltaBeats = newStart - oldStart;
 
   clip.startTime = newStart;
   clip.endTime = newStart + clipDuration;
   clip.notes = clip.notes.map((n) => {
-    const nextTime = Math.max(0, Number((n.time + deltaBeats).toFixed(4)));
+    const nextTime = Math.max(0, n.time + deltaBeats);
     return {
       ...n,
       time: nextTime,
@@ -379,17 +359,20 @@ export function applyClipPositionWithEditMode(
     track.clips.forEach((otherClip, idx) => {
       if (idx !== clipIndex && otherClip.startTime > oldStart) {
         const previousStart = otherClip.startTime;
-        otherClip.startTime = Math.max(0, Number((previousStart + deltaBeats).toFixed(4)));
+        otherClip.startTime = Math.max(0, previousStart + deltaBeats);
         const actualDelta = otherClip.startTime - previousStart;
         otherClip.endTime = otherClip.startTime + otherClip.length;
         otherClip.notes = otherClip.notes.map((n) => {
-          const t = Math.max(0, Number((n.time + actualDelta).toFixed(4)));
+          const t = Math.max(0, n.time + actualDelta);
           return { ...n, time: t, quantizedTime: n.quantizedTime + actualDelta };
         });
       }
     });
   }
 
+  let latestEnd = 0;
+  for (const t of draft.tracks) for (const c of t.clips) latestEnd = Math.max(latestEnd, c.startTime + c.length);
+  draft.arrangementLengthBars = Math.max(draft.arrangementLengthBars || 1, Math.ceil(latestEnd / 4));
   return draft;
 }
 

@@ -1,0 +1,13 @@
+{
+  "scope": "Baseline b9c8669 plus syntax-only-reproduction.patch",
+  "tests": 10,
+  "failed": 1,
+  "failures": [
+    {
+      "name": "never reads or writes a device Tempo parameter as the project tempo",
+      "messages": [
+        "AssertionError: expected 123 to be 134 // Object.is equality\n    at /tmp/aidaw-m5-reproduction-base/src/__tests__/mergedIdentityContracts.test.ts:101:63\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
+      ]
+    }
+  ]
+}

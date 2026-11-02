@@ -1,0 +1,14 @@
+{
+  "scope": "Before the relevant correction; expected failing assertions, not final acceptance",
+  "tests": 9,
+  "passed": 8,
+  "failed": 1,
+  "failures": [
+    {
+      "name": "preserves namespace bindings and whitespace-sensitive opaque state during an unrelated command",
+      "messages": [
+        "AssertionError: expected Element{} to be null\n    at /workspace/scratch/742120232dee/aidaw/src/__tests__/mergedIdentityContracts.test.ts:91:44\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///workspace/scratch/742120232dee/aidaw/node_modules/vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
+      ]
+    }
+  ]
+}
