@@ -1663,6 +1663,10 @@ export function buildStarterAbletonXml(
   });
   // Starter suite tracks represent the baseline project (preserve their native devices as user-created)
   fullSuiteXml = fullSuiteXml.replace(/\s*Data-Parametric-Injected="true"/g, '');
+  // Generated tracks need actual mixer destinations; patching imported documents
+  // must never silently claim success when these destinations are absent.
+  fullSuiteXml = fullSuiteXml.replace(/(<MidiTrack\b[^>]*>[\s\S]*?<DeviceChain>)/g,
+    '$1<Mixer><Volume><Manual Value="1" /></Volume><Pan><Manual Value="0" /></Pan><Speaker><Manual Value="true" /></Speaker><Solo><Manual Value="false" /></Solo></Mixer>');
 
   const metaObj: StarterTemplateMeta = {
     id: `${archetypeVariant}-${effectiveSeed}`,
@@ -1687,8 +1691,7 @@ export function parseAbletonXmlDom(
   rawXmlBaseline?: string
 ): AbletonProjectState {
   const parser = new DOMParser();
-  const sanitizedXml = xmlString.replace(/xmlns(:[a-zA-Z0-9_-]+)?="[^"]*"/g, '');
-  const xmlDoc = parser.parseFromString(sanitizedXml, 'application/xml');
+  const xmlDoc = parser.parseFromString(xmlString, 'application/xml');
 
   const parseError = xmlDoc.querySelector('parsererror');
   if (parseError) {
@@ -1904,6 +1907,8 @@ export function parseAbletonXmlDom(
         clipEl.querySelector('CurrentStart')?.getAttribute('Value') || clipEl.getAttribute('Time') || '0'
       );
       const endTime = parseFloat(clipEl.querySelector('CurrentEnd')?.getAttribute('Value') || '64');
+      const length = Math.max(0.03125, endTime - startTime);
+
       const length = Math.max(0, endTime - startTime);
       if (endTime > maxEndBeatDetected) {
         maxEndBeatDetected = endTime;
@@ -1926,6 +1931,8 @@ export function parseAbletonXmlDom(
             const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
             const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
             notes.push({
+              id: nEl.getAttribute('Data-AIDAW-LogicalId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
+
               id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
               time,
               quantizedTime,
@@ -1950,6 +1957,8 @@ export function parseAbletonXmlDom(
           const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
           const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
           notes.push({
+            id: nEl.getAttribute('Data-AIDAW-LogicalId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
+
             id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
             time,
             quantizedTime,
@@ -1969,7 +1978,10 @@ export function parseAbletonXmlDom(
       notes.sort((a, b) => a.time - b.time);
 
       return {
+        id: clipEl.getAttribute('Data-AIDAW-LogicalId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
+
         id: clipEl.getAttribute('Data-Parametric-ClipId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
+
         name: clipName,
         startTime,
         endTime,
@@ -2231,8 +2243,8 @@ export function parseAbletonXmlDom(
         })
       : xmlDoc.querySelector('Locators') ? [] : getDefaultMemoryLocations(arrangementLengthBars);
 
-  const formattedModified = formatXmlString(xmlString);
-  const formattedOriginal = rawXmlBaseline ? formatXmlString(rawXmlBaseline) : formattedModified;
+  const formattedModified = xmlString;
+  const formattedOriginal = rawXmlBaseline ?? xmlString;
   const rawByteSize = new TextEncoder().encode(formattedModified).length;
 
   const parsedProject: AbletonProjectState = {
@@ -2440,6 +2452,121 @@ export function syncTrackClipsToXml(
   clips: AbletonMidiClip[]
 ): string {
   const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
+  if (doc.querySelector('parsererror') || doc.documentElement.tagName !== 'Ableton') throw new Error('Invalid source XML');
+  const matches = Array.from(doc.querySelectorAll('Tracks > MidiTrack')).filter(el => el.getAttribute('Id') === trackId);
+  if (matches.length !== 1) throw new Error(`Target track ${trackId} missing or ambiguous`);
+  const track = matches[0];
+  const child = (parent: Element, tag: string) => Array.from(parent.children).find(el => el.tagName === tag);
+  const ensure = (parent: Element, tag: string) => child(parent, tag) || parent.appendChild(doc.createElement(tag));
+  const setValue = (parent: Element, tag: string, value: string) => ensure(parent, tag).setAttribute('Value', value);
+  const identity = (el: Element, attribute = 'Id') => el.getAttribute('Data-AIDAW-LogicalId') || el.getAttribute(attribute) || '';
+  const allocations = new WeakMap<Element, Map<string, { next: number; used: Set<number> }>>();
+  const numericId = (parent: Element, attribute: string) => {
+    let scopes = allocations.get(parent);
+    if (!scopes) { scopes = new Map(); allocations.set(parent, scopes); }
+    let state = scopes.get(attribute);
+    if (!state) {
+      const used = new Set(Array.from(parent.querySelectorAll(`[${attribute}]`)).map(el => Number(el.getAttribute(attribute))));
+      // Reserve requested native identities too, even if added later in this transaction.
+      for (const c of clips) {
+        if (/^\d+$/.test(c.id)) used.add(Number(c.id));
+        for (const n of c.notes) if (/^\d+$/.test(n.id)) used.add(Number(n.id));
+      }
+      let next = 1;
+      for (const id of used) if (Number.isSafeInteger(id)) next = Math.max(next, id + 1);
+      state = { next, used }; scopes.set(attribute, state);
+    }
+    while (state.used.has(state.next)) state.next++;
+    if (!Number.isSafeInteger(state.next)) throw new Error('Native ID allocation exhausted');
+    const id = state.next++; state.used.add(id); return String(id);
+  };
+  const requireUnique = (ids: string[], kind: string) => {
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error(`Missing or duplicate ${kind} ID`);
+  };
+  const finite = (value: number, field: string) => {
+    if (!Number.isFinite(value)) throw new Error(`Invalid ${field}`);
+  };
+  requireUnique(clips.map(c => c.id), 'clip');
+  for (const clip of clips) {
+    finite(clip.startTime, 'clip start'); finite(clip.length, 'clip length');
+    if (clip.startTime < 0 || clip.length <= 0) throw new Error('Invalid clip bounds');
+    if (clip.loopEndBeats !== undefined && (!Number.isFinite(clip.loopEndBeats) || clip.loopEndBeats <= 0)) throw new Error('Invalid clip loop');
+    requireUnique(clip.notes.map(n => n.id), 'note');
+    for (const n of clip.notes) {
+      for (const [value, field] of [[n.time, 'note time'], [n.duration, 'note duration'], [n.velocity, 'note velocity'], [n.pitch, 'note pitch']] as const) finite(value, field);
+      if (n.duration <= 0 || !Number.isInteger(n.pitch) || n.pitch < 0 || n.pitch > 127) throw new Error('Invalid note data');
+      if (n.probability !== undefined && (!Number.isFinite(n.probability) || n.probability < 0 || n.probability > 1)) throw new Error('Invalid note probability');
+    }
+  }
+  let events = track.querySelector('DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events');
+  if (!events) events = ensure(ensure(ensure(ensure(track, 'DeviceChain'), 'MainSequencer'), 'ClipTimeable'), 'ArrangerAutomation').appendChild(doc.createElement('Events'));
+  const existing = Array.from(events.children).filter(el => el.tagName === 'MidiClip');
+  requireUnique(existing.map(el => identity(el)), 'native clip');
+  const requested = new Set(clips.map(c => c.id));
+  for (const el of existing) if (!requested.has(identity(el))) el.remove();
+  for (const clip of clips) {
+    let el = existing.find(el => identity(el) === clip.id);
+    if (!el) {
+      const source = clip.sourceClipId ? existing.find(el => identity(el) === clip.sourceClipId) : undefined;
+      if (clip.sourceClipId && !source) throw new Error(`Source clip ${clip.sourceClipId} not found`);
+      el = source ? source.cloneNode(true) as Element : doc.createElement('MidiClip');
+      // Native numeric IDs remain separate from existing public generator identities.
+      el.setAttribute('Id', /^\d+$/.test(clip.id) ? clip.id : numericId(events, 'Id'));
+      el.removeAttribute('Data-AIDAW-LogicalId');
+      if (el.getAttribute('Id') !== clip.id) el.setAttribute('Data-AIDAW-LogicalId', clip.id);
+      events.appendChild(el);
+      if (!source) {
+        const loop = ensure(el, 'Loop');
+        setValue(loop, 'LoopStart', '0'); setValue(loop, 'StartRelative', '0'); setValue(loop, 'LoopOn', 'true');
+        setValue(loop, 'LoopEnd', String(clip.loopEndBeats ?? clip.length));
+      }
+    }
+    const putNumber = (node: Element, attr: string, value: number, digits = 3) => {
+      if (Number(node.getAttribute(attr)) !== value || !node.hasAttribute(attr)) node.setAttribute(attr, value.toFixed(digits));
+    };
+    putNumber(el, 'Time', clip.startTime);
+    setValue(el, 'Name', clip.name);
+    putNumber(ensure(el, 'CurrentStart'), 'Value', clip.startTime);
+    putNumber(ensure(el, 'CurrentEnd'), 'Value', clip.startTime + clip.length);
+    if (clip.loopEndBeats !== undefined) putNumber(ensure(ensure(el, 'Loop'), 'LoopEnd'), 'Value', clip.loopEndBeats);
+    const notes = ensure(el, 'Notes'), keyTracks = ensure(notes, 'KeyTracks');
+    const oldNotes = Array.from(el.querySelectorAll('MidiNoteEvent'));
+    requireUnique(oldNotes.map(n => identity(n, 'NoteId')), 'native note');
+    const oldById = new Map(oldNotes.map(n => [identity(n, 'NoteId'), n]));
+    const wanted = new Set(clip.notes.map(n => n.id));
+    for (const note of oldNotes) if (!wanted.has(identity(note, 'NoteId'))) note.remove();
+    for (const n of clip.notes) {
+      let note = oldById.get(n.id);
+      let keyTrack = Array.from(keyTracks.children).find(kt => Number(child(kt, 'MidiKey')?.getAttribute('Value')) === n.pitch);
+      if (!keyTrack) {
+        keyTrack = doc.createElement('KeyTrack'); keyTrack.setAttribute('Id', numericId(keyTracks, 'Id'));
+        setValue(keyTrack, 'MidiKey', String(n.pitch)); keyTracks.appendChild(keyTrack);
+      }
+      if (!note) {
+        const source = n.sourceNoteId ? oldById.get(n.sourceNoteId) : undefined;
+        if (n.sourceNoteId && !source) throw new Error(`Source note ${n.sourceNoteId} not found`);
+        note = source ? source.cloneNode(true) as Element : doc.createElement('MidiNoteEvent');
+        note.setAttribute('NoteId', /^\d+$/.test(n.id) ? n.id : numericId(el, 'NoteId'));
+        note.removeAttribute('Data-AIDAW-LogicalId');
+        if (note.getAttribute('NoteId') !== n.id) note.setAttribute('Data-AIDAW-LogicalId', n.id);
+        if (!source) { note.setAttribute('OffVelocity', '64'); note.setAttribute('IsEnabled', 'true'); }
+      }
+      const destination = ensure(keyTrack, 'Notes');
+      if (note.parentElement !== destination) destination.appendChild(note);
+      putNumber(note, 'Time', n.time); putNumber(note, 'Duration', n.duration);
+      putNumber(note, 'Velocity', Math.max(1, Math.min(127, Math.round(n.velocity))), 0);
+      if (note.hasAttribute('Pitch')) putNumber(note, 'Pitch', n.pitch, 0);
+      if (n.probability !== undefined) putNumber(note, 'Probability', n.probability);
+    }
+    const nativeIds = Array.from(el.querySelectorAll('MidiNoteEvent')).map(n => Number(n.getAttribute('NoteId')));
+    requireUnique(nativeIds.map(String), 'serialized note');
+    const generator = child(notes, 'NoteIdGenerator');
+    const next = nativeIds.reduce((max, id) => Math.max(max, id), 0) + 1;
+    if (!generator || Number(generator.getAttribute('NextId')) < next) ensure(notes, 'NoteIdGenerator').setAttribute('NextId', String(next));
+  }
+  requireUnique(Array.from(events.children).filter(el => el.tagName === 'MidiClip').map(el => el.getAttribute('Id') || ''), 'serialized clip');
+  return new XMLSerializer().serializeToString(doc);
+
   if (doc.querySelector('parsererror')) throw new Error('CLIP_SYNC_XML: invalid source XML');
   const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
   const targetTrack = trackEls.find(el => el.getAttribute('Id') === trackId) ||
@@ -2461,6 +2588,7 @@ export function syncTrackClipsToXml(
   }
   injectMultipleMidiClipsXmlNodes(doc, targetTrack, clips);
   return formatXmlString(new XMLSerializer().serializeToString(doc));
+
 }
 
 /**

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 const processMock = vi.hoisted(() => ({ execFileSync: vi.fn() }));
 vi.mock('node:child_process', () => processMock);
-import { computeSha256, publishArtifacts } from '../../scripts/build-debug-apk.mjs';
+import { computeSha256, publishArtifacts, validatePrerequisites } from '../../scripts/build-debug-apk.mjs';
 const roots: string[] = [];
 afterEach(() => { vi.resetAllMocks(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -16,6 +16,11 @@ function fixture() {
   return root;
 }
 describe('Release publication safety', () => {
+  it('bounds the Java prerequisite probe and reports a stalled executable as unavailable', () => {
+    processMock.execFileSync.mockImplementation(() => { throw Object.assign(new Error('stalled'), { code: 'ETIMEDOUT' }); });
+    expect(validatePrerequisites().hasJava).toBe(false);
+    expect(processMock.execFileSync).toHaveBeenCalledWith('javac', ['-version'], expect.objectContaining({ timeout: 2000 }));
+  });
   it('does not overwrite distribution when verification fails', () => {
     const root = fixture(); const before = fs.readFileSync(path.join(root, 'public/apk-metadata.json'), 'utf8');
     processMock.execFileSync.mockImplementation(() => { throw new Error('Signature invalid'); });
