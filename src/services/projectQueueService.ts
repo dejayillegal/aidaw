@@ -26,6 +26,7 @@ import {
   runStageAStaticAnalysis,
   runStageBAudioMeasurement,
 } from '../engine/masteringEngine';
+import { auditProjectCapabilities } from '../engine/abletonCapabilityMatrix';
 
 const ALLOWED_STATE_TRANSITIONS: Record<QueueItemState, QueueItemState[]> = {
   queued: ['importing', 'cancelled', 'failed', 'unsupported'],
@@ -281,6 +282,12 @@ export class ProjectQueueService {
         return this.getItem(queueId)!;
       }
 
+      const capAudit = auditProjectCapabilities(parsed);
+      if (capAudit.warnings.length > 0) {
+        parsed.compatibilityWarnings = Array.from(
+          new Set([...(parsed.compatibilityWarnings || []), ...capAudit.warnings])
+        );
+      }
       record.workingProjectState = cloneProjectState(parsed);
       record.workingProjectRevision = parsed.projectRevision || 1;
       record.importedLiveVersion = parsed.creator || 'Ableton Live 12.0';

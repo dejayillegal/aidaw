@@ -12,36 +12,49 @@ import type {
  * Divisible by 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 32, 40, 48, 60, 64, 80, 96, 120, 160, 192, 240, 320, 480.
  */
 export const CANONICAL_PPQ = 960;
+export const MAX_SUPPORTED_TIMELINE_BARS = 4096;
+export const MAX_SUPPORTED_TICKS = MAX_SUPPORTED_TIMELINE_BARS * 4 * CANONICAL_PPQ;
 
 export function beatsToTicks(beats: number, ppq = CANONICAL_PPQ): number {
-  if (!Number.isFinite(beats) || !Number.isSafeInteger(ppq) || ppq <= 0) {
+  if (!Number.isFinite(beats) || beats < 0 || !Number.isSafeInteger(ppq) || ppq <= 0) {
     throw new Error('TIMELINE_INPUT: invalid beat or PPQ coordinate');
   }
-  return Math.round(beats * ppq);
+  const rounded = Math.round(beats * ppq);
+  if (!Number.isSafeInteger(rounded) || rounded > MAX_SUPPORTED_TICKS) {
+    throw new Error(`TIMELINE_INPUT: tick coordinate ${rounded} exceeds maximum supported bound (${MAX_SUPPORTED_TICKS})`);
+  }
+  return rounded;
 }
 
 export function ticksToBeats(ticks: number, ppq = CANONICAL_PPQ): number {
-  if (!Number.isFinite(ticks) || !Number.isSafeInteger(ppq) || ppq <= 0) {
+  if (!Number.isFinite(ticks) || ticks < 0 || !Number.isSafeInteger(ppq) || ppq <= 0) {
     throw new Error('TIMELINE_INPUT: invalid tick or PPQ coordinate');
   }
-  return Math.round(ticks) / ppq;
+  const rounded = Math.round(ticks);
+  if (!Number.isSafeInteger(rounded) || rounded > MAX_SUPPORTED_TICKS) {
+    throw new Error(`TIMELINE_INPUT: tick coordinate ${rounded} exceeds maximum supported bound (${MAX_SUPPORTED_TICKS})`);
+  }
+  return rounded / ppq;
 }
 
 export function snapBeatsToGridTicks(
   beats: number,
   stepBeats: number,
   ppq = CANONICAL_PPQ
-): { ticks: number; beats: number } {
+): { ticks: number; beats: number; quantizationErrorBeats: number; isExactTick: boolean } {
   if (!Number.isFinite(beats) || beats < 0 || !Number.isFinite(stepBeats) || stepBeats <= 0) {
     throw new Error('TIMELINE_INPUT: invalid grid snap coordinates');
   }
   const stepIndex = Math.round(beats / stepBeats);
   const snappedBeats = stepIndex * stepBeats;
+  const exactTicks = snappedBeats * ppq;
   const ticks = beatsToTicks(snappedBeats, ppq);
-  return { ticks, beats: snappedBeats };
+  const quantizationErrorBeats = Math.abs(ticks / ppq - snappedBeats);
+  const isExactTick = Math.abs(exactTicks - ticks) <= 1e-9;
+  return { ticks, beats: snappedBeats, quantizationErrorBeats, isExactTick };
 }
 
-function normalizedMeterMap(meterMap?: MeterChangeEvent[]): MeterChangeEvent[] {
+export function validateAndNormalizeMeterMap(meterMap?: MeterChangeEvent[]): MeterChangeEvent[] {
   if (!meterMap || meterMap.length === 0) {
     return [{ bar: 1, beat: 0, numerator: 4, denominator: 4 }];
   }
@@ -49,14 +62,18 @@ function normalizedMeterMap(meterMap?: MeterChangeEvent[]): MeterChangeEvent[] {
   for (let i = 0; i < sorted.length; i++) {
     const evt = sorted[i];
     if (
+      !evt ||
       !Number.isSafeInteger(evt.bar) ||
       evt.bar < 1 ||
+      evt.bar > MAX_SUPPORTED_TIMELINE_BARS ||
       !Number.isFinite(evt.beat) ||
       evt.beat < 0 ||
       !Number.isSafeInteger(evt.numerator) ||
       evt.numerator < 1 ||
+      evt.numerator > 64 ||
       !Number.isSafeInteger(evt.denominator) ||
       evt.denominator < 1 ||
+      evt.denominator > 64 ||
       (evt.denominator & (evt.denominator - 1)) !== 0
     ) {
       throw new Error('TIMELINE_INPUT: invalid meter change event');
@@ -65,8 +82,22 @@ function normalizedMeterMap(meterMap?: MeterChangeEvent[]): MeterChangeEvent[] {
       throw new Error('TIMELINE_INPUT: meter map must be strictly increasing');
     }
   }
-  if (sorted[0].beat > 0) {
+  if ((sorted[0].bar === 1 && sorted[0].beat !== 0) || (sorted[0].beat === 0 && sorted[0].bar !== 1)) {
+    throw new Error('TIMELINE_INPUT: meter map anchor at bar 1 must start at beat 0');
+  }
+  if (sorted[0].bar > 1) {
     sorted.unshift({ bar: 1, beat: 0, numerator: 4, denominator: 4 });
+  }
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    const quarterBeatsPerPrevBar = prev.numerator * (4 / prev.denominator);
+    const expectedBeat = prev.beat + (curr.bar - prev.bar) * quarterBeatsPerPrevBar;
+    if (Math.abs(curr.beat - expectedBeat) > 1e-9) {
+      throw new Error(
+        `TIMELINE_INPUT: discontinuous meter map anchor at bar ${curr.bar} (expected beat ${expectedBeat}, got ${curr.beat})`
+      );
+    }
   }
   return sorted;
 }
@@ -91,7 +122,7 @@ export function beatToBarBeatTick(
     throw new Error('TIMELINE_INPUT: beat must be a finite non-negative number');
   }
   const totalTicks = beatsToTicks(beat, ppq);
-  const meters = normalizedMeterMap(meterMap);
+  const meters = validateAndNormalizeMeterMap(meterMap);
   let active = meters[0];
   for (const candidate of meters) {
     if (beatsToTicks(candidate.beat, ppq) <= totalTicks) {
@@ -132,6 +163,7 @@ export function barBeatTickToBeat(
   if (
     !Number.isSafeInteger(bar) ||
     bar < 1 ||
+    bar > MAX_SUPPORTED_TIMELINE_BARS ||
     !Number.isSafeInteger(beatInBar) ||
     beatInBar < 1 ||
     !Number.isFinite(tickInBeat) ||
@@ -139,7 +171,7 @@ export function barBeatTickToBeat(
   ) {
     throw new Error('TIMELINE_INPUT: invalid bar/beat/tick coordinates');
   }
-  const meters = normalizedMeterMap(meterMap);
+  const meters = validateAndNormalizeMeterMap(meterMap);
   let active = meters[0];
   for (const candidate of meters) {
     if (candidate.bar <= bar) {
@@ -159,7 +191,10 @@ export function barBeatTickToBeat(
   return barBeats + beatOffset + tickBeats;
 }
 
-function normalizedTempoMap(baseTempo: number, tempoMap?: TempoAutomationPoint[]): TempoAutomationPoint[] {
+export function validateAndNormalizeTempoMap(
+  baseTempo: number,
+  tempoMap?: TempoAutomationPoint[]
+): TempoAutomationPoint[] {
   if (!Number.isFinite(baseTempo) || baseTempo <= 0) {
     throw new Error('TIMELINE_INPUT: invalid base tempo');
   }
@@ -169,7 +204,7 @@ function normalizedTempoMap(baseTempo: number, tempoMap?: TempoAutomationPoint[]
   const sorted = [...tempoMap];
   for (let i = 0; i < sorted.length; i++) {
     const pt = sorted[i];
-    if (!Number.isFinite(pt.beat) || pt.beat < 0 || !Number.isFinite(pt.bpm) || pt.bpm <= 0) {
+    if (!pt || !Number.isFinite(pt.beat) || pt.beat < 0 || !Number.isFinite(pt.bpm) || pt.bpm <= 0) {
       throw new Error('TIMELINE_INPUT: invalid tempo map point');
     }
     if (i > 0 && pt.beat <= sorted[i - 1].beat) {
@@ -184,6 +219,8 @@ function normalizedTempoMap(baseTempo: number, tempoMap?: TempoAutomationPoint[]
 
 /**
  * Evaluates exact elapsed seconds at a given musical beat across constant, stepped, or piecewise-linear tempo maps.
+ * For a beat-linear ramp BPM(b) = B0 + k*(b - b0) where k = (B1 - B0)/(b1 - b0),
+ * integrates dt = (60 / BPM(b)) db = (60 / k) * ln(BPM(b) / B0).
  */
 export function beatToSecondsWithTempoMap(
   beat: number,
@@ -193,7 +230,7 @@ export function beatToSecondsWithTempoMap(
   if (!Number.isFinite(beat) || beat < 0) {
     throw new Error('TIMELINE_INPUT: beat must be finite and non-negative');
   }
-  const points = normalizedTempoMap(baseTempo, tempoMap);
+  const points = validateAndNormalizeTempoMap(baseTempo, tempoMap);
   if (beat === 0) return 0;
 
   let elapsedSeconds = 0;
@@ -205,11 +242,15 @@ export function beatToSecondsWithTempoMap(
     const deltaBeats = segEndBeat - curr.beat;
     if (deltaBeats <= 0) continue;
 
-    if (next && curr.curve === 'linear' && Math.abs(next.bpm - curr.bpm) > 1e-6) {
+    if (next && curr.curve === 'linear') {
       const spanBeats = next.beat - curr.beat;
-      const endBpm = curr.bpm + ((next.bpm - curr.bpm) * deltaBeats) / spanBeats;
-      const avgBpm = 0.5 * (curr.bpm + endBpm);
-      elapsedSeconds += (deltaBeats * 60) / avgBpm;
+      const slopeBpmPerBeat = (next.bpm - curr.bpm) / spanBeats;
+      if (Math.abs(slopeBpmPerBeat) <= 1e-9) {
+        elapsedSeconds += (deltaBeats * 60) / curr.bpm;
+      } else {
+        const endBpm = curr.bpm + slopeBpmPerBeat * deltaBeats;
+        elapsedSeconds += (60 / slopeBpmPerBeat) * Math.log(endBpm / curr.bpm);
+      }
     } else {
       elapsedSeconds += (deltaBeats * 60) / curr.bpm;
     }
@@ -218,7 +259,9 @@ export function beatToSecondsWithTempoMap(
 }
 
 /**
- * Inverse mapping from elapsed seconds to musical beat across a tempo map.
+ * Exact analytic inverse mapping from elapsed seconds to musical beat across a tempo map.
+ * For a beat-linear ramp with slope k = (B1 - B0)/(b1 - b0),
+ * inverts dt = (60 / k) * ln(BPM(b) / B0) via b(dt) = b0 + (B0 / k) * (exp(k * dt / 60) - 1).
  */
 export function secondsToBeatWithTempoMap(
   seconds: number,
@@ -228,7 +271,7 @@ export function secondsToBeatWithTempoMap(
   if (!Number.isFinite(seconds) || seconds < 0) {
     throw new Error('TIMELINE_INPUT: seconds must be finite and non-negative');
   }
-  const points = normalizedTempoMap(baseTempo, tempoMap);
+  const points = validateAndNormalizeTempoMap(baseTempo, tempoMap);
   if (seconds === 0) return 0;
 
   let remainingSec = seconds;
@@ -239,16 +282,52 @@ export function secondsToBeatWithTempoMap(
       return curr.beat + (remainingSec * curr.bpm) / 60;
     }
     const spanBeats = next.beat - curr.beat;
-    const avgBpm =
-      curr.curve === 'linear' ? 0.5 * (curr.bpm + next.bpm) : curr.bpm;
-    const segSeconds = (spanBeats * 60) / avgBpm;
-    if (remainingSec <= segSeconds) {
-      return curr.beat + (remainingSec * avgBpm) / 60;
+    if (curr.curve === 'linear') {
+      const slopeBpmPerBeat = (next.bpm - curr.bpm) / spanBeats;
+      const segSeconds =
+        Math.abs(slopeBpmPerBeat) <= 1e-9
+          ? (spanBeats * 60) / curr.bpm
+          : (60 / slopeBpmPerBeat) * Math.log(next.bpm / curr.bpm);
+      if (remainingSec <= segSeconds + 1e-12) {
+        const clampedSec = Math.min(remainingSec, segSeconds);
+        if (Math.abs(slopeBpmPerBeat) <= 1e-9) {
+          return curr.beat + (clampedSec * curr.bpm) / 60;
+        }
+        return curr.beat + (curr.bpm / slopeBpmPerBeat) * (Math.exp((slopeBpmPerBeat * clampedSec) / 60) - 1);
+      }
+      remainingSec -= segSeconds;
+    } else {
+      const segSeconds = (spanBeats * 60) / curr.bpm;
+      if (remainingSec <= segSeconds + 1e-12) {
+        return curr.beat + (Math.min(remainingSec, segSeconds) * curr.bpm) / 60;
+      }
+      remainingSec -= segSeconds;
     }
-    remainingSec -= segSeconds;
   }
   const last = points[points.length - 1];
   return last.beat + (remainingSec * last.bpm) / 60;
+}
+
+export function hasNonConstantTimingMap(
+  project: Pick<AbletonProjectState, 'tempo' | 'tempoMap' | 'meterMap'>
+): boolean {
+  const tempoPoints = validateAndNormalizeTempoMap(project.tempo, project.tempoMap);
+  const meterEvents = validateAndNormalizeMeterMap(project.meterMap);
+  const hasDynamicTempo = tempoPoints.some((pt) => Math.abs(pt.bpm - project.tempo) > 1e-6);
+  const hasNonFourFourMeter = meterEvents.some(
+    (evt) => evt.numerator !== 4 || evt.denominator !== 4
+  );
+  return hasDynamicTempo || hasNonFourFourMeter;
+}
+
+export function assertRuntimeTimingMapSupport(
+  project: Pick<AbletonProjectState, 'tempo' | 'tempoMap' | 'meterMap'>
+): void {
+  if (hasNonConstantTimingMap(project)) {
+    throw new Error(
+      'TIMING_MAP_UNSUPPORTED: Non-constant tempoMap or non-4/4 meterMap is preserved in project state and XML, but variable-tempo/meter DSP scheduling is not yet enabled for live playback or offline WAV export.'
+    );
+  }
 }
 
 export function noteProbabilityPasses(note: MidiNoteEvent): boolean {
@@ -305,10 +384,22 @@ export function noteIsInsideClip(note: MidiNoteEvent, clip: AbletonMidiClip): bo
   return Number.isFinite(note.time) && clip.length > 0 && note.time >= clip.startTime && note.time < clip.startTime + clip.length;
 }
 
-export function playbackRegion(totalBeats: number, transport: Pick<TransportConfig, 'loopEnabled' | 'loopStartBar' | 'loopLengthBars'>) {
+export function playbackRegion(
+  totalBeats: number,
+  transport: Pick<TransportConfig, 'loopEnabled' | 'loopStartBar' | 'loopLengthBars'>,
+  meterMap?: MeterChangeEvent[]
+) {
   if (!Number.isFinite(totalBeats) || totalBeats <= 0) throw new Error('TIMELINE_INPUT: invalid extent');
-  const start = Math.max(0, (transport.loopStartBar - 1) * 4);
-  const end = Math.min(totalBeats, start + transport.loopLengthBars * 4);
+  let start: number;
+  let end: number;
+  if (meterMap && meterMap.length > 0 && Number.isSafeInteger(transport.loopStartBar) && transport.loopStartBar >= 1 && Number.isSafeInteger(transport.loopLengthBars) && transport.loopLengthBars >= 1) {
+    start = Math.max(0, barBeatTickToBeat(transport.loopStartBar, 1, 0, meterMap));
+    const endBar = Math.min(MAX_SUPPORTED_TIMELINE_BARS, transport.loopStartBar + transport.loopLengthBars);
+    end = Math.min(totalBeats, barBeatTickToBeat(endBar, 1, 0, meterMap));
+  } else {
+    start = Math.max(0, (transport.loopStartBar - 1) * 4);
+    end = Math.min(totalBeats, start + transport.loopLengthBars * 4);
+  }
   const enabled = transport.loopEnabled && Number.isFinite(start) && Number.isFinite(end) && end > start;
   return { start, end, span: enabled ? end - start : 0, enabled };
 }
@@ -317,4 +408,5 @@ export function positionAtBeat(rawBeat: number, totalBeats: number, region: Retu
   if (region.enabled && rawBeat >= region.end) return region.start + ((rawBeat - region.start) % region.span);
   return Math.max(0, Math.min(totalBeats, rawBeat));
 }
+
 

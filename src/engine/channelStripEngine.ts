@@ -11,15 +11,31 @@ import {
   formatXmlString,
   getDefaultVcaGroups,
 } from './alsXmlEngine';
+import { auditProjectCapabilities } from './abletonCapabilityMatrix';
+import { assertRuntimeTimingMapSupport } from './timelineCoordinates';
 
 export const MAX_CHANNEL_INSERT_SLOTS = 10;
 
-/** Imported chains are preserved; execution must never truncate them. */
+/** Imported chains are preserved; execution must never truncate them or silently pass through unsupported devices. */
 export function assertExecutableInsertLimits(project: AbletonProjectState): void {
   for (const track of project.tracks) {
     if (track.devices.length > MAX_CHANNEL_INSERT_SLOTS) {
       throw new Error(`INSERT_LIMIT: ${track.name} has ${track.devices.length} devices; the browser supports ${MAX_CHANNEL_INSERT_SLOTS} chain slots. Remove devices or retain this project for XML preservation only.`);
     }
+  }
+  assertRuntimeTimingMapSupport(project);
+  const audit = auditProjectCapabilities(project);
+  if (audit.unsupportedDevices.length > 0) {
+    const first = audit.unsupportedDevices[0];
+    throw new Error(
+      `UNSUPPORTED_DEVICE: ${first.trackName} contains unsupported device <${first.xmlTag}> (${first.deviceId}); bypass or remove it before playback or WAV rendering.`
+    );
+  }
+  if (audit.preservedOnlyDevices.length > 0) {
+    const first = audit.preservedOnlyDevices[0];
+    throw new Error(
+      `PRESERVED_ONLY_DEVICE: ${first.trackName} contains preserved-only native device <${first.xmlTag}> (${first.deviceId}) with no browser DSP processor; bypass it to audition/render with approximations or retain this project for XML preservation.`
+    );
   }
 }
 

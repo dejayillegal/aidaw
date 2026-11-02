@@ -131,23 +131,46 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(parsed1024.bar).toBe(1024);
       expect(parsed1024.beatInBar).toBe(4);
       expect(parsed1024.tickInBeat).toBe(720);
+
+      // Discontinuous meter map boundary must be rejected atomically
+      const discontinuousMeterMap = [
+        { bar: 1, beat: 0, numerator: 4, denominator: 4 },
+        { bar: 5, beat: 8, numerator: 3, denominator: 4 }, // 4 bars of 4/4 is 16 beats, not 8
+      ];
+      expect(() => beatToBarBeatTick(8, discontinuousMeterMap)).toThrow(/discontinuous meter map anchor/);
+      expect(() => barBeatTickToBeat(3, 1, 0, discontinuousMeterMap)).toThrow(/discontinuous meter map anchor/);
     });
 
-    it('evaluates beat-to-seconds and inverse across stepped and linear tempo maps', () => {
-      const tempoMap = [
+    it('integrates beat-linear tempo ramps via 60/BPM calculus (4*ln(2)) and inverts interior beats losslessly', () => {
+      // Analytic reference oracle: 60 -> 120 BPM over 4 beats
+      // BPM(b) = 60 + 15*b => dt = integral_0^4 (60 / (60 + 15*b)) db = 4 * ln(2) = 2.772588722239781s
+      const ramp60To120 = [
+        { beat: 0, bpm: 60, curve: 'linear' as const },
+        { beat: 4, bpm: 120, curve: 'step' as const },
+      ];
+      const exactFourLn2 = 4 * Math.LN2;
+      const secAtBeat4 = beatToSecondsWithTempoMap(4, 60, ramp60To120);
+      expect(secAtBeat4).toBeCloseTo(exactFourLn2, 10);
+
+      // Interior midpoint beat = 2 (BPM = 90): dt = 4 * ln(90/60) = 4 * ln(1.5)
+      const secAtBeat2 = beatToSecondsWithTempoMap(2, 60, ramp60To120);
+      expect(secAtBeat2).toBeCloseTo(4 * Math.log(1.5), 10);
+      expect(secondsToBeatWithTempoMap(secAtBeat2, 60, ramp60To120)).toBeCloseTo(2.0, 10);
+      expect(secondsToBeatWithTempoMap(secAtBeat4, 60, ramp60To120)).toBeCloseTo(4.0, 10);
+
+      // Multi-segment stepped + linear tempo map
+      const multiMap = [
         { beat: 0, bpm: 120, curve: 'step' as const }, // 0..4 beats @ 120 BPM = 2.0s
-        { beat: 4, bpm: 120, curve: 'linear' as const }, // 4..8 beats linear ramp 120 -> 140 BPM (avg 130 BPM)
+        { beat: 4, bpm: 120, curve: 'linear' as const }, // 4..8 beats linear ramp 120 -> 140 BPM (k = 5 BPM/beat)
         { beat: 8, bpm: 140, curve: 'step' as const }, // 8+ beats @ 140 BPM
       ];
+      const expectedRampSec = (60 / 5) * Math.log(140 / 120);
+      const multiSecAt8 = beatToSecondsWithTempoMap(8, 120, multiMap);
+      expect(multiSecAt8).toBeCloseTo(2.0 + expectedRampSec, 10);
+      expect(secondsToBeatWithTempoMap(multiSecAt8, 120, multiMap)).toBeCloseTo(8.0, 10);
 
-      const secAtBeat4 = beatToSecondsWithTempoMap(4, 120, tempoMap);
-      expect(secAtBeat4).toBeCloseTo(2.0, 6);
-
-      const secAtBeat8 = beatToSecondsWithTempoMap(8, 120, tempoMap);
-      expect(secAtBeat8).toBeCloseTo(2.0 + (4 * 60) / 130, 6);
-
-      const invertedBeat8 = secondsToBeatWithTempoMap(secAtBeat8, 120, tempoMap);
-      expect(invertedBeat8).toBeCloseTo(8, 6);
+      const multiSecAt6 = beatToSecondsWithTempoMap(6, 120, multiMap);
+      expect(secondsToBeatWithTempoMap(multiSecAt6, 120, multiMap)).toBeCloseTo(6.0, 10);
 
       expect(() => beatToSecondsWithTempoMap(-1, 120)).toThrow(/TIMELINE_INPUT/);
       expect(() =>
@@ -156,6 +179,26 @@ describe('G1–G8 Strengthening Contracts', () => {
           { beat: 2, bpm: 132 },
         ])
       ).toThrow(/TIMELINE_INPUT/);
+    });
+
+    it('round-trips tempoMap, meterMap, and ppq through ALS XML and rejects non-constant maps at audio render preflight', () => {
+      const built = buildStarterAbletonXml('berghain-134', 101, 4, 'sketch');
+      const project = parseAbletonXmlDom(built.xml, built.meta.name, built.xml);
+      project.ppq = 960;
+      project.tempoMap = [
+        { beat: 0, bpm: 134, curve: 'linear' },
+        { beat: 8, bpm: 140, curve: 'step' },
+      ];
+      project.meterMap = [
+        { bar: 1, beat: 0, numerator: 4, denominator: 4 },
+        { bar: 3, beat: 8, numerator: 3, denominator: 4 },
+      ];
+
+      const syncedXml = synchronizeProjectStateToXml(project);
+      const reparsed = parseAbletonXmlDom(syncedXml, project.fileName, syncedXml);
+      expect(reparsed.ppq).toBe(960);
+      expect(reparsed.tempoMap).toEqual(project.tempoMap);
+      expect(reparsed.meterMap).toEqual(project.meterMap);
     });
   });
 
@@ -239,8 +282,9 @@ describe('G1–G8 Strengthening Contracts', () => {
     });
   });
 
-  describe('G5: Declared Ableton Capability Matrix & Preflight Auditor', () => {
-    it('classifies capabilities and flags insert-limit or unsupported third-party plugin devices', () => {
+  describe('G5: Declared Ableton Capability Matrix & Runtime Execution Policy', () => {
+    it('enforces capability matrix at runtime for unsupported, preserved-only, and over-limit device chains', async () => {
+      const { assertExecutableInsertLimits } = await import('../engine/channelStripEngine');
       expect(ABLETON_CAPABILITY_MATRIX.length).toBeGreaterThanOrEqual(12);
       const statuses = new Set(ABLETON_CAPABILITY_MATRIX.map((c) => c.status));
       expect(statuses.has('executable')).toBe(true);
@@ -256,6 +300,35 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(baselineAudit.canExecuteFullDsp).toBe(true);
       expect(baselineAudit.insertLimitExceededTracks.length).toBe(0);
       expect(baselineAudit.unsupportedDevices.length).toBe(0);
+      expect(baselineAudit.preservedOnlyDevices.length).toBe(0);
+      expect(() => assertExecutableInsertLimits(project)).not.toThrow();
+
+      // Preserved-only device (e.g. MidiScale or InstrumentGroupDevice) sets canExecuteFullDsp=false and blocks un-bypassed execution
+      const preservedOnlyProject = {
+        ...project,
+        tracks: project.tracks.map((t, idx) =>
+          idx === 0
+            ? {
+                ...t,
+                devices: [
+                  ...t.devices,
+                  {
+                    id: 'dev_preserved_scale',
+                    xmlTag: 'MidiScale',
+                    displayName: 'Scale',
+                    category: 'midi_effect' as const,
+                    parameters: [],
+                    bypassed: false,
+                  },
+                ],
+              }
+            : t
+        ),
+      };
+      const preservedAudit = auditProjectCapabilities(preservedOnlyProject);
+      expect(preservedAudit.canExecuteFullDsp).toBe(false);
+      expect(preservedAudit.preservedOnlyDevices).toHaveLength(1);
+      expect(() => assertExecutableInsertLimits(preservedOnlyProject)).toThrow(/PRESERVED_ONLY_DEVICE/);
 
       const overloadedProject = {
         ...project,
@@ -281,6 +354,17 @@ describe('G1–G8 Strengthening Contracts', () => {
       expect(overloadedAudit.insertLimitExceededTracks).toHaveLength(1);
       expect(overloadedAudit.unsupportedDevices).toHaveLength(1);
       expect(overloadedAudit.unsupportedDevices[0].xmlTag).toBe('PluginDevice');
+      expect(() => assertExecutableInsertLimits(overloadedProject)).toThrow(/INSERT_LIMIT/);
+
+      // Non-constant tempo map is rejected at runtime preflight until variable-tempo DSP scheduling is enabled
+      const dynamicTempoProject = {
+        ...project,
+        tempoMap: [
+          { beat: 0, bpm: 120, curve: 'linear' as const },
+          { beat: 16, bpm: 140, curve: 'step' as const },
+        ],
+      };
+      expect(() => assertExecutableInsertLimits(dynamicTempoProject)).toThrow(/TIMING_MAP_UNSUPPORTED/);
     });
   });
 });

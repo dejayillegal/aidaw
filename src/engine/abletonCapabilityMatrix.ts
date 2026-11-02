@@ -146,38 +146,62 @@ export const ABLETON_CAPABILITY_MATRIX: readonly AbletonCapabilityEntry[] = [
     limitationsAndWarnings: 'Executes resonant biquad filtering and energy envelope modulation.',
   },
   {
-    id: 'fx_ saturator_roar_overdrive_drumbuss',
+    id: 'fx_saturator_roar_overdrive',
     category: 'audio_effect',
-    xmlTagOrFeature: 'Saturator|Roar|Overdrive|DrumBuss|Pedal|Erosion|Redux',
-    displayName: 'Harmonic Saturation / Distortion Inserts',
+    xmlTagOrFeature: 'Saturator|Roar|Overdrive',
+    displayName: 'Harmonic Saturation & Waveshaper Distortion Inserts',
     status: 'executable',
     maxInstancesPerTrack: MAX_EXECUTABLE_INSERT_DEVICES,
-    executedParameters: ['Drive', 'Boom', 'DryWet', 'Bypass'],
+    executedParameters: ['Drive', 'Bypass'],
     preservedXmlScope: 'Full native XML subtree preserved on import/export',
     limitationsAndWarnings:
-      'Up to 10 insert devices per track are executed in the shared live/offline DSP chain; >10 inserts are explicitly rejected with INSERT_LIMIT.',
+      'Executed via dedicated Web Audio WaveShaper insert nodes within the 10-insert-per-track limit.',
   },
   {
-    id: 'fx_time_spatial',
+    id: 'fx_delay_chorus_limiter_utility',
     category: 'audio_effect',
-    xmlTagOrFeature: 'Reverb|HybridReverb|Delay|Echo|ChorusEnsemble|PhaserFlanger|AutoPan|Limiter|GlueCompressor|Utility|Spectrum',
-    displayName: 'Spatial, Delay, Modulation & Dynamics Inserts',
+    xmlTagOrFeature: 'Delay|Echo|ChorusEnsemble|Limiter|GlueCompressor|Utility',
+    displayName: 'Delay, Chorus, Dynamics & Utility Inserts',
     status: 'executable',
     maxInstancesPerTrack: MAX_EXECUTABLE_INSERT_DEVICES,
-    executedParameters: ['DecayTime', 'DryWet', 'Feedback', 'Ceiling', 'Gain', 'Bypass'],
+    executedParameters: ['Feedback', 'Ceiling', 'Gain', 'Bypass'],
     preservedXmlScope: 'Full native XML subtree preserved on import/export',
-    limitationsAndWarnings: 'Executed in shared track/master DSP graph within the 10-insert-per-track limit.',
+    limitationsAndWarnings:
+      'Executed via dedicated Web Audio Delay/DynamicsCompressor/Gain insert nodes within the 10-insert-per-track limit.',
   },
   {
-    id: 'midi_fx_chord_arp',
+    id: 'fx_converted_bus_and_drive',
+    category: 'audio_effect',
+    xmlTagOrFeature: 'DrumBuss|Reverb|HybridReverb|Erosion|AutoPan|Lfo',
+    displayName: 'Converted Bus/Send & Gain-Approximated Native Effects',
+    status: 'converted',
+    maxInstancesPerTrack: MAX_EXECUTABLE_INSERT_DEVICES,
+    executedParameters: ['Drive', 'DecayTime', 'DryWet', 'Rate', 'Depth', 'Bypass'],
+    preservedXmlScope: 'Full native XML subtree preserved on import/export',
+    limitationsAndWarnings:
+      'Approximated via channel drive multiplier (DrumBuss), shared Warehouse Reverb return bus (Reverb/HybridReverb), or voice LFO modulation rather than discrete per-insert convolver/autopan graphs.',
+  },
+  {
+    id: 'midi_fx_converted_note_generators',
     category: 'midi_effect',
-    xmlTagOrFeature: 'MidiChord|MidiArpeggiator|MidiScale|MidiVelocity|MidiNoteLength|MidiPitch|MidiRandom',
-    displayName: 'Ableton MIDI Effects',
+    xmlTagOrFeature: 'MidiChord|MidiArpeggiator',
+    displayName: 'Converted Ableton MIDI Chord & Arpeggiator',
+    status: 'converted',
+    executedParameters: ['Shift1', 'Shift2', 'Shift3', 'Rate', 'Bypass'],
+    preservedXmlScope: 'Preserved verbatim in <DeviceChain> XML; chord/arp notes materialized in <MidiNoteEvent>',
+    limitationsAndWarnings:
+      'Chord and arpeggio voicings are materialized into <MidiNoteEvent> clip data via studio commands rather than evaluated as a live MIDI stream filter.',
+  },
+  {
+    id: 'midi_and_audio_preserved_only',
+    category: 'midi_effect',
+    xmlTagOrFeature: 'MidiScale|MidiVelocity|MidiNoteLength|MidiPitch|MidiRandom|Pedal|Redux|Redux2|PhaserFlanger|PhaserNew|Spectrum',
+    displayName: 'Preserved-Only Native MIDI & Audio Effects',
     status: 'preserved-only',
     executedParameters: ['Bypass'],
     preservedXmlScope: 'Preserved verbatim in <DeviceChain> XML',
     limitationsAndWarnings:
-      'Chord/grid/velocity transformations are applied explicitly into <MidiNoteEvent> data via studio commands; native real-time MIDI device evaluation is preserved in XML.',
+      'No browser DSP processor is implemented; active instances are flagged as preserved-only and require bypass before live/offline DSP execution.',
   },
   {
     id: 'rack_group_devices',
@@ -224,11 +248,77 @@ export const ABLETON_CAPABILITY_MATRIX: readonly AbletonCapabilityEntry[] = [
   },
 ] as const;
 
+export const EXECUTABLE_DEVICE_TAGS = new Set<string>([
+  'DrumGroupDevice',
+  'Operator',
+  'UltraAnalog',
+  'InstrumentVector',
+  'Drift',
+  'Collision',
+  'OriginalSimpler',
+  'EQEight',
+  'Compressor2',
+  'GlueCompressor',
+  'AutoFilter',
+  'Saturator',
+  'Roar',
+  'Overdrive',
+  'Delay',
+  'Echo',
+  'ChorusEnsemble',
+  'Limiter',
+  'Utility',
+]);
+
+export const CONVERTED_DEVICE_TAGS = new Set<string>([
+  'DrumBuss',
+  'Reverb',
+  'HybridReverb',
+  'Erosion',
+  'AutoPan',
+  'MidiChord',
+  'MidiArpeggiator',
+  'Lfo',
+]);
+
+export const PRESERVED_ONLY_DEVICE_TAGS = new Set<string>([
+  'InstrumentGroupDevice',
+  'AudioEffectGroupDevice',
+  'MidiEffectGroupDevice',
+  'MidiScale',
+  'MidiVelocity',
+  'MidiNoteLength',
+  'MidiPitch',
+  'MidiRandom',
+  'Pedal',
+  'Redux',
+  'Redux2',
+  'PhaserFlanger',
+  'PhaserNew',
+  'Spectrum',
+]);
+
+export const UNSUPPORTED_DEVICE_TAGS = new Set<string>([
+  'PluginDevice',
+  'AuPluginDevice',
+  'MxDeviceAudioEffect',
+  'MxDeviceInstrument',
+  'MxDeviceMidiEffect',
+]);
+
+export function classifyAbletonDeviceTag(xmlTag: string): AbletonCapabilityStatus {
+  if (EXECUTABLE_DEVICE_TAGS.has(xmlTag)) return 'executable';
+  if (CONVERTED_DEVICE_TAGS.has(xmlTag)) return 'converted';
+  if (PRESERVED_ONLY_DEVICE_TAGS.has(xmlTag)) return 'preserved-only';
+  return 'unsupported';
+}
+
 export interface ProjectCapabilityAuditReport {
   executableTrackCount: number;
   insertLimitExceededTracks: { trackId: string; trackName: string; deviceCount: number; maxAllowed: number }[];
   unsupportedDevices: { trackId: string; trackName: string; deviceId: string; xmlTag: string }[];
   preservedOnlyDevices: { trackId: string; trackName: string; deviceId: string; xmlTag: string }[];
+  convertedDevices: { trackId: string; trackName: string; deviceId: string; xmlTag: string }[];
   warnings: string[];
   canExecuteFullDsp: boolean;
 }
@@ -237,27 +327,8 @@ export function auditProjectCapabilities(project: AbletonProjectState): ProjectC
   const insertLimitExceededTracks: ProjectCapabilityAuditReport['insertLimitExceededTracks'] = [];
   const unsupportedDevices: ProjectCapabilityAuditReport['unsupportedDevices'] = [];
   const preservedOnlyDevices: ProjectCapabilityAuditReport['preservedOnlyDevices'] = [];
+  const convertedDevices: ProjectCapabilityAuditReport['convertedDevices'] = [];
   const warnings = [...(project.compatibilityWarnings || [])];
-
-  const unsupportedTags = new Set([
-    'PluginDevice',
-    'AuPluginDevice',
-    'MxDeviceAudioEffect',
-    'MxDeviceInstrument',
-    'MxDeviceMidiEffect',
-  ]);
-  const preservedOnlyTags = new Set([
-    'InstrumentGroupDevice',
-    'AudioEffectGroupDevice',
-    'MidiEffectGroupDevice',
-    'MidiChord',
-    'MidiArpeggiator',
-    'MidiScale',
-    'MidiVelocity',
-    'MidiNoteLength',
-    'MidiPitch',
-    'MidiRandom',
-  ]);
 
   let executableTrackCount = 0;
   for (const track of project.tracks) {
@@ -276,15 +347,30 @@ export function auditProjectCapabilities(project: AbletonProjectState): ProjectC
     }
 
     for (const dev of track.devices) {
-      if (unsupportedTags.has(dev.xmlTag) || dev.browserDspSupported === false) {
+      if (dev.bypassed) continue;
+      const status = classifyAbletonDeviceTag(dev.xmlTag);
+      if (status === 'unsupported' || dev.browserDspSupported === false) {
         unsupportedDevices.push({
           trackId: track.id,
           trackName: track.name,
           deviceId: dev.id,
           xmlTag: dev.xmlTag,
         });
-      } else if (preservedOnlyTags.has(dev.xmlTag)) {
+        warnings.push(
+          `UNSUPPORTED_DEVICE: Track "${track.name}" (${track.id}) contains unsupported device <${dev.xmlTag}> (${dev.id}).`
+        );
+      } else if (status === 'preserved-only') {
         preservedOnlyDevices.push({
+          trackId: track.id,
+          trackName: track.name,
+          deviceId: dev.id,
+          xmlTag: dev.xmlTag,
+        });
+        warnings.push(
+          `PRESERVED_ONLY_DEVICE: Track "${track.name}" (${track.id}) contains preserved-only device <${dev.xmlTag}> (${dev.id}).`
+        );
+      } else if (status === 'converted') {
+        convertedDevices.push({
           trackId: track.id,
           trackName: track.name,
           deviceId: dev.id,
@@ -299,7 +385,11 @@ export function auditProjectCapabilities(project: AbletonProjectState): ProjectC
     insertLimitExceededTracks,
     unsupportedDevices,
     preservedOnlyDevices,
+    convertedDevices,
     warnings,
-    canExecuteFullDsp: insertLimitExceededTracks.length === 0 && unsupportedDevices.length === 0,
+    canExecuteFullDsp:
+      insertLimitExceededTracks.length === 0 &&
+      unsupportedDevices.length === 0 &&
+      preservedOnlyDevices.length === 0,
   };
 }

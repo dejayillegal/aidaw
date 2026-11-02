@@ -2310,7 +2310,17 @@ export function parseAbletonXmlDom(
     if (!parsedProject.session) throw new Error('SESSION_STATE: missing performance');
     compatibilityWarnings.push('Session performance is browser application metadata; native Ableton Session slots and launch execution are not exported.');
   }
-  if (settingsNode || sessionNode || xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
+  const timingNode = xmlDoc.querySelector('LiveSet > ParametricTimingMaps');
+  if (timingNode) {
+    if (timingNode.getAttribute('Version') !== '1') throw new Error('TIMING_MAP_VERSION: unsupported timing map metadata');
+    let parsedTiming: { ppq?: number; tempoMap?: AbletonProjectState['tempoMap']; meterMap?: AbletonProjectState['meterMap'] } | null = null;
+    try { parsedTiming = JSON.parse(timingNode.textContent || 'null'); } catch { throw new Error('TIMING_MAP_STATE: invalid timing map metadata'); }
+    if (!parsedTiming || typeof parsedTiming !== 'object') throw new Error('TIMING_MAP_STATE: missing timing map payload');
+    if (parsedTiming.ppq !== undefined) parsedProject.ppq = parsedTiming.ppq;
+    if (parsedTiming.tempoMap !== undefined) parsedProject.tempoMap = parsedTiming.tempoMap;
+    if (parsedTiming.meterMap !== undefined) parsedProject.meterMap = parsedTiming.meterMap;
+  }
+  if (settingsNode || sessionNode || timingNode || xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
   return parsedProject;
 }
 
@@ -3098,6 +3108,19 @@ export function synchronizeProjectStateToXml(
     if (!sessionNode) { sessionNode=doc.createElement('ParametricSessionState'); doc.querySelector('LiveSet')!.appendChild(sessionNode); }
     sessionNode.setAttribute('Version','1');sessionNode.textContent=JSON.stringify(project.session);
   } else sessionNode?.remove();
+  let timingNode = doc.querySelector('LiveSet > ParametricTimingMaps');
+  if (project.ppq !== undefined || project.tempoMap !== undefined || project.meterMap !== undefined) {
+    if (!timingNode) {
+      timingNode = doc.createElement('ParametricTimingMaps');
+      doc.querySelector('LiveSet')!.appendChild(timingNode);
+    }
+    timingNode.setAttribute('Version', '1');
+    timingNode.textContent = JSON.stringify({
+      ...(project.ppq !== undefined ? { ppq: project.ppq } : {}),
+      ...(project.tempoMap !== undefined ? { tempoMap: project.tempoMap } : {}),
+      ...(project.meterMap !== undefined ? { meterMap: project.meterMap } : {}),
+    });
+  } else timingNode?.remove();
 
   xml = new XMLSerializer().serializeToString(doc);
   // Compare against the prior complete projection, never the half-built document:

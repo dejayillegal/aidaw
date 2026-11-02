@@ -16,6 +16,7 @@ import {
   TransportConfig,
 } from '../types/ableton';
 import { composeEffectiveTrackGain, resolveEffectiveAudibility, assertExecutableInsertLimits } from './channelStripEngine';
+import { classifyAbletonDeviceTag } from './abletonCapabilityMatrix';
 import { computeDeterministicHash } from './alsXmlEngine';
 import { noteProbabilityPasses, sessionEventsInWindow } from './timelineCoordinates';
 
@@ -490,6 +491,18 @@ export function buildDeviceInsertProcessor(
     comp.attack.value = 0.001;
     comp.release.value = 0.05;
     return { id: device.id, type: 'limiter', bypassed: false, input: comp, output: comp };
+  }
+
+  const rawTag = device.xmlTag || device.type || '';
+  if (
+    rawTag &&
+    (device.browserDspSupported === false ||
+      classifyAbletonDeviceTag(rawTag) === 'unsupported' ||
+      classifyAbletonDeviceTag(rawTag) === 'preserved-only')
+  ) {
+    throw new Error(
+      `UNSUPPORTED_DEVICE: Cannot build browser insert processor for un-bypassed <${rawTag}> (${device.id}); bypass or remove the device first.`
+    );
   }
 
   const pass = ctx.createGain();
@@ -2164,7 +2177,13 @@ export class ParametricWebAudioEngine {
   }
 
   private getPlaybackRegion(maxBeats:number) {
-    return playbackRegion(maxBeats,this.project?.audioSettings?.transport.arrangementMode==='session' ? {...this.transport,loopEnabled:false} : this.transport);
+    return playbackRegion(
+      maxBeats,
+      this.project?.audioSettings?.transport.arrangementMode==='session'
+        ? {...this.transport,loopEnabled:false}
+        : this.transport,
+      this.project?.meterMap
+    );
   }
 
   private executionAllowed(): boolean {

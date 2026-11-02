@@ -1,4 +1,9 @@
 import { assertAudioSettings } from './audioSettingsContracts';
+import {
+  MAX_SUPPORTED_TIMELINE_BARS,
+  validateAndNormalizeMeterMap,
+  validateAndNormalizeTempoMap,
+} from './timelineCoordinates';
 import type { AbletonProjectState } from '../types/ableton';
 
 /** Validates the existing domain; this does not create a second editable model. */
@@ -6,24 +11,24 @@ export function assertProjectState(project: AbletonProjectState): void {
   const fail = (message: string): never => { throw new Error(`PROJECT_STATE: ${message}`); };
   if (!project || !Array.isArray(project.tracks) || typeof project.fileName !== 'string') fail('missing project/tracks');
   if (!Number.isFinite(project.tempo) || project.tempo <= 0) fail('invalid tempo');
-  if (project.arrangementLengthBars !== undefined && (!Number.isSafeInteger(project.arrangementLengthBars) || project.arrangementLengthBars < 1)) fail('invalid arrangement extent');
+  if (project.arrangementLengthBars !== undefined && (!Number.isSafeInteger(project.arrangementLengthBars) || project.arrangementLengthBars < 1 || project.arrangementLengthBars > MAX_SUPPORTED_TIMELINE_BARS)) fail('invalid arrangement extent');
   if (project.creationMode !== undefined && project.creationMode !== 'sketch' && project.creationMode !== 'full-track') fail('invalid creation mode');
-  if (project.requestedDurationBars !== undefined && (!Number.isSafeInteger(project.requestedDurationBars) || project.requestedDurationBars < 1)) fail('invalid requested duration bars');
+  if (project.requestedDurationBars !== undefined && (!Number.isSafeInteger(project.requestedDurationBars) || project.requestedDurationBars < 1 || project.requestedDurationBars > MAX_SUPPORTED_TIMELINE_BARS)) fail('invalid requested duration bars');
   if (project.ppq !== undefined && (!Number.isSafeInteger(project.ppq) || project.ppq <= 0)) fail('invalid PPQ resolution');
   if (project.tempoMap !== undefined) {
     if (!Array.isArray(project.tempoMap)) fail('invalid tempoMap');
-    for (let i = 0; i < project.tempoMap.length; i++) {
-      const pt = project.tempoMap[i];
-      if (!pt || !Number.isFinite(pt.beat) || pt.beat < 0 || !Number.isFinite(pt.bpm) || pt.bpm <= 0) fail('invalid tempoMap point');
-      if (i > 0 && pt.beat <= project.tempoMap[i - 1].beat) fail('tempoMap must be strictly increasing');
+    try {
+      validateAndNormalizeTempoMap(project.tempo, project.tempoMap);
+    } catch (err) {
+      fail(err instanceof Error ? err.message.replace(/^TIMELINE_INPUT:\s*/, '') : 'invalid tempoMap');
     }
   }
   if (project.meterMap !== undefined) {
     if (!Array.isArray(project.meterMap)) fail('invalid meterMap');
-    for (let i = 0; i < project.meterMap.length; i++) {
-      const m = project.meterMap[i];
-      if (!m || !Number.isSafeInteger(m.bar) || m.bar < 1 || !Number.isFinite(m.beat) || m.beat < 0 || !Number.isSafeInteger(m.numerator) || m.numerator < 1 || !Number.isSafeInteger(m.denominator) || m.denominator < 1 || (m.denominator & (m.denominator - 1)) !== 0) fail('invalid meterMap event');
-      if (i > 0 && (m.beat <= project.meterMap[i - 1].beat || m.bar <= project.meterMap[i - 1].bar)) fail('meterMap must be strictly increasing');
+    try {
+      validateAndNormalizeMeterMap(project.meterMap);
+    } catch (err) {
+      fail(err instanceof Error ? err.message.replace(/^TIMELINE_INPUT:\s*/, '') : 'invalid meterMap');
     }
   }
   if (project.audioSettings) assertAudioSettings(project.audioSettings);
