@@ -161,7 +161,8 @@ interface TimelineCanvasProps {
     noteId: string,
     targetBeat: number,
     editMode: TimelineEditMode,
-    gridStepBeats: number
+    gridStepBeats: number,
+    clipId?: string
   ) => void;
   barRangeSelection?: TimelineBarRangeSelection;
   onChangeBarRangeSelection?: (range: TimelineBarRangeSelection) => void;
@@ -1339,7 +1340,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         targetNote.id,
         rawTargetBeat,
         editMode,
-        stepBeats
+        stepBeats,
+        clip.id
       );
       return;
     }

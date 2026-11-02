@@ -4,8 +4,8 @@
 <body>
 <p>Real Chromium Web Audio export regression. No audio mocks.</p>
 <script type="module">
-import { buildStarterAbletonXml, parseAlsXmlString } from '/src/engine/alsXmlEngine.ts';
-import { renderArrangementToWavBlob, synthesizeProjectToStereoFloatBuffers } from '/src/engine/webAudioSynth.ts';
+import { buildStarterAbletonXml, parseAlsXmlString, synchronizeProjectStateToXml } from '/src/engine/alsXmlEngine.ts';
+import { renderArrangementToWavBlob, synthesizeProjectToStereoFloatBuffers, shouldPlayNote } from '/src/engine/webAudioSynth.ts';
 import { executeMasterExport20 } from '/src/engine/masteringEngine.ts';
 
 const humanization = {
@@ -81,6 +81,41 @@ async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDu
 }
 
 window.recovery = {
+  async runProbabilityCase() {
+    const { xml } = buildStarterAbletonXml('berghain-134', 777, 4);
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    [...doc.querySelectorAll('Tracks > MidiTrack')].slice(1).forEach(t => t.remove());
+    const source = parseAlsXmlString(new XMLSerializer().serializeToString(doc));
+    source.arrangementLengthBars = 1;
+    const clip = source.tracks[0].clips[0];
+    clip.length = 4; clip.endTime = 4;
+    clip.notes = [0, 1, 0.5, 0.25].map((probability, i) => ({
+      id: `p${i}`, time: 0.25 + i * 0.5, quantizedTime: 0.25 + i * 0.5,
+      duration: 0.125, pitch: 36, velocity: 100, isGhost: false, probability,
+    }));
+    const project = parseAlsXmlString(synchronizeProjectStateToXml(source));
+    const eligible = project.tracks[0].clips[0].notes.filter(shouldPlayNote);
+    assert(JSON.stringify(eligible.map(n => n.id)) === JSON.stringify(['p1', 'p2']), 'Probability event eligibility changed');
+    const oracle = structuredClone(project);
+    oracle.tracks[0].clips[0].notes = eligible.map(n => ({ ...n, probability: 1 }));
+    const results = [];
+    for (const sampleRate of [44100, 48000]) {
+      const actual = await synthesizeProjectToStereoFloatBuffers(project, humanization, masterBus, sampleRate, 1);
+      const expected = await synthesizeProjectToStereoFloatBuffers(oracle, humanization, masterBus, sampleRate, 1);
+      assert(actual.left.length === expected.left.length, 'Probability oracle duration mismatch');
+      let maxError = 0, sumSquares = 0, peak = 0;
+      for (const key of ['left', 'right']) for (let i = 0; i < actual[key].length; i++) {
+        assert(Number.isFinite(actual[key][i]), 'Nonfinite probability PCM');
+        const difference = actual[key][i] - expected[key][i];
+        peak = Math.max(peak, Math.abs(actual[key][i]));
+        maxError = Math.max(maxError, Math.abs(difference)); sumSquares += difference * difference;
+      }
+      const rmsError = Math.sqrt(sumSquares / (actual.left.length * 2));
+      assert(peak > 0.01 && maxError < 0.001 && rmsError < 0.0001, 'Probability render differs from explicit event oracle');
+      results.push({ sampleRate, frames: actual.left.length, eligibleIds: eligible.map(n => n.id), peak, maxError, rmsError });
+    }
+    return { scope: 'Offline probability eligibility oracle; not live-loop audio capture or listening approval', results };
+  },
   async runTimeoutGuardCase() {
     const NativeContext = window.OfflineAudioContext;
     const nativeTimeout = window.setTimeout;

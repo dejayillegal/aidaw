@@ -88,7 +88,8 @@ export interface SoundCraftWorkstationProps {
     noteId: string,
     targetBeat: number,
     mode: TimelineEditMode,
-    gridStepBeats: number
+    gridStepBeats: number,
+    clipId?: string
   ) => void;
   onOpenBulkQueueModal: () => void;
   onExecuteProjectCommand: (

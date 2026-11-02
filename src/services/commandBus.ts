@@ -11,7 +11,7 @@ import {
   TimelineEditMode,
   TrackTakeRecord,
 } from '../types/ableton';
-import { syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
+import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
 import {
   computeSelectedTrackAnalysisData,
   detectAudioStripSilenceRegions,
@@ -74,7 +74,7 @@ export class StudioCommandBus {
     const nextRev = (currentProject.projectRevision || currentProject.revision || 1) + 1;
     mutated.revision = nextRev;
     mutated.projectRevision = nextRev;
-    const syncedXml = syncLocatorsAndMixerToXml(mutated);
+    const syncedXml = synchronizeProjectStateToXml(mutated, currentProject);
     mutated.rawXmlModified = syncedXml;
     mutated.rawXml = syncedXml;
     const afterSnapshot = deepCloneProject(mutated);
@@ -189,7 +189,7 @@ export function resolveBeatForEditMode(
   rawBeat: number,
   editMode: TimelineEditMode,
   gridDivisionBeats = 0.25,
-  maxBeats = 512
+  maxBeats = Number.POSITIVE_INFINITY
 ): number {
   const clamped = Math.max(0, Math.min(maxBeats - 0.0625, rawBeat));
   if (editMode === 'slip' || editMode === 'spot') {
@@ -327,7 +327,7 @@ export function applyClipPositionWithEditMode(
 
   const clip = track.clips[clipIndex];
   const oldStart = clip.startTime || 0;
-  const clipDuration = Math.max(1, (clip.endTime || 16) - oldStart);
+  const clipDuration = clip.length;
   const newStart = resolveBeatForEditMode(targetStartBeat, editMode, gridDivisionBeats, maxBeats);
   const deltaBeats = newStart - oldStart;
 
@@ -338,22 +338,20 @@ export function applyClipPositionWithEditMode(
     return {
       ...n,
       time: nextTime,
-      quantizedTime: Math.round(nextTime * 4) / 4,
+      quantizedTime: n.quantizedTime + deltaBeats,
     };
   });
 
   if (editMode === 'shuffle' && track.clips.length > 1) {
     track.clips.forEach((otherClip, idx) => {
       if (idx !== clipIndex && otherClip.startTime > oldStart) {
-        otherClip.startTime = Math.max(0, Number((otherClip.startTime + deltaBeats).toFixed(4)));
-        const baseEnd = otherClip.endTime ?? otherClip.startTime + 1;
-        otherClip.endTime = Math.max(
-          otherClip.startTime + 1,
-          Number((baseEnd + deltaBeats).toFixed(4))
-        );
+        const previousStart = otherClip.startTime;
+        otherClip.startTime = Math.max(0, Number((previousStart + deltaBeats).toFixed(4)));
+        const actualDelta = otherClip.startTime - previousStart;
+        otherClip.endTime = otherClip.startTime + otherClip.length;
         otherClip.notes = otherClip.notes.map((n) => {
-          const t = Math.max(0, Number((n.time + deltaBeats).toFixed(4)));
-          return { ...n, time: t, quantizedTime: Math.round(t * 4) / 4 };
+          const t = Math.max(0, Number((n.time + actualDelta).toFixed(4)));
+          return { ...n, time: t, quantizedTime: n.quantizedTime + actualDelta };
         });
       }
     });
