@@ -432,26 +432,6 @@ export default function App() {
         | 'clip_edit',
       mutator: (draft: AbletonProjectState) => AbletonProjectState
     ) => {
-      setProject((prev) => {
-        try {
-          const next = studioCommandBus.executeMutation(
-            currentProjectQueueKey,
-            label,
-            category,
-            prev,
-            mutator
-          );
-          const enriched = enrichProjectWithAnalysis(next, activeFormId);
-          if (activeQueueId) {
-            projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
-          }
-          setStatusMessage(`Executed: ${label}`);
-          return enriched;
-        } catch (error) {
-          setStatusMessage(`Edit failed: ${error instanceof Error ? error.message : String(error)}`);
-          return prev;
-        }
-      });
       try {
         const next = studioCommandBus.executeMutation(
           currentProjectQueueKey, label, category, projectRef.current, mutator, { activeProjectQueueId: commandTargetRef.current }
