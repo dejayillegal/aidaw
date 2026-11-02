@@ -1,3 +1,4 @@
+import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
 import { saveExportBlob } from './services/fileExportService';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -38,6 +39,7 @@ import {
   parseAbletonXmlDom,
   STARTER_TEMPLATES,
   syncTrackClipsToXml,
+  synchronizeProjectStateToXml,
   TechnoHeuristicEngine,
 } from './engine/alsXmlEngine';
 import {
@@ -296,6 +298,10 @@ export default function App() {
     return enrichProjectWithAnalysis(parsed, 'hypnotic_longform');
   });
 
+  // A pointer to the same current domain object, for ordered commands within a single React batch.
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
   const [selectedTrackId, setSelectedTrackId] = useState<string>('1');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isExportingWav, setIsExportingWav] = useState<boolean>(false);
@@ -399,6 +405,7 @@ export default function App() {
     }
   };
 
+  const projectSnapshotInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Subscribe to ProjectQueueService & StudioCommandBus
@@ -440,21 +447,18 @@ export default function App() {
         | 'clip_edit',
       mutator: (draft: AbletonProjectState) => AbletonProjectState
     ) => {
-      setProject((prev) => {
+      try {
         const next = studioCommandBus.executeMutation(
-          currentProjectQueueKey,
-          label,
-          category,
-          prev,
-          mutator
+          currentProjectQueueKey, label, category, projectRef.current, mutator
         );
         const enriched = enrichProjectWithAnalysis(next, activeFormId);
-        if (activeQueueId) {
-          projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
-        }
+        projectRef.current = enriched;
+        setProject(enriched);
+        if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
         setStatusMessage(`Executed: ${label}`);
-        return enriched;
-      });
+      } catch (error) {
+        setStatusMessage(`Edit rejected: ${error instanceof Error ? error.message : String(error)}`);
+      }
     },
     [currentProjectQueueKey, activeFormId, activeQueueId]
   );
@@ -463,6 +467,7 @@ export default function App() {
     const restored = studioCommandBus.undo(currentProjectQueueKey);
     if (restored) {
       const enriched = enrichProjectWithAnalysis(restored, activeFormId);
+      projectRef.current = enriched;
       setProject(enriched);
       if (activeQueueId) {
         projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
@@ -475,6 +480,7 @@ export default function App() {
     const restored = studioCommandBus.redo(currentProjectQueueKey);
     if (restored) {
       const enriched = enrichProjectWithAnalysis(restored, activeFormId);
+      projectRef.current = enriched;
       setProject(enriched);
       if (activeQueueId) {
         projectQueueService.updateWorkingProjectState(activeQueueId, enriched);
@@ -520,6 +526,11 @@ export default function App() {
       }
     );
   }, [project, humanization, transport, masterBus]);
+
+  useEffect(() => {
+    const bars = project.arrangementLengthBars || 16;
+    setTransport(prev => prev.arrangementLengthBars === bars ? prev : { ...prev, arrangementLengthBars: bars });
+  }, [project.arrangementLengthBars]);
 
   const [includeMidiHumanization, setIncludeMidiHumanization] = useState<boolean>(true);
 
@@ -695,7 +706,7 @@ export default function App() {
       setStatusMessage(
         `Ingested ${files.length} project(s) · Active: ${firstFile.name} (${
           wasGzipped ? 'Gzipped .als' : 'Raw XML'
-        }) · ${enriched.tracks.length} tracks @ ${enriched.tempo} BPM.`
+        }) · ${enriched.tracks.length} tracks @ ${enriched.tempo} BPM. ${enriched.compatibilityWarnings?.join(' ') || ''}`
       );
     } catch (err: any) {
       setStatusMessage(`Failed to parse .als file: ${err.message}`);
@@ -1327,22 +1338,9 @@ export default function App() {
   // Handler: Configurable Arrangement Duration (4 to 1024 Bars) - Non-destructive Extent Change (v7.1 P1-006)
   const handleChangeArrangementLength = (bars: number) => {
     const safeBars = Math.max(4, Math.min(1024, Math.round(bars)));
-    setTransport((prev) => ({
-      ...prev,
-      arrangementLengthBars: safeBars,
+    handleExecuteProjectCommand('Change Arrangement Extent', 'transport', prev => ({
+      ...prev, arrangementLengthBars: safeBars,
     }));
-
-    setProject((prev) => {
-      // Non-destructive extent change: Preserves 100% of existing clips, notes, and track structures
-      return {
-        ...prev,
-        arrangementLengthBars: safeBars,
-      };
-    });
-
-    setStatusMessage(
-      `Set Arrangement Extent to ${safeBars} Bars (${safeBars * 4} Beats). All existing clips and notes preserved.`
-    );
   };
 
   const handleApplyMidiTool = (trackId: string, toolId: MidiToolTransformationId) => {
@@ -1393,9 +1391,8 @@ export default function App() {
   };
 
   const handleToggleTrackLock = (trackId: string) => {
-    setProject((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, locked: !t.locked } : t)),
+    handleExecuteProjectCommand('Toggle Track Lock', 'clip_edit', prev => ({
+      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, locked: !t.locked } : t),
     }));
   };
 
@@ -1593,12 +1590,8 @@ export default function App() {
   };
 
   const handleUpdateTrackMixer = (trackId: string, partial: Partial<TrackMixerParams>) => {
-    synthEngine.updateTrackMixerLive(trackId, partial);
-    setProject((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) =>
-        t.id === trackId ? { ...t, mixer: { ...t.mixer, ...partial } } : t
-      ),
+    handleExecuteProjectCommand('Update Track Mixer', 'mixer', prev => ({
+      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, mixer: { ...t.mixer, ...partial } } : t),
     }));
   };
 
@@ -1806,34 +1799,20 @@ export default function App() {
   };
 
   const handleUpdateTrackAutomation = (trackId: string, points: AutomationPoint[]) => {
-    setProject((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) =>
-        t.id === trackId ? { ...t, automationPoints: points } : t
-      ),
+    handleExecuteProjectCommand('Update Filter Energy Automation', 'mixer', prev => ({
+      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, automationPoints: points } : t),
     }));
-    setStatusMessage(`Updated <AutomationEnvelope> curve (${points.length} breakpoints).`);
   };
 
   const handleToggleMute = (trackId: string) => {
-    const target = project.tracks.find((t) => t.id === trackId);
-    if (target) {
-      synthEngine.updateTrackMixerLive(trackId, undefined, { muted: !target.muted });
-    }
-    setProject((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, muted: !t.muted } : t)),
+    handleExecuteProjectCommand('Toggle Track Mute', 'mixer', prev => ({
+      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, muted: !t.muted } : t),
     }));
   };
 
   const handleToggleSolo = (trackId: string) => {
-    const target = project.tracks.find((t) => t.id === trackId);
-    if (target) {
-      synthEngine.updateTrackMixerLive(trackId, undefined, { soloed: !target.soloed });
-    }
-    setProject((prev) => ({
-      ...prev,
-      tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, soloed: !t.soloed } : t)),
+    handleExecuteProjectCommand('Toggle Track Solo', 'mixer', prev => ({
+      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, soloed: !t.soloed } : t),
     }));
   };
 
@@ -1843,7 +1822,7 @@ export default function App() {
     pitch: number,
     stepDuration = 0.25
   ) => {
-    setProject((prev) => {
+    handleExecuteProjectCommand('Toggle MIDI Note', 'clip_edit', (prev) => {
       let workingXml = prev.rawXmlModified;
       const updatedTracks = prev.tracks.map((track) => {
         if (track.id !== trackId) return track;
@@ -2086,19 +2065,46 @@ export default function App() {
 
   const handleUpdateTempo = (newBpm: number) => {
     const clamped = Math.max(90, Math.min(180, newBpm));
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(project.rawXmlModified, 'application/xml');
-    const tempoManual =
-      xmlDoc.querySelector('MasterTrack Tempo Manual') || xmlDoc.querySelector('Tempo > Manual');
-    if (tempoManual) {
-      tempoManual.setAttribute('Value', `${clamped}`);
-    }
-    const serialized = formatXmlString(new XMLSerializer().serializeToString(xmlDoc));
-    setProject((prev) => ({
-      ...prev,
-      tempo: clamped,
-      rawXmlModified: serialized,
-    }));
+    handleExecuteProjectCommand('Change Tempo', 'transport', prev => ({ ...prev, tempo: clamped }));
+  };
+
+  const handleSaveProjectSnapshot = async () => {
+    try {
+      const text = encodeProjectSnapshot(project, humanization, masterBus, transport);
+      const blob = new Blob([text], { type: 'application/json' });
+      const name = `${project.fileName.replace(/\.(als|xml|aidaw\.json)$/i, '')}.aidaw.json`;
+      const saved = await saveExportBlob(blob, name);
+      setStatusMessage(`${saved.verified ? 'Saved and verified' : 'Download requested'}: ${name}. External audio assets remain referenced.`);
+    } catch (error) { setStatusMessage(`Project save failed: ${error instanceof Error ? error.message : String(error)}`); }
+  };
+
+  const handleOpenProjectSnapshot = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const snapshot = decodeProjectSnapshot(new TextDecoder().decode(await file.arrayBuffer()));
+      // Validation completes before stopping transport or changing any active project/history.
+      synthEngine.stop();
+      setIsPlaying(false); setPlayheadBeat(0);
+      if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, project);
+      const record = await projectQueueService.enqueueProjectFromXml(snapshot.project.fileName, snapshot.project.rawXmlModified);
+      if (record.state === 'failed' || record.state === 'unsupported') throw new Error(record.errorDetails || 'Project initialization failed');
+      projectQueueService.updateWorkingProjectState(record.queueId, snapshot.project);
+      projectQueueService.switchActiveProject(record.queueId);
+      setProject(snapshot.project);
+      setHumanization(snapshot.audioSettings.humanization);
+      setMasterBus(snapshot.audioSettings.masterBus);
+      setTransport(snapshot.audioSettings.transport);
+      setCompositionSeed(snapshot.project.lastGenerationIdentity?.compositionSeed ?? snapshot.project.generationSeed ?? 0);
+      setJitterSeed(snapshot.project.lastGenerationIdentity?.humanizationSeed ?? (snapshot.project.generationSeed || 0) + 79);
+      if (snapshot.project.lastGenerationIdentity) {
+        setActiveStrategyId(snapshot.project.lastGenerationIdentity.strategyId);
+        setActiveFormId(snapshot.project.lastGenerationIdentity.macroFormId);
+      }
+      setSelectedTrackId(snapshot.project.tracks[0]?.id || '1');
+      setStatusMessage(`Opened ${file.name}. External assets remain referenced; missing assets are not embedded in the project file.`);
+    } catch (error) { setStatusMessage(`Project open failed: ${error instanceof Error ? error.message : String(error)}`); }
+    finally { if (projectSnapshotInputRef.current) projectSnapshotInputRef.current.value = ''; }
   };
 
   const handleExportNativeAls = async () => {
@@ -2106,7 +2112,7 @@ export default function App() {
       setStatusMessage(
         'Compressing modified XML DOM into native gzipped Ableton Live .als binary...'
       );
-      const { blob, gzipBytes } = await compressXmlToAlsBlob(project.rawXmlModified);
+      const { blob, gzipBytes } = await compressXmlToAlsBlob(synchronizeProjectStateToXml(project));
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       const cleanBase = project.fileName.replace(/\.als$/i, '').replace(/\.xml$/i, '');
@@ -2116,7 +2122,7 @@ export default function App() {
       a.click();
       URL.revokeObjectURL(url);
       setStatusMessage(
-        `Exported ${exportName} (${(gzipBytes / 1024).toFixed(1)} KB gzipped .als) — ALS saved; Ableton device and timing compatibility requires validation.`
+        `Exported ${exportName} (${(gzipBytes / 1024).toFixed(1)} KB gzipped .als) — ALS interchange saved. Parametric mixer/energy automation uses app metadata; native Live playback requires validation.`
       );
     } catch (err: any) {
       setStatusMessage(`Export failed: ${err.message}`);
@@ -2169,12 +2175,17 @@ export default function App() {
       noteId: string,
       targetBeat: number,
       mode: TimelineEditMode,
-      gridStepBeats: number
+      gridStepBeats: number,
+      clipId?: string
     ) => {
       handleExecuteProjectCommand(
         `Move Note (${mode.toUpperCase()} Mode) to Beat ${targetBeat.toFixed(2)}`,
         'edit_mode',
-        (draft) => applyNoteEditWithMode(draft, trackId, 0, noteId, targetBeat, mode, gridStepBeats)
+        (draft) => {
+          const track = draft.tracks.find(t => t.id === trackId);
+          const clipIndex = track?.clips.findIndex(c => (!clipId || c.id === clipId) && c.notes.some(n => n.id === noteId)) ?? -1;
+          return clipIndex < 0 ? draft : applyNoteEditWithMode(draft, trackId, clipIndex, noteId, targetBeat, mode, gridStepBeats);
+        }
       );
     },
     [handleExecuteProjectCommand]
@@ -2334,6 +2345,8 @@ export default function App() {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onNewProject={() => { void handleLoadStarterTemplate(selectedTemplateId); }}
+        onSaveProject={() => { void handleSaveProjectSnapshot(); }}
+        onOpenProject={() => projectSnapshotInputRef.current?.click()}
         onImportAlsClick={() => fileInputRef.current?.click()}
         onExportAls={handleExportNativeAls}
         onExportWav={() => handleExportLosslessWav(24)}
@@ -2352,6 +2365,8 @@ export default function App() {
         onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       />
 
+      <input ref={projectSnapshotInputRef} type="file" accept=".aidaw.json,application/json"
+        onChange={handleOpenProjectSnapshot} className="hidden" aria-label="Open saved DAW project" />
       {/* Hidden File Input for .als Import */}
       <input
         ref={fileInputRef}

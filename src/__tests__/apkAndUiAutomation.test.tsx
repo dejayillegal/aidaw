@@ -1,3 +1,4 @@
+import * as fileExportService from '../services/fileExportService';
 // @vitest-environment jsdom
 import React from 'react';
 import { act } from 'react';
@@ -536,7 +537,7 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
 
     await act(async () => {
       root = createRoot(container!);
-      root.render(<App />);
+      root.render(<React.StrictMode><App /></React.StrictMode>);
     });
 
     const fullText = container!.textContent || '';
@@ -561,7 +562,9 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     const oldState = projectQueueService.getItem(oldId)!.workingProjectState;
     const mute = container!.querySelector<HTMLButtonElement>('button[title="Mute Track"]')!;
     expect(mute).not.toBeNull();
+    const historyBeforeMute = studioCommandBus.getHistory(oldId).length;
     await act(async () => { mute.click(); });
+    expect(studioCommandBus.getHistory(oldId)).toHaveLength(historyBeforeMute + 1);
     await act(async () => {
       studioCommandBus.executeMutation(oldId, 'fixture history', 'clip_edit', oldState, draft => draft);
     });
@@ -611,7 +614,38 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
       expect(studioCommandBus.undo(newId)!.tracks).toEqual(fresh.tracks);
       expect(studioCommandBus.redo(newId)!.tracks).toEqual(composed.tracks);
     });
-  }, 20000);
+
+    // Save through the production native-project serializer and reopen through the actual File UI.
+    let projectBlob: Blob | undefined;
+    const save = vi.spyOn(fileExportService, 'saveExportBlob').mockImplementation(async blob => {
+      projectBlob = blob; return { verified: false };
+    });
+    await act(async () => { fileButton().click(); });
+    const saveButton = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.startsWith('Save Project'))!;
+    await act(async () => { saveButton.click(); });
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0][1]).toMatch(/\.aidaw\.json$/);
+    const savedText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(projectBlob!);
+    });
+    await act(async () => { fileButton().click(); });
+    await act(async () => { Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.startsWith('New Project'))!.click(); });
+    const snapshotInput = container!.querySelector<HTMLInputElement>('input[aria-label="Open saved DAW project"]')!;
+    const openSnapshot = async (text: string) => {
+      const bytes = new TextEncoder().encode(text);
+      Object.defineProperty(snapshotInput, 'files', { configurable: true, value: [{ name: 'Session.aidaw.json', arrayBuffer: async () => bytes.buffer }] });
+      await act(async () => { snapshotInput.dispatchEvent(new Event('change', { bubbles: true })); });
+    };
+    await openSnapshot(savedText);
+    const restoredId = projectQueueService.getActiveQueueId()!;
+    expect(restoredId).not.toBe(newId);
+    expect(projectQueueService.getItem(restoredId)!.workingProjectState.tracks).toEqual(composed.tracks);
+    expect(studioCommandBus.canUndo(restoredId)).toBe(false);
+    const future = JSON.parse(savedText); future.version = 999;
+    await openSnapshot(JSON.stringify(future));
+    expect(projectQueueService.getActiveQueueId()).toBe(restoredId);
+    expect(container!.textContent).toContain('PROJECT_SNAPSHOT_VERSION');
+  }, 45000);
 
   it('E2E Automation 7: Dilla-style BPM-dependent Shuffle Swing push/pull & TimelineCanvas live playhead MIDI grid pixel synchronization', async () => {
     const dillaClip = {

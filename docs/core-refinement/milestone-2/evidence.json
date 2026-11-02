@@ -1,0 +1,84 @@
+{
+  "date": "2026-11-02",
+  "sourceBaseline": "33bc0b62ef0e1c90775df6021cfafc7932aab285",
+  "mergedMain": "e77105c4decbb49cbc6d7d86873d50358ed140fe",
+  "initialNewContractFailures": 4,
+  "tests": {
+    "numTotalTests": 93,
+    "numPassedTests": 93,
+    "numFailedTests": 0,
+    "success": true
+  },
+  "suites": [
+    {
+      "file": "apkAndUiAutomation.test.tsx",
+      "status": "passed",
+      "tests": 9,
+      "elapsedMs": 21139.579345703125
+    },
+    {
+      "file": "coreRefinement.test.ts",
+      "status": "passed",
+      "tests": 9,
+      "elapsedMs": 4326.79931640625
+    },
+    {
+      "file": "fileExportService.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "elapsedMs": 37.372314453125
+    },
+    {
+      "file": "parametricAlsV7.test.tsx",
+      "status": "passed",
+      "tests": 19,
+      "elapsedMs": 16881.3798828125
+    },
+    {
+      "file": "projectSnapshot.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "elapsedMs": 2598.699462890625
+    },
+    {
+      "file": "projectStateIntegrity.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "elapsedMs": 3614.196044921875
+    },
+    {
+      "file": "recoveryContracts.test.ts",
+      "status": "passed",
+      "tests": 21,
+      "elapsedMs": 6450.0107421875
+    },
+    {
+      "file": "releasePublication.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "elapsedMs": 6.6650390625
+    },
+    {
+      "file": "studioWorkstation.test.ts",
+      "status": "passed",
+      "tests": 12,
+      "elapsedMs": 18703.67626953125
+    },
+    {
+      "file": "timelineIntegrity.test.ts",
+      "status": "passed",
+      "tests": 7,
+      "elapsedMs": 1959.089599609375
+    }
+  ],
+  "checks": {
+    "typescript": "PASS",
+    "productionBuild": "PASS; large JS chunk warning remains",
+    "apkVerificationScriptTests": "PASS: 12 tests",
+    "newNativeBrowserProbabilityOracle": "NOT TESTED locally; executes in CI",
+    "physicalAndroid": "BLOCKED",
+    "listening": "NOT TESTED",
+    "G1": "FAIL - remaining scope in REPORT.md",
+    "G2_G3": "NOT TESTED; 200-project acceptance retained"
+  }
+}

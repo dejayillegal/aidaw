@@ -1,3 +1,4 @@
+import { assertProjectState } from './projectStateContracts';
 import {
   AbletonDevice,
   AbletonLibraryDeviceTemplate,
@@ -1712,6 +1713,7 @@ export function parseAbletonXmlDom(
 
   const trackNodes = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
   const tracks: AbletonTrack[] = [];
+  const compatibilityWarnings: string[] = [];
   let totalNotesCount = 0;
   let maxEndBeatDetected = 0;
   const pitchCounts: Record<number, number> = {};
@@ -2110,26 +2112,11 @@ export function parseAbletonXmlDom(
             { beat: 64, value: 0.55 },
           ];
 
-    // Extract native automation envelope points from XML if present, preserving original envelopes
-    const nativeAutoPoints: AutomationPoint[] = [];
-    const floatEventEls = Array.from(
-      trackEl.querySelectorAll('AutomationEnvelopes FloatEvent, Automation FloatEvent, Envelope FloatEvent')
-    );
-    if (floatEventEls.length > 0) {
-      floatEventEls.forEach((ev) => {
-        const timeAttr = ev.getAttribute('Time');
-        const valAttr = ev.getAttribute('Value');
-        if (timeAttr !== null && valAttr !== null) {
-          const beat = parseFloat(timeAttr);
-          const value = parseFloat(valAttr);
-          if (!Number.isNaN(beat) && !Number.isNaN(value)) {
-            nativeAutoPoints.push({ beat, value });
-          }
-        }
-      });
-      nativeAutoPoints.sort((a, b) => a.beat - b.beat);
+    // Native lanes have distinct parameter targets and units. Never flatten Hz, dB and normalized lanes.
+    if (trackEl.querySelector('AutomationEnvelopes FloatEvent, Automation FloatEvent, Envelope FloatEvent')) {
+      compatibilityWarnings.push(`Track ${trackId}: native automation is preserved in XML; browser filter-energy automation does not interpret its parameter targets.`);
     }
-    const resolvedAutomationPoints = nativeAutoPoints.length > 0 ? nativeAutoPoints : defaultAutomation;
+    const resolvedAutomationPoints = defaultAutomation;
 
     let detectedRootForTrack = rootNoteAttr || 'F';
     const serializer = new XMLSerializer();
@@ -2171,6 +2158,18 @@ export function parseAbletonXmlDom(
       },
     ];
 
+    let appState: Partial<AbletonTrack> = {};
+    const appStateNode = trackEl.querySelector(':scope > ParametricTrackState');
+    if (appStateNode) {
+      if (appStateNode.getAttribute('Version') !== '1') throw new Error('PROJECT_STATE_VERSION: unsupported track metadata');
+      try { appState = JSON.parse(appStateNode.textContent || '{}');
+        if (!appState || typeof appState !== 'object' || Array.isArray(appState)) throw new Error('invalid metadata');
+      }
+      catch { throw new Error('PROJECT_STATE: malformed track metadata'); }
+      // Read only this application's serialized projection; never overlay native IDs/devices/clips.
+      appState = Object.fromEntries(Object.entries(appState).filter(([key]) =>
+        ['mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb'].includes(key)));
+    }
     tracks.push({
       id: trackId,
       name: effectiveName,
@@ -2195,6 +2194,7 @@ export function parseAbletonXmlDom(
       polyrhythm: getDefaultPolyrhythmConfig(archetype),
       injectedXmlSnippet: isGenerated ? formatXmlString(serializer.serializeToString(trackEl)) : undefined,
       dspConfigRevision: 1,
+      ...appState,
     });
   });
 
@@ -2205,7 +2205,9 @@ export function parseAbletonXmlDom(
   }
 
   const detectedBars = Math.round(maxEndBeatDetected / 4);
-  const arrangementLengthBars = Math.max(1, Math.ceil(maxEndBeatDetected / 4) || 16);
+  const savedExtent = Number(abletonRoot?.getAttribute('Data-Parametric-ArrangementBars'));
+  const arrangementLengthBars = Number.isSafeInteger(savedExtent) && savedExtent > 0
+    ? savedExtent : Math.max(1, Math.ceil(maxEndBeatDetected / 4) || 16);
 
   // Parse existing Ableton <Locators> if present, otherwise seed default Memory Locations
   const locatorEls = Array.from(xmlDoc.querySelectorAll('Locators > Locators > Locator'));
@@ -2227,14 +2229,15 @@ export function parseAbletonXmlDom(
             comment: locEl.querySelector('Annotation')?.getAttribute('Value') || '',
           };
         })
-      : getDefaultMemoryLocations(arrangementLengthBars);
+      : xmlDoc.querySelector('Locators') ? [] : getDefaultMemoryLocations(arrangementLengthBars);
 
   const formattedModified = formatXmlString(xmlString);
   const formattedOriginal = rawXmlBaseline ? formatXmlString(rawXmlBaseline) : formattedModified;
   const rawByteSize = new TextEncoder().encode(formattedModified).length;
 
-  return {
+  const parsedProject: AbletonProjectState = {
     fileName,
+    compatibilityWarnings,
     generationSeed: abletonRoot?.hasAttribute('Data-Parametric-GenerationSeed')
       ? Number(abletonRoot.getAttribute('Data-Parametric-GenerationSeed')) : undefined,
     schemaVersion,
@@ -2261,6 +2264,8 @@ export function parseAbletonXmlDom(
     estimatedGzipByteSize: Math.round(rawByteSize * 0.14),
     lastActionLog: `Parsed ${tracks.length} tracks (${totalNotesCount} <MidiNoteEvent> nodes) across ${arrangementLengthBars} bars at ${tempo} BPM in ${detectedRoot} ${scaleNameAttr || 'Phrygian'}.`,
   };
+  if (xmlDoc.querySelector('ParametricTrackState')) assertProjectState(parsedProject);
+  return parsedProject;
 }
 
 /**
@@ -2804,7 +2809,7 @@ export function syncLocatorsAndMixerToXml(
   const xmlDoc = parser.parseFromString(sanitized, 'application/xml');
   const liveSet = xmlDoc.querySelector('LiveSet') || xmlDoc.documentElement;
 
-  if (memoryLocations && memoryLocations.length > 0 && liveSet) {
+  if (memoryLocations !== undefined && liveSet) {
     let locatorsOuter = liveSet.querySelector('Locators');
     if (!locatorsOuter) {
       locatorsOuter = xmlDoc.createElement('Locators');
@@ -2820,7 +2825,7 @@ export function syncLocatorsAndMixerToXml(
         typeof loc.beat === 'number'
           ? loc.beat
           : Math.max(0, ((loc.bar || 1) - 1) * 4);
-      timeEl.setAttribute('Value', beatVal.toFixed(3));
+      timeEl.setAttribute('Value', String(beatVal));
       const nameEl = xmlDoc.createElement('Name');
       nameEl.setAttribute('Value', loc.name);
       const annEl = xmlDoc.createElement('Annotation');
@@ -2838,11 +2843,51 @@ export function syncLocatorsAndMixerToXml(
       (el) => el.getAttribute('Id') === t.id
     );
     if (!trackEl) return;
-    trackEl.setAttribute('Data-Base-Volume-Db', t.mixer.volumeDb.toFixed(2));
-    trackEl.setAttribute('Data-Pan', t.mixer.pan.toFixed(2));
+    trackEl.setAttribute('Data-Base-Volume-Db', String(t.mixer.volumeDb));
+    trackEl.setAttribute('Data-Pan', String(t.mixer.pan));
+    let appState = trackEl.querySelector(':scope > ParametricTrackState');
+    if (!appState) { appState = xmlDoc.createElement('ParametricTrackState'); trackEl.appendChild(appState); }
+    appState.setAttribute('Version', '1');
+    appState.setAttribute('AutomationParameter', 'parametric:filter-energy');
+    appState.textContent = JSON.stringify({ mixer: t.mixer, muted: t.muted, soloed: t.soloed,
+      locked: t.locked, automationPoints: t.automationPoints, vcaGroupId: t.vcaGroupId,
+      automationGainOffsetDb: t.automationGainOffsetDb });
   });
 
   return formatXmlString(new XMLSerializer().serializeToString(xmlDoc));
+}
+
+/** Serialize the existing canonical domain. Unchanged clip/unknown XML is left intact. */
+export function synchronizeProjectStateToXml(
+  project: AbletonProjectState,
+  previous?: AbletonProjectState
+): string {
+  assertProjectState(project);
+  let xml = project.rawXmlModified || project.rawXml || '';
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror') || !doc.querySelector('Ableton > LiveSet')) {
+    throw new Error('PROJECT_XML: invalid Ableton project');
+  }
+  const root = doc.querySelector('Ableton')!;
+  root.setAttribute('Data-Parametric-ArrangementBars', String(project.arrangementLengthBars || 16));
+  const tempo = doc.querySelector('MasterTrack Tempo Manual') || doc.querySelector('Tempo > Manual');
+  if (!tempo) throw new Error('PROJECT_XML: missing tempo target');
+  tempo.setAttribute('Value', String(project.tempo));
+  xml = new XMLSerializer().serializeToString(doc);
+  const serialized = previous ? null : parseAbletonXmlDom(xml, project.fileName);
+  const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
+    id: c.id, name: c.name, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
+    notes: c.notes.map(n => ({ id: n.id, time: n.time, quantizedTime: n.quantizedTime,
+      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1 })),
+  }));
+  for (const track of project.tracks) {
+    if (track.type !== 'midi') continue;
+    const before = (previous || serialized)?.tracks.find(t => t.id === track.id);
+    if (JSON.stringify(clipContent(track.clips)) !== JSON.stringify(clipContent(before?.clips))) {
+      xml = syncTrackClipsToXml(xml, track.id, track.clips);
+    }
+  }
+  return syncLocatorsAndMixerToXml(xml, project.tracks, project.memoryLocations);
 }
 
 /**

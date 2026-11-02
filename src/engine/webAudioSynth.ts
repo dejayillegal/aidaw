@@ -1,3 +1,4 @@
+import { noteIsInsideClip, playbackRegion, positionAtBeat } from './timelineCoordinates';
 import {
   AbletonDevice,
   AbletonDeviceParam,
@@ -33,13 +34,13 @@ function dbToGain(db: number): number {
 }
 
 /**
- * Evaluates a track's automation envelope at a given beat (supports 16 to 128 bars / up to 512 beats).
+ * Evaluates the normalized automation envelope at an absolute arrangement beat.
  * Returns a normalized value in [0.0, 1.0].
  */
 export function evaluateAutomationAtBeat(
   points: AutomationPoint[] | undefined,
   beat: number,
-  maxBeats = 2048
+  maxBeats = Number.POSITIVE_INFINITY
 ): number {
   if (!points || points.length === 0) return 0.55;
   const sorted = [...points].sort((a, b) => a.beat - b.beat);
@@ -1517,7 +1518,7 @@ export async function synthesizeProjectToStereoFloatBuffers(
       if (!Number.isFinite(note.time) || !Number.isFinite(note.pitch) || !Number.isFinite(note.duration) || !Number.isFinite(note.velocity)) {
         throw new Error('RENDER_NOTE: non-finite note data');
       }
-      if (note.time >= 0 && note.time < bars * 4 && note.time >= clip.startTime && note.time < clip.startTime + clip.length && shouldPlayNote(note)) {
+      if (note.time >= 0 && note.time < bars * 4 && noteIsInsideClip(note, clip) && shouldPlayNote(note)) {
         events.push({ track, note, time: note.time / bps });
       }
     }
@@ -2471,20 +2472,8 @@ export class ParametricWebAudioEngine {
       const beatsPerSec = bpm / 60.0;
       const elapsedSec = Math.max(0, this.ctx.currentTime - this.anchorAudioTime);
       const maxBeats = this.getMaxArrangementBeats();
-      const loopStartBeat = Math.max(0, (this.transport.loopStartBar - 1) * 4);
-      const loopSpanBeats = Math.max(4, this.transport.loopLengthBars * 4);
-      const loopEndBeat = Math.min(maxBeats, loopStartBeat + loopSpanBeats);
       const rawBeat = this.anchorBeat + elapsedSec * beatsPerSec;
-      if (this.transport.loopEnabled && loopEndBeat > loopStartBeat) {
-        const span = loopEndBeat - loopStartBeat;
-        if (rawBeat >= loopEndBeat) {
-          this.currentBeat = loopStartBeat + ((rawBeat - loopStartBeat) % span);
-        } else {
-          this.currentBeat = rawBeat;
-        }
-      } else {
-        this.currentBeat = rawBeat % Math.max(1, maxBeats);
-      }
+      this.currentBeat = positionAtBeat(rawBeat, maxBeats, playbackRegion(maxBeats, this.transport));
     }
     return this.currentBeat;
   }
@@ -2662,18 +2651,21 @@ export class ParametricWebAudioEngine {
 
     let exactBeatNow = this.anchorBeat + (nowAudio - this.anchorAudioTime) * beatsPerSecond;
 
-    const loopStartBeat = Math.max(0, (this.transport.loopStartBar - 1) * 4);
-    const loopSpanBeats = this.transport.loopLengthBars * 4;
-    const loopEndBeat = Math.min(maxBeats, loopStartBeat + loopSpanBeats);
+    const region = playbackRegion(maxBeats, this.transport);
+    const loopStartBeat = region.start;
+    const loopEndBeat = region.end;
+    const loopSpanBeats = region.span;
 
-    if (this.transport.loopEnabled) {
+    if (region.enabled) {
       if (exactBeatNow >= loopEndBeat) {
+        const completedCycles = Math.max(1, Math.floor((exactBeatNow - loopStartBeat) / loopSpanBeats));
         const wrappedBeat = loopStartBeat + ((exactBeatNow - loopStartBeat) % loopSpanBeats);
         this.anchorBeat = wrappedBeat;
         this.anchorAudioTime = nowAudio;
         exactBeatNow = wrappedBeat;
-        this.loopGeneration++;
-        this.scheduledNoteKeys.clear();
+        this.loopGeneration += completedCycles;
+        this.scheduledNoteKeys = new Set([...this.scheduledNoteKeys].filter(key =>
+          key.startsWith(`${this.loopGeneration}_`) || key.startsWith(`metro_${this.loopGeneration}_`)));
       }
     } else {
       if (exactBeatNow >= maxBeats) {
@@ -2713,11 +2705,11 @@ export class ParametricWebAudioEngine {
         const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
         clip.notes.forEach((note) => {
           // Match the offline timeline contract: half-open clip span and seeded eligibility.
-          if (note.time < clipStartBeat || note.time >= clipEndBeat || !shouldPlayNote(note)) return;
+          if (!noteIsInsideClip(note, clip) || !shouldPlayNote(note)) return;
 
           if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
             if (
-              this.transport.loopEnabled &&
+              region.enabled &&
               (note.time < loopStartBeat || note.time >= loopEndBeat)
             ) {
               return;
@@ -2744,7 +2736,7 @@ export class ParametricWebAudioEngine {
             }
           }
 
-          if (this.transport.loopEnabled && windowEndBeat > loopEndBeat) {
+          if (region.enabled && windowEndBeat > loopEndBeat) {
             const overflowBeats = windowEndBeat - loopEndBeat;
             if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
               const nextGen = this.loopGeneration + 1;
@@ -2804,15 +2796,7 @@ export class ParametricWebAudioEngine {
     const beat = this.anchorBeat + Math.max(0, nowAudio - this.anchorAudioTime) * beatsPerSecond;
     const maxBeats = this.getMaxArrangementBeats();
 
-    const loopStartBeat = Math.max(0, (this.transport.loopStartBar - 1) * 4);
-    const loopSpanBeats = this.transport.loopLengthBars * 4;
-    const loopEndBeat = Math.min(maxBeats, loopStartBeat + loopSpanBeats);
-
-    if (this.transport.loopEnabled && beat >= loopEndBeat) {
-      this.currentBeat = loopStartBeat + ((beat - loopStartBeat) % loopSpanBeats);
-    } else {
-      this.currentBeat = Math.min(maxBeats, beat);
-    }
+    this.currentBeat = positionAtBeat(beat, maxBeats, playbackRegion(maxBeats, this.transport));
 
     const lfoPhase = Math.sin(2 * Math.PI * this.humanization.lfoRateHz * nowAudio);
     const baseCutoff =
