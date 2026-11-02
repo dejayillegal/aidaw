@@ -1267,30 +1267,29 @@ export function validateAlsProjectCadence(xmlString: string): AlsValidationRepor
     trackIds.add(id);
   });
 
-  const uniquePointeeIds = !duplicateTrackIds;
-  if (!uniquePointeeIds) {
-    diagnostics.push('Warning: Duplicate Track Id attributes detected; normalized on export.');
-  }
+  const pointeeIds = Array.from(doc.querySelectorAll('Pointee')).map(el => el.getAttribute('Id')).filter((id): id is string => id !== null);
+  const uniquePointeeIds = new Set(pointeeIds).size === pointeeIds.length;
+  if (duplicateTrackIds) diagnostics.push('Duplicate track IDs detected; manual correction required.');
+  if (!uniquePointeeIds) diagnostics.push('Duplicate explicit Pointee IDs detected.');
 
   const sidechainNodes = Array.from(doc.querySelectorAll('Compressor2 > Sidechain > SourceTrack'));
-  const validSidechainRouting = sidechainNodes.every((sc) => Boolean(sc.getAttribute('Value')));
-
+  const validSidechainRouting = sidechainNodes.every(sc => trackIds.has(sc.getAttribute('Value') || ''));
   const noteCount = doc.querySelectorAll('MidiNoteEvent').length;
-  const roundTripVerified = validXmlDom && validTrackHierarchy && trackEls.length > 0 && noteCount >= 0;
-
-  diagnostics.push(
-    `Verified ${trackEls.length} Tracks (${noteCount} <MidiNoteEvent> nodes) · ${sidechainNodes.length} Kick Sidechain links.`
-  );
+  // Structural validity does not certify the separate routing/compatibility fields.
+  const isValid = validXmlDom && validTrackHierarchy && !duplicateTrackIds && uniquePointeeIds;
+  if (!validSidechainRouting) diagnostics.push('Unresolved sidechain source IDs; routing is not verified.');
+  diagnostics.push(`Inspected ${trackEls.length} MIDI/audio tracks and ${noteCount} MIDI note nodes.`);
+  diagnostics.push('NOT TESTED: semantic round trip, unknown-node preservation, complete routing, and Ableton Live version compatibility require independent fixtures/runtime evidence.');
 
   return {
-    isValid: validXmlDom && validTrackHierarchy,
+    isValid,
     validXmlDom,
     validTrackHierarchy,
     uniquePointeeIds,
     validSidechainRouting,
-    roundTripVerified,
-    unknownNodesPreserved: true,
-    compatibilityStatus: 'Ableton Live 11/12 Native Verified',
+    roundTripVerified: false,
+    unknownNodesPreserved: false,
+    compatibilityStatus: isValid ? 'Inspect & Edit Supported' : 'Schema Warning',
     diagnostics,
   };
 }

@@ -72,6 +72,7 @@ export class StudioCommandBus {
   ): AbletonProjectState {
     const beforeSnapshot = deepCloneProject(currentProject);
     const workingDraft = deepCloneProject(currentProject);
+
     const mutated = mutator(workingDraft);
     // Commit native content before publishing state or adding a history entry.
     // Existing callers that already synchronized their XML remain valid.
@@ -81,6 +82,9 @@ export class StudioCommandBus {
         mutated.rawXmlModified = syncTrackClipsToXml(mutated.rawXmlModified, track.id, track.clips);
       }
     }
+
+    const mutated = { ...mutator(workingDraft) };
+
     const nextRev = (currentProject.projectRevision || currentProject.revision || 1) + 1;
     mutated.revision = nextRev;
     mutated.projectRevision = nextRev;
@@ -168,7 +172,7 @@ export class StudioCommandBus {
   }
 
   public getHistory(projectQueueId: string): ProjectCommandTransaction[] {
-    return [...(this.undoStacks.get(projectQueueId) || [])];
+    return JSON.parse(JSON.stringify(this.undoStacks.get(projectQueueId) || []));
   }
 }
 
