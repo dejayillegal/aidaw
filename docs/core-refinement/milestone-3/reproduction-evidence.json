@@ -1,0 +1,25 @@
+{
+  "run": 41375118131,
+  "job": 125053555868,
+  "head": "fc01864dda5305677766e54133f6e559fb762d5a",
+  "conclusion": "failure",
+  "failures": [
+    "2026-11-02T01:58:44.7514517Z \u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/__tests__/g1EvidenceIsolation.test.ts\u001b[2m > \u001b[22mG1 history isolation and evidence-scoped ALS validation\u001b[2m > \u001b[22mhistory inspection cannot change a later redo",
+    "2026-11-02T01:58:44.7519823Z \u001b[31m\u001b[1mAssertionError\u001b[22m: expected [] to deeply equal [ { id: '1001', …(7) } ]\u001b[39m",
+    "2026-11-02T01:58:44.7626821Z \u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/__tests__/g1EvidenceIsolation.test.ts\u001b[2m > \u001b[22mG1 history isolation and evidence-scoped ALS validation\u001b[2m > \u001b[22ma mutator returning caller-owned state does not let bookkeeping mutate the caller",
+    "2026-11-02T01:58:44.7628442Z \u001b[31m\u001b[1mAssertionError\u001b[22m: expected '{\"fileName\":\"Untitled_Project.als\",\"c…' to be '{\"fileName\":\"Untitled_Project.als\",\"c…' // Object.is equality\u001b[39m",
+    "2026-11-02T01:58:44.7630404Z \u001b[2m Test Files \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m10 passed\u001b[39m\u001b[22m\u001b[90m (11)\u001b[39m",
+    "2026-11-02T01:58:44.7631249Z \u001b[2m      Tests \u001b[22m \u001b[1m\u001b[31m5 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m93 passed\u001b[39m\u001b[22m\u001b[90m (98)\u001b[39m",
+    "2026-11-02T01:58:44.7687498Z ##[error]AssertionError: expected [] to deeply equal [ { id: '1001', …(7) } ]",
+    "2026-11-02T01:58:45.5590691Z \u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/__tests__/g1EvidenceIsolation.test.ts\u001b[2m > \u001b[22mG1 history isolation and evidence-scoped ALS validation\u001b[2m > \u001b[22mvalid XML cannot certify a Live version, round trip or unknown-structure preservation",
+    "2026-11-02T01:58:45.5592111Z \u001b[31m\u001b[1mAssertionError\u001b[22m: expected true to be false // Object.is equality\u001b[39m",
+    "2026-11-02T01:58:45.5599745Z \u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/__tests__/g1EvidenceIsolation.test.ts\u001b[2m > \u001b[22mG1 history isolation and evidence-scoped ALS validation\u001b[2m > \u001b[22mchecks explicit Pointee IDs independently of track IDs",
+    "2026-11-02T01:58:45.5600907Z \u001b[31m\u001b[1mAssertionError\u001b[22m: expected true to be false // Object.is equality\u001b[39m",
+    "2026-11-02T01:58:45.5608590Z \u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/__tests__/g1EvidenceIsolation.test.ts\u001b[2m > \u001b[22mG1 history isolation and evidence-scoped ALS validation\u001b[2m > \u001b[22mdoes not call a nonempty dangling sidechain source verified",
+    "2026-11-02T01:58:45.5609724Z \u001b[31m\u001b[1mAssertionError\u001b[22m: expected true to be false // Object.is equality\u001b[39m",
+    "2026-11-02T01:58:45.8439499Z ##[error]AssertionError: expected '{\"fileName\":\"Untitled_Project.als\",\"c…' to be '{\"fileName\":\"Untitled_Project.als\",\"c…' // Object.is equality",
+    "2026-11-02T01:58:45.8459067Z ##[error]AssertionError: expected true to be false // Object.is equality",
+    "2026-11-02T01:58:45.8464043Z ##[error]AssertionError: expected true to be false // Object.is equality",
+    "2026-11-02T01:58:45.8469660Z ##[error]AssertionError: expected true to be false // Object.is equality"
+  ]
+}
