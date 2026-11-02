@@ -1552,7 +1552,7 @@ export function buildStarterAbletonXml(
   }
 
   const rawXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Ableton MajorVersion="5" MinorVersion="12.0_12049" SchemaChangeCount="3" Creator="Ableton Live 12.0.5" Revision=" parametric-ai-daw-seed-${effectiveSeed} ">
+<Ableton MajorVersion="5" MinorVersion="12.0_12049" SchemaChangeCount="3" Creator="Ableton Live 12.0.5" Revision=" parametric-ai-daw-seed-${effectiveSeed} " Data-Parametric-GenerationSeed="${effectiveSeed}">
   <LiveSet>
     <NextPointeeId Value="${30000 + (effectiveSeed % 5000)}" />
     <OverwriteProtectionNumber Value="${4000 + (effectiveSeed % 1000)}" />
@@ -1713,7 +1713,7 @@ export function parseAbletonXmlDom(
   const trackNodes = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
   const tracks: AbletonTrack[] = [];
   let totalNotesCount = 0;
-  let maxEndBeatDetected = 64;
+  let maxEndBeatDetected = 0;
   const pitchCounts: Record<number, number> = {};
 
   trackNodes.forEach((trackEl, idx) => {
@@ -1892,14 +1892,17 @@ export function parseAbletonXmlDom(
         }
       : undefined;
 
-    const clipNodes = Array.from(trackEl.querySelectorAll('MidiClip'));
+    // Session slots are preserved in raw XML, never scheduled as Arrangement events.
+    const clipNodes = Array.from(trackEl.querySelectorAll(
+      'DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events > MidiClip'
+    ));
     const clips: AbletonMidiClip[] = clipNodes.map((clipEl, cIdx) => {
       const clipName = clipEl.querySelector('Name')?.getAttribute('Value') || `${effectiveName}_Clip_${cIdx + 1}`;
       const startTime = parseFloat(
         clipEl.querySelector('CurrentStart')?.getAttribute('Value') || clipEl.getAttribute('Time') || '0'
       );
       const endTime = parseFloat(clipEl.querySelector('CurrentEnd')?.getAttribute('Value') || '64');
-      const length = Math.max(4, endTime - startTime);
+      const length = Math.max(0, endTime - startTime);
       if (endTime > maxEndBeatDetected) {
         maxEndBeatDetected = endTime;
       }
@@ -1919,14 +1922,15 @@ export function parseAbletonXmlDom(
             const time = parseFloat(nEl.getAttribute('Time') || '0');
             const duration = parseFloat(nEl.getAttribute('Duration') || '0.25');
             const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
-            const quantizedTime = Math.round(time * 8) / 8;
+            const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
             notes.push({
-              id: nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
+              id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_${cIdx}_${pitch}_${nIdx}`,
               time,
               quantizedTime,
               duration,
               pitch,
               velocity,
+              probability: Number(nEl.getAttribute('Probability') ?? 1),
               isGhost: velocity <= 48,
               isAccent: velocity >= 110,
               isSlide: duration > 0.27 && archetype === 'acid',
@@ -1942,14 +1946,15 @@ export function parseAbletonXmlDom(
           const duration = parseFloat(nEl.getAttribute('Duration') || '0.25');
           const pitch = parseInt(nEl.getAttribute('Pitch') || '36', 10);
           const velocity = Math.round(parseFloat(nEl.getAttribute('Velocity') || '100'));
-          const quantizedTime = Math.round(time * 8) / 8;
+          const quantizedTime = Number(nEl.getAttribute('Data-Parametric-QuantizedTime') ?? Math.round(time * 8) / 8);
           notes.push({
-            id: nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
+            id: nEl.getAttribute('Data-Parametric-NoteId') || nEl.getAttribute('NoteId') || `${trackId}_d_${nIdx}`,
             time,
             quantizedTime,
             duration,
             pitch,
             velocity,
+            probability: Number(nEl.getAttribute('Probability') ?? 1),
             isGhost: velocity <= 48,
             isAccent: velocity >= 110,
             isSlide: duration > 0.27 && archetype === 'acid',
@@ -1962,7 +1967,7 @@ export function parseAbletonXmlDom(
       notes.sort((a, b) => a.time - b.time);
 
       return {
-        id: clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
+        id: clipEl.getAttribute('Data-Parametric-ClipId') || clipEl.getAttribute('Id') || `clip_${trackId}_${cIdx}`,
         name: clipName,
         startTime,
         endTime,
@@ -2230,6 +2235,8 @@ export function parseAbletonXmlDom(
 
   return {
     fileName,
+    generationSeed: abletonRoot?.hasAttribute('Data-Parametric-GenerationSeed')
+      ? Number(abletonRoot.getAttribute('Data-Parametric-GenerationSeed')) : undefined,
     schemaVersion,
     creator,
     tempo,
@@ -2269,97 +2276,15 @@ export function injectMidiClipXmlNode(
   midiNotesArray: MidiNoteEvent[],
   loopEndBeats?: number
 ): Element {
-  let eventsContainer = trackNode.querySelector(
-    'DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events'
+  const previous = trackNode.querySelector(
+    'DeviceChain > MainSequencer > ClipTimeable > ArrangerAutomation > Events > MidiClip'
   );
-  if (!eventsContainer) {
-    const deviceChain = trackNode.querySelector('DeviceChain') || trackNode.appendChild(xmlDoc.createElement('DeviceChain'));
-    const mainSeq = xmlDoc.createElement('MainSequencer');
-    const clipTimeable = xmlDoc.createElement('ClipTimeable');
-    const arrangerAuto = xmlDoc.createElement('ArrangerAutomation');
-    eventsContainer = xmlDoc.createElement('Events');
-    arrangerAuto.appendChild(eventsContainer);
-    clipTimeable.appendChild(arrangerAuto);
-    mainSeq.appendChild(clipTimeable);
-    deviceChain.appendChild(mainSeq);
-  }
-
-  Array.from(eventsContainer.querySelectorAll('MidiClip')).forEach((el) => el.remove());
-
-  const midiClip = xmlDoc.createElement('MidiClip');
-  midiClip.setAttribute('Id', `${Math.floor(5000 + Math.random() * 4000)}`);
-  midiClip.setAttribute('Time', startTime.toFixed(3));
-
-  const nameEl = xmlDoc.createElement('Name');
-  nameEl.setAttribute('Value', clipName);
-  midiClip.appendChild(nameEl);
-
-  const startEl = xmlDoc.createElement('CurrentStart');
-  startEl.setAttribute('Value', startTime.toFixed(3));
-  midiClip.appendChild(startEl);
-
-  const endEl = xmlDoc.createElement('CurrentEnd');
-  endEl.setAttribute('Value', (startTime + length).toFixed(3));
-  midiClip.appendChild(endEl);
-
-  // Inject Ableton <Loop> brace with poly-meter LoopEnd support
-  const loopEl = xmlDoc.createElement('Loop');
-  const loopStartEl = xmlDoc.createElement('LoopStart');
-  loopStartEl.setAttribute('Value', '0');
-  const loopEndEl = xmlDoc.createElement('LoopEnd');
-  const effectiveLoopEnd = typeof loopEndBeats === 'number' && loopEndBeats > 0 ? loopEndBeats : 4.0;
-  loopEndEl.setAttribute('Value', effectiveLoopEnd.toFixed(3));
-  const startRelEl = xmlDoc.createElement('StartRelative');
-  startRelEl.setAttribute('Value', '0');
-  const loopOnEl = xmlDoc.createElement('LoopOn');
-  loopOnEl.setAttribute('Value', 'true');
-  loopEl.appendChild(loopStartEl);
-  loopEl.appendChild(loopEndEl);
-  loopEl.appendChild(startRelEl);
-  loopEl.appendChild(loopOnEl);
-  midiClip.appendChild(loopEl);
-
-  const notesEl = xmlDoc.createElement('Notes');
-  const keyTracksEl = xmlDoc.createElement('KeyTracks');
-
-  const byPitch = new Map<number, MidiNoteEvent[]>();
-  midiNotesArray.forEach((note) => {
-    const list = byPitch.get(note.pitch) || [];
-    list.push(note);
-    byPitch.set(note.pitch, list);
-  });
-
-  let ktIdx = 0;
-  byPitch.forEach((pitchNotes, pitchVal) => {
-    const keyTrack = xmlDoc.createElement('KeyTrack');
-    keyTrack.setAttribute('Id', `${ktIdx++}`);
-
-    const midiKey = xmlDoc.createElement('MidiKey');
-    midiKey.setAttribute('Value', `${pitchVal}`);
-    keyTrack.appendChild(midiKey);
-
-    const ktNotesContainer = xmlDoc.createElement('Notes');
-    pitchNotes.forEach((n, idx) => {
-      const noteEvent = xmlDoc.createElement('MidiNoteEvent');
-      noteEvent.setAttribute('Time', n.time.toFixed(3));
-      noteEvent.setAttribute('Duration', n.duration.toFixed(3));
-      noteEvent.setAttribute('Pitch', `${n.pitch}`);
-      noteEvent.setAttribute('Velocity', `${Math.max(1, Math.min(127, Math.round(n.velocity)))}`);
-      noteEvent.setAttribute('OffVelocity', '64');
-      noteEvent.setAttribute('NoteId', `${8000 + ktIdx * 1000 + idx}`);
-      noteEvent.setAttribute('IsEnabled', 'true');
-      ktNotesContainer.appendChild(noteEvent);
-    });
-
-    keyTrack.appendChild(ktNotesContainer);
-    keyTracksEl.appendChild(keyTrack);
-  });
-
-  notesEl.appendChild(keyTracksEl);
-  midiClip.appendChild(notesEl);
-  eventsContainer.appendChild(midiClip);
-
-  return midiClip;
+  return injectMultipleMidiClipsXmlNodes(xmlDoc, trackNode, [{
+    id: previous?.getAttribute('Data-Parametric-ClipId') || previous?.getAttribute('Id') ||
+      `clip_${trackNode.getAttribute('Id') || 'track'}_primary`,
+    name: clipName, startTime, length, endTime: startTime + length,
+    loopEndBeats: loopEndBeats ?? 4, notes: midiNotesArray,
+  }])[0];
 }
 
 /**
@@ -2387,37 +2312,60 @@ export function injectMultipleMidiClipsXmlNodes(
     deviceChain.appendChild(mainSeq);
   }
 
-  Array.from(eventsContainer.querySelectorAll('MidiClip')).forEach((el) => el.remove());
+  const previousClips = new Map(Array.from(eventsContainer.children)
+    .filter(el => el.tagName === 'MidiClip')
+    .map(el => [el.getAttribute('Data-Parametric-ClipId') || el.getAttribute('Id'), el]));
+  const usedIds = new Set(Array.from(xmlDoc.querySelectorAll('[Id]')).map(el => el.getAttribute('Id')));
+  let nextId = 5000;
+  const allocateId = () => {
+    while (usedIds.has(String(nextId))) nextId++;
+    const id = String(nextId++);
+    usedIds.add(id);
+    return id;
+  };
+  previousClips.forEach(el => el.remove());
 
   const createdNodes: Element[] = [];
   clips.forEach((clip, clipIdx) => {
     const midiClip = xmlDoc.createElement('MidiClip');
-    midiClip.setAttribute('Id', `${5000 + clipIdx * 100}`);
-    midiClip.setAttribute('Time', clip.startTime.toFixed(3));
+    const previous = previousClips.get(clip.id);
+    if (previous) for (const attr of Array.from(previous.attributes)) midiClip.setAttribute(attr.name, attr.value);
+    midiClip.setAttribute('Id', previous?.getAttribute('Id') || allocateId());
+    // ALS IDs stay numeric while application clip identity survives save/reload.
+    midiClip.setAttribute('Data-Parametric-ClipId', clip.id);
+    if (previous) for (const child of Array.from(previous.children)) {
+      if (!['Name', 'CurrentStart', 'CurrentEnd', 'Loop', 'Notes'].includes(child.tagName)) {
+        midiClip.appendChild(child.cloneNode(true));
+      }
+    }
+    midiClip.setAttribute('Time', String(clip.startTime));
 
     const nameEl = xmlDoc.createElement('Name');
     nameEl.setAttribute('Value', clip.name || `Clip_${clipIdx + 1}`);
     midiClip.appendChild(nameEl);
 
     const startEl = xmlDoc.createElement('CurrentStart');
-    startEl.setAttribute('Value', clip.startTime.toFixed(3));
+    startEl.setAttribute('Value', String(clip.startTime));
     midiClip.appendChild(startEl);
 
     const endEl = xmlDoc.createElement('CurrentEnd');
-    endEl.setAttribute('Value', (clip.startTime + Math.max(0.25, clip.length)).toFixed(3));
+    endEl.setAttribute('Value', String(clip.startTime + clip.length));
     midiClip.appendChild(endEl);
 
-    const loopEl = xmlDoc.createElement('Loop');
+    const loopEl = (previous?.querySelector(':scope > Loop')?.cloneNode(true) as Element) || xmlDoc.createElement('Loop');
+    for (const child of Array.from(loopEl.children)) {
+      if (['LoopStart', 'LoopEnd', 'StartRelative', 'LoopOn'].includes(child.tagName)) child.remove();
+    }
     const loopStartEl = xmlDoc.createElement('LoopStart');
-    loopStartEl.setAttribute('Value', '0');
+    loopStartEl.setAttribute('Value', previous?.querySelector('Loop > LoopStart')?.getAttribute('Value') || '0');
     const loopEndEl = xmlDoc.createElement('LoopEnd');
     const effectiveLoopEnd =
       typeof clip.loopEndBeats === 'number' && clip.loopEndBeats > 0 ? clip.loopEndBeats : clip.length;
-    loopEndEl.setAttribute('Value', effectiveLoopEnd.toFixed(3));
+    loopEndEl.setAttribute('Value', String(effectiveLoopEnd));
     const startRelEl = xmlDoc.createElement('StartRelative');
-    startRelEl.setAttribute('Value', '0');
+    startRelEl.setAttribute('Value', previous?.querySelector('Loop > StartRelative')?.getAttribute('Value') || '0');
     const loopOnEl = xmlDoc.createElement('LoopOn');
-    loopOnEl.setAttribute('Value', 'true');
+    loopOnEl.setAttribute('Value', previous?.querySelector('Loop > LoopOn')?.getAttribute('Value') || 'false');
     loopEl.appendChild(loopStartEl);
     loopEl.appendChild(loopEndEl);
     loopEl.appendChild(startRelEl);
@@ -2433,6 +2381,10 @@ export function injectMultipleMidiClipsXmlNodes(
       byPitch.set(note.pitch, list);
     });
 
+    const previousNotes = new Map(Array.from(previous?.querySelectorAll('MidiNoteEvent') || [])
+      .map(el => [el.getAttribute('Data-Parametric-NoteId') || el.getAttribute('NoteId'), el]));
+    const usedNoteIds = new Set<string>();
+    let nextNoteId = 1;
     let ktIdx = 0;
     byPitch.forEach((pitchNotes, pitchVal) => {
       const keyTrack = xmlDoc.createElement('KeyTrack');
@@ -2444,13 +2396,19 @@ export function injectMultipleMidiClipsXmlNodes(
 
       const ktNotesContainer = xmlDoc.createElement('Notes');
       pitchNotes.forEach((n, idx) => {
-        const noteEvent = xmlDoc.createElement('MidiNoteEvent');
-        noteEvent.setAttribute('Time', n.time.toFixed(3));
-        noteEvent.setAttribute('Duration', n.duration.toFixed(3));
+        const noteEvent = (previousNotes.get(n.id)?.cloneNode(true) as Element) || xmlDoc.createElement('MidiNoteEvent');
+        noteEvent.setAttribute('Time', String(n.time));
+        noteEvent.setAttribute('Duration', String(n.duration));
         noteEvent.setAttribute('Pitch', `${n.pitch}`);
         noteEvent.setAttribute('Velocity', `${Math.max(1, Math.min(127, Math.round(n.velocity)))}`);
         noteEvent.setAttribute('OffVelocity', '64');
-        noteEvent.setAttribute('NoteId', `${8000 + clipIdx * 500 + ktIdx * 50 + idx}`);
+        while (usedNoteIds.has(String(nextNoteId))) nextNoteId++;
+        const noteId = /^\d+$/.test(n.id) && !usedNoteIds.has(n.id) ? n.id : String(nextNoteId++);
+        usedNoteIds.add(noteId);
+        noteEvent.setAttribute('NoteId', noteId);
+        noteEvent.setAttribute('Data-Parametric-NoteId', n.id);
+        noteEvent.setAttribute('Data-Parametric-QuantizedTime', String(n.quantizedTime));
+        noteEvent.setAttribute('Probability', String(n.probability ?? 1));
         noteEvent.setAttribute('IsEnabled', 'true');
         ktNotesContainer.appendChild(noteEvent);
       });
@@ -2476,20 +2434,28 @@ export function syncTrackClipsToXml(
   trackId: string,
   clips: AbletonMidiClip[]
 ): string {
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlString, 'application/xml');
-    if (doc.querySelector('parsererror')) return xmlString;
-    const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
-    const targetTrack =
-      trackEls.find((el) => el.getAttribute('Id') === trackId) ||
-      trackEls.find((el, i) => `track_${i}_${el.getAttribute('Id') || i}` === trackId);
-    if (!targetTrack) return xmlString;
-    injectMultipleMidiClipsXmlNodes(doc, targetTrack, clips);
-    return formatXmlString(new XMLSerializer().serializeToString(doc));
-  } catch {
-    return xmlString;
+  const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('CLIP_SYNC_XML: invalid source XML');
+  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack'));
+  const targetTrack = trackEls.find(el => el.getAttribute('Id') === trackId) ||
+    trackEls.find((el, i) => `track_${i}_${el.getAttribute('Id') || i}` === trackId);
+  if (!targetTrack) throw new Error(`CLIP_SYNC_TRACK: MIDI track ${trackId} not found`);
+  if (new Set(clips.map(c => c.id)).size !== clips.length) throw new Error('CLIP_SYNC_ID: duplicate clip identity');
+  for (const clip of clips) {
+    if (!Number.isFinite(clip.startTime) || clip.startTime < 0 || !Number.isFinite(clip.length) || clip.length <= 0) {
+      throw new Error('CLIP_SYNC_TIME: positive extent and nonnegative start required');
+    }
+    for (const note of clip.notes) {
+      if (![note.time, note.quantizedTime, note.duration, note.pitch, note.velocity].every(Number.isFinite) ||
+          note.duration <= 0 || !Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 ||
+          note.velocity < 1 || note.velocity > 127 ||
+          (note.probability !== undefined && (!Number.isFinite(note.probability) || note.probability < 0 || note.probability > 1))) {
+        throw new Error('CLIP_SYNC_NOTE: invalid MIDI note');
+      }
+    }
   }
+  injectMultipleMidiClipsXmlNodes(doc, targetTrack, clips);
+  return formatXmlString(new XMLSerializer().serializeToString(doc));
 }
 
 /**

@@ -806,6 +806,7 @@ export interface BatchWavExportItemResult {
 }
 
 export interface AbletonProjectState {
+  generationSeed?: number; // Seed persisted with generated starter XML
   fileName: string;
   schemaVersion: string;
   creator: string;
