@@ -1,3 +1,4 @@
+import * as fileExportService from '../services/fileExportService';
 // @vitest-environment jsdom
 import React from 'react';
 import { act } from 'react';
@@ -16,6 +17,7 @@ import {
   VERSION_NAME,
   VERSION_CODE,
 } from '../../scripts/build-debug-apk.mjs';
+import { studioCommandBus } from '../services/commandBus';
 import { exportUserDataBackup } from '../utils/apkDownloader';
 import { synthEngine, renderArrangementToWavBlob } from '../engine/webAudioSynth';
 import {
@@ -535,7 +537,7 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
 
     await act(async () => {
       root = createRoot(container!);
-      root.render(<App />);
+      root.render(<React.StrictMode><App /></React.StrictMode>);
     });
 
     const fullText = container!.textContent || '';
@@ -554,7 +556,96 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(container!.textContent).toContain('Real-Time Audio Diagnostics & Protection');
     expect(container!.textContent).toContain('Last 10 Buffer Underrun Events');
     expect(container!.textContent).toContain('Audio Stability Threshold');
-  });
+
+    // Regression: New Project owns a new queue/history key and preserves outgoing edits.
+    const oldId = projectQueueService.getActiveQueueId()!;
+    const oldState = projectQueueService.getItem(oldId)!.workingProjectState;
+    const mute = container!.querySelector<HTMLButtonElement>('button[title="Mute Track"]')!;
+    expect(mute).not.toBeNull();
+    const historyBeforeMute = studioCommandBus.getHistory(oldId).length;
+    await act(async () => { mute.click(); });
+    expect(studioCommandBus.getHistory(oldId)).toHaveLength(historyBeforeMute + 1);
+    await act(async () => {
+      studioCommandBus.executeMutation(oldId, 'fixture history', 'clip_edit', oldState, draft => draft);
+    });
+    const fileButton = () => Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.trim() === 'File')!;
+    await act(async () => { fileButton().click(); });
+    const newButton = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.startsWith('New Project'))!;
+    expect(newButton).toBeDefined();
+    await act(async () => { newButton.click(); });
+    let newId = projectQueueService.getActiveQueueId()!;
+    expect(newId).not.toBe(oldId);
+    expect(projectQueueService.getItem(oldId)!.workingProjectState.tracks[0].muted).toBe(true);
+    expect(studioCommandBus.canUndo(newId)).toBe(false);
+    expect(studioCommandBus.canUndo(oldId)).toBe(true);
+    let fresh = projectQueueService.getItem(newId)!.workingProjectState;
+    expect(fresh.generationSeed).toBeGreaterThan(0);
+    expect(fresh.arrangementSections).toBeDefined();
+    expect(synthEngine.getIsPlaying()).toBe(false);
+
+    // Imported audio tracks must survive MIDI composition without being serialized as MIDI.
+    const audioDom = new DOMParser().parseFromString(fresh.rawXmlModified, 'application/xml');
+    const audioTrack = audioDom.createElement('AudioTrack');
+    audioTrack.setAttribute('Id', '99');
+    audioTrack.innerHTML = '<Name><EffectiveName Value="Recorded Pad" /></Name><DeviceChain />';
+    audioDom.querySelector('Tracks')!.append(audioTrack);
+    const bytes = new TextEncoder().encode(new XMLSerializer().serializeToString(audioDom));
+    const input = container!.querySelector<HTMLInputElement>('input[type="file"][accept=".als"]')!;
+    Object.defineProperty(input, 'files', { configurable: true, value: [{ name: 'With_Audio.als', arrayBuffer: async () => bytes.buffer }] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    newId = projectQueueService.getActiveQueueId()!;
+    fresh = projectQueueService.getItem(newId)!.workingProjectState;
+    expect(fresh.tracks.find(t => t.id === '99')?.type).toBe('audio');
+
+    // Exercise the actual full-suite UI handler, XML round trip and undo/redo.
+    const compose = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.includes('Compose Full 8-Track Suite'))!;
+    expect(compose).toBeDefined();
+    await act(async () => { compose.click(); });
+    const composed = projectQueueService.getItem(newId)!.workingProjectState;
+    expect(composed.tracks.some(t => t.clips.length > 1)).toBe(true);
+    expect(composed.tracks.find(t => t.id === '99')).toEqual(fresh.tracks.find(t => t.id === '99'));
+    const roundTrip = parseAlsXmlString(composed.rawXmlModified);
+    for (const track of composed.tracks) {
+      const reloaded = roundTrip.tracks.find(t => t.id === track.id)!;
+      expect(reloaded.clips.map(c => [c.id, c.startTime, c.length, c.notes.length]))
+        .toEqual(track.clips.map(c => [c.id, c.startTime, c.length, c.notes.length]));
+    }
+    await act(async () => {
+      expect(studioCommandBus.undo(newId)!.tracks).toEqual(fresh.tracks);
+      expect(studioCommandBus.redo(newId)!.tracks).toEqual(composed.tracks);
+    });
+
+    // Save through the production native-project serializer and reopen through the actual File UI.
+    let projectBlob: Blob | undefined;
+    const save = vi.spyOn(fileExportService, 'saveExportBlob').mockImplementation(async blob => {
+      projectBlob = blob; return { verified: false };
+    });
+    await act(async () => { fileButton().click(); });
+    const saveButton = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.startsWith('Save Project'))!;
+    await act(async () => { saveButton.click(); });
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0][1]).toMatch(/\.aidaw\.json$/);
+    const savedText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(projectBlob!);
+    });
+    await act(async () => { fileButton().click(); });
+    await act(async () => { Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.startsWith('New Project'))!.click(); });
+    const snapshotInput = container!.querySelector<HTMLInputElement>('input[aria-label="Open saved DAW project"]')!;
+    const openSnapshot = async (text: string) => {
+      const bytes = new TextEncoder().encode(text);
+      Object.defineProperty(snapshotInput, 'files', { configurable: true, value: [{ name: 'Session.aidaw.json', arrayBuffer: async () => bytes.buffer }] });
+      await act(async () => { snapshotInput.dispatchEvent(new Event('change', { bubbles: true })); });
+    };
+    await openSnapshot(savedText);
+    const restoredId = projectQueueService.getActiveQueueId()!;
+    expect(restoredId).not.toBe(newId);
+    expect(projectQueueService.getItem(restoredId)!.workingProjectState.tracks).toEqual(composed.tracks);
+    expect(studioCommandBus.canUndo(restoredId)).toBe(false);
+    const future = JSON.parse(savedText); future.version = 999;
+    await openSnapshot(JSON.stringify(future));
+    expect(projectQueueService.getActiveQueueId()).toBe(restoredId);
+    expect(container!.textContent).toContain('PROJECT_SNAPSHOT_VERSION');
+  }, 45000);
 
   it('E2E Automation 7: Dilla-style BPM-dependent Shuffle Swing push/pull & TimelineCanvas live playhead MIDI grid pixel synchronization', async () => {
     const dillaClip = {

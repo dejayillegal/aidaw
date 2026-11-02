@@ -40,6 +40,8 @@ interface StudioMenuBarProps {
   onUndo: () => void;
   onRedo: () => void;
   onNewProject: () => void;
+  onSaveProject?: () => void;
+  onOpenProject?: () => void;
   onImportAlsClick: () => void;
   onExportAls: () => void;
   onExportWav: () => void;
@@ -65,6 +67,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
   onUndo,
   onRedo,
   onNewProject,
+  onSaveProject,
+  onOpenProject,
   onImportAlsClick,
   onExportAls,
   onExportWav,
@@ -114,9 +118,13 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 onClick={() => { onNewProject(); closeMenu(); }}
                 className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
-                <span>New Project (Berghain 134)</span>
+                <span>New Project</span>
                 <span className="text-[10px] text-zinc-500">Cmd+N</span>
               </button>
+              {onOpenProject && <button type="button" onClick={() => { onOpenProject(); closeMenu(); }}
+                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Open Project (.aidaw.json)…</button>}
+              {onSaveProject && <button type="button" onClick={() => { onSaveProject(); closeMenu(); }}
+                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Save Project (.aidaw.json)…</button>}
               <button
                 type="button"
                 onClick={() => { onImportAlsClick(); closeMenu(); }}

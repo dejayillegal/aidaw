@@ -54,6 +54,8 @@ try {
     console.log(JSON.stringify(result));
   }
   for (const repeat of report.audio.slice(1, 8)) assert(repeat.repeatMaxAbsoluteError < 0.001 && repeat.repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
+  report.probabilityOffline = await page.evaluate(() => window.recovery.runProbabilityCase());
+  console.log(JSON.stringify({ probabilityOffline: report.probabilityOffline }));
   await page.goto(origin);
   const settings = page.getByTitle('Open DAW Workstation Settings');
   await settings.waitFor({ state: 'visible' });
