@@ -1,0 +1,68 @@
+{
+  "baselineCommit": "31d0974e18ac0038db8a895fcac94e3fca8bfacf",
+  "date": "2026-11-02",
+  "baselineTests": {
+    "passed": 69,
+    "failed": 0
+  },
+  "finalTests": {
+    "numTotalTests": 78,
+    "numPassedTests": 78,
+    "numFailedTests": 0,
+    "success": true
+  },
+  "suites": [
+    {
+      "file": "apkAndUiAutomation.test.tsx",
+      "status": "passed",
+      "tests": 9,
+      "elapsedMs": 14469.443359375
+    },
+    {
+      "file": "coreRefinement.test.ts",
+      "status": "passed",
+      "tests": 9,
+      "elapsedMs": 3694.742919921875
+    },
+    {
+      "file": "fileExportService.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "elapsedMs": 53.096435546875
+    },
+    {
+      "file": "parametricAlsV7.test.tsx",
+      "status": "passed",
+      "tests": 19,
+      "elapsedMs": 17643.4619140625
+    },
+    {
+      "file": "recoveryContracts.test.ts",
+      "status": "passed",
+      "tests": 21,
+      "elapsedMs": 6064.4814453125
+    },
+    {
+      "file": "releasePublication.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "elapsedMs": 13.657470703125
+    },
+    {
+      "file": "studioWorkstation.test.ts",
+      "status": "passed",
+      "tests": 12,
+      "elapsedMs": 19127.719482421875
+    }
+  ],
+  "checks": {
+    "typescript": "PASS",
+    "productionBuild": "PASS; large-chunk warning remains",
+    "apkVerificationPython": "PASS: 12 tests",
+    "realBrowserAudio": "BLOCKED: missing Chromium; invalid download archive",
+    "physicalAndroid": "BLOCKED",
+    "listening": "NOT TESTED",
+    "fullDiversityCorpus": "NOT TESTED",
+    "peakMemoryAndRealtimePerformance": "NOT TESTED"
+  }
+}

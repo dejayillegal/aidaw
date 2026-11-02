@@ -249,7 +249,7 @@ function enrichProjectWithAnalysis(
 ): AbletonProjectState {
   const totalBars = rawState.arrangementLengthBars || 16;
   const musicalProfile = analyzeProjectMusicalProfile(rawState);
-  const arrangementSections = generateSectionArrangementPlan(formId, totalBars, rawState.lastGenerationIdentity?.compositionSeed || 0);
+  const arrangementSections = generateSectionArrangementPlan(formId, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
   const alsValidation = validateAlsProjectCadence(rawState.rawXmlModified);
   return {
     ...rawState,
@@ -282,7 +282,7 @@ export default function App() {
     () => Math.floor(Math.random() * 1000000) + 101
   );
   const [jitterSeed, setJitterSeed] = useState<number>(
-    () => Math.floor(Math.random() * 1000000) + 1
+    () => compositionSeed + 79
   );
   const [activeStrategyId, setActiveStrategyId] =
     useState<CompositionStrategyId>('hypnotic_evolving');
@@ -290,7 +290,7 @@ export default function App() {
     useState<MacroArrangementFormId>('hypnotic_longform');
 
   const [project, setProject] = useState<AbletonProjectState>(() => {
-    const seed = Math.floor(Math.random() * 1000000) + 1;
+    const seed = compositionSeed;
     const { xml, meta } = buildStarterAbletonXml('berghain-134', seed);
     const parsed = parseAbletonXmlDom(xml, meta.name, xml);
     return enrichProjectWithAnalysis(parsed, 'hypnotic_longform');
@@ -620,7 +620,12 @@ export default function App() {
     return map;
   };
 
-  const handleLoadStarterTemplate = (templateId = selectedTemplateId) => {
+  const starterLoadRevision = useRef(0);
+  const handleLoadStarterTemplate = async (templateId = selectedTemplateId) => {
+    const loadRevision = ++starterLoadRevision.current;
+    synthEngine.stop();
+    setIsPlaying(false);
+    setPlayheadBeat(0);
     const freshSeed = Math.floor(Math.random() * 10000000) + 1;
     setSelectedTemplateId(templateId);
     setCompositionSeed(freshSeed);
@@ -645,7 +650,15 @@ export default function App() {
     const { xml, meta } = buildStarterAbletonXml(templateId, freshSeed);
     const parsed = parseAbletonXmlDom(xml, meta.name, xml);
     const enriched = enrichProjectWithAnalysis(parsed, nextForm);
+    // Persist outgoing work before giving the new project a separate queue/history identity.
+    if (activeQueueId) projectQueueService.updateWorkingProjectState(activeQueueId, project);
+    const record = await projectQueueService.enqueueProjectFromXml(meta.name, xml);
+    if (loadRevision !== starterLoadRevision.current) return;
+    projectQueueService.switchActiveProject(record.queueId);
+    projectQueueService.updateWorkingProjectState(record.queueId, enriched);
     setProject(enriched);
+    setTransport({ ...DEFAULT_TRANSPORT, arrangementLengthBars: enriched.arrangementLengthBars });
+    setMasterBus({ ...DEFAULT_MASTER_BUS });
     setSelectedTrackId(enriched.tracks[0]?.id || '1');
     setStatusMessage(
       `Loaded & Analyzed: ${meta.name} (${enriched.tempo} BPM · ${enriched.rootKey} ${enriched.scale} · Strategy: ${nextStrategy}).`
@@ -670,7 +683,8 @@ export default function App() {
       for (let i = 0; i < files.length; i++) {
         const rec = await projectQueueService.enqueueBrowserFile(files[i]);
         if (i === 0) {
-          projectQueueService.switchActiveProject(rec.queueId, enriched);
+          projectQueueService.switchActiveProject(rec.queueId, project);
+          projectQueueService.updateWorkingProjectState(rec.queueId, enriched);
         }
       }
 
@@ -889,11 +903,10 @@ export default function App() {
     const sharedSections = generateSectionArrangementPlan(activeFormId, totalBars, baseCompSeed);
     // Full-arrangement composition also withdraws the existing unlocked kick during
     // builds/breakdowns. Preserve its rhythm and every locked track.
-    for (const track of project.tracks.filter(track => track.archetype === 'kick' && !track.locked)) {
+    for (const track of project.tracks.filter(track => track.type === 'midi' && track.archetype === 'kick' && !track.locked)) {
       const arranged = decomposeNotesIntoSectionClips(track.name, track.archetype,
         track.clips.flatMap(clip => clip.notes), totalBars, sharedSections);
-      workingXml = syncTrackNotesToXml(workingXml, track.id, track.archetype,
-        `${track.name}_Arranged`, arranged.flatMap(clip => clip.notes), totalBeats);
+      workingXml = syncTrackClipsToXml(workingXml, track.id, arranged);
     }
 
     const composedMap = new Map<
@@ -948,12 +961,11 @@ export default function App() {
 
     const finalTracks = preserved.tracks.map((t) => {
       const comp = composedMap.get(t.archetype);
-      if (!comp || t.locked) return t;
+      if (t.locked || t.type !== 'midi') return project.tracks.find(track => track.id === t.id) || t;
+      if (!comp) return t;
       return {
         ...t,
-        clips: t.clips.map((c, i) =>
-          i === 0 ? { ...c, length: totalBeats, notes: comp.notes } : c
-        ),
+        clips: decomposeNotesIntoSectionClips(t.name, t.archetype, comp.notes, totalBars, sharedSections),
         sessionClips: comp.sessionClips,
         activeSessionSlot: 0,
         compositionStrategy: activeStrategyId,
@@ -966,6 +978,10 @@ export default function App() {
         ),
       };
     });
+
+    for (const track of finalTracks) {
+      if (track.type === 'midi' && !track.locked) workingXml = syncTrackClipsToXml(workingXml, track.id, track.clips);
+    }
 
     const sampleComp = composedMap.get('rumble') || composedMap.values().next().value;
     const identityRecord: GenerationIdentityRecord | undefined = sampleComp
@@ -995,11 +1011,11 @@ export default function App() {
       activeFormId
     );
 
-    setProject(enriched);
+    handleExecuteProjectCommand('Compose section arrangement', 'clip_edit', () => enriched);
     const rumbleTrack = enriched.tracks.find((t) => t.archetype === 'rumble');
     if (rumbleTrack) setSelectedTrackId(rumbleTrack.id);
     setStatusMessage(
-      `Composed full 8-track techno suite (${totalBars} Bars) using "${activeStrategyId}" (${activeFormId}) · Novelty & Kick-Sidechain verified.`
+      `Composed full 8-track techno suite (${totalBars} Bars) using "${activeStrategyId}" (${activeFormId}) · Section clips applied; listening review required.`
     );
   };
 
@@ -2100,7 +2116,7 @@ export default function App() {
       a.click();
       URL.revokeObjectURL(url);
       setStatusMessage(
-        `Exported ${exportName} (${(gzipBytes / 1024).toFixed(1)} KB gzipped .als) — 100% native Ableton Live 11/12 compatible.`
+        `Exported ${exportName} (${(gzipBytes / 1024).toFixed(1)} KB gzipped .als) — ALS saved; Ableton device and timing compatibility requires validation.`
       );
     } catch (err: any) {
       setStatusMessage(`Export failed: ${err.message}`);
@@ -2317,12 +2333,7 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onNewProject={() => {
-          const seed = Math.floor(Math.random() * 1000000) + 1;
-          const { xml, meta } = buildStarterAbletonXml('berghain-134', seed);
-          const parsed = parseAbletonXmlDom(xml, meta.name, xml);
-          setProject(enrichProjectWithAnalysis(parsed, 'hypnotic_longform'));
-        }}
+        onNewProject={() => { void handleLoadStarterTemplate(selectedTemplateId); }}
         onImportAlsClick={() => fileInputRef.current?.click()}
         onExportAls={handleExportNativeAls}
         onExportWav={() => handleExportLosslessWav(24)}
@@ -2661,12 +2672,7 @@ export default function App() {
         onLoadCounterpartProject={(newProject) => {
           const enriched = enrichProjectWithAnalysis(newProject, activeFormId);
           setProject(enriched);
-          const safeBars: 16 | 32 | 64 | 128 =
-            enriched.arrangementLengthBars === 32 ||
-            enriched.arrangementLengthBars === 64 ||
-            enriched.arrangementLengthBars === 128
-              ? enriched.arrangementLengthBars
-              : 16;
+          const safeBars = enriched.arrangementLengthBars || 16;
           setTransport((prev) => ({
             ...prev,
             arrangementLengthBars: safeBars,

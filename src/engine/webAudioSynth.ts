@@ -1479,8 +1479,8 @@ export async function synthesizeProjectToStereoFloatBuffers(
   workingBytesPerFrame = 32
 ): Promise<{ left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number }> {
   const bars = totalBars ?? project.arrangementLengthBars ?? 16;
-  if (!Number.isFinite(project.tempo) || project.tempo <= 0 || !Number.isInteger(bars) || bars < 1 || bars > 256) {
-    throw new Error('RENDER_INPUT: positive tempo and 1–256 whole bars required');
+  if (!Number.isFinite(project.tempo) || project.tempo <= 0 || !Number.isInteger(bars) || bars < 1) {
+    throw new Error('RENDER_INPUT: positive tempo and positive whole bars required');
   }
   // One continuous context retains delay, convolver, compressor and sustaining voices.
   // Bounded scheduling windows are NOT independent PCM segments.
