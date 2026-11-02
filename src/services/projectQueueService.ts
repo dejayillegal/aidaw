@@ -1,3 +1,4 @@
+import { assertProjectState } from '../engine/projectStateContracts';
 import {
   AbletonProjectState,
   BatchWavExportItemResult,
@@ -14,6 +15,7 @@ import {
   computeSha256Hex,
   decompressAlsFile,
   parseAlsXmlString,
+  synchronizeProjectStateToXml,
   validateAlsStructuralIntegrity,
 } from '../engine/alsXmlEngine';
 import {
@@ -56,12 +58,23 @@ export function cloneProjectState(project: AbletonProjectState): AbletonProjectS
 
 const IDB_NAME = 'aidaw_project_queue_db_v1';
 const IDB_STORE = 'queued_projects';
+function cloneQueueRecord(record: QueuedProjectRecord): QueuedProjectRecord {
+  return { ...JSON.parse(JSON.stringify(record)), exportedWavBlob: record.exportedWavBlob, exportedMidiBlob: record.exportedMidiBlob };
+}
 
 export class ProjectQueueService {
   private items = new Map<string, QueuedProjectRecord>();
   private activeQueueId: string | null = null;
   private abortControllers = new Map<string, AbortController>();
   private listeners = new Set<() => void>();
+  private persistenceTail: Promise<void> = Promise.resolve();
+  private persistenceStatus: 'saved' | 'pending' | 'unavailable' | 'error' = 'saved';
+  private persistenceError: string | undefined;
+  private pendingRecoveryWrites = 0;
+  private persistenceFailures = new Map<string, string>();
+  private artifactMeasurements = new Map<string, Promise<void>>();
+  private removedQueueIds = new Set<string>();
+  private recoveryPromise: Promise<AbletonProjectState | null> | null = null;
 
   public subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -84,42 +97,130 @@ export class ProjectQueueService {
     record.updatedAt = new Date().toISOString();
   }
 
-  private async persistRecordToIdb(record: QueuedProjectRecord): Promise<void> {
-    if (typeof indexedDB === 'undefined') return;
+  private openRecoveryDb(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(IDB_NAME, 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains(IDB_STORE)) request.result.createObjectStore(IDB_STORE, { keyPath: 'queueId' });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('RECOVERY_BLOCKED: database upgrade blocked'));
+    });
+  }
+
+  private persistRecordToIdb(record: QueuedProjectRecord): Promise<void> {
+    if (this.removedQueueIds.has(record.queueId)) return Promise.resolve();
+    if (typeof indexedDB === 'undefined') { this.persistenceStatus = 'unavailable'; return Promise.resolve(); }
+    // Capture NOW, not after an asynchronous open; newer edits cannot overwrite this queued revision.
+    const snapshot = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
+    const active = this.activeQueueId === record.queueId;
+    this.persistenceStatus = 'pending';
+    this.pendingRecoveryWrites++;
+    this.persistenceTail = this.persistenceTail.then(async () => {
+      let db: IDBDatabase | undefined;
+      try {
+        if (!snapshot.workingProjectState) throw new Error('RECOVERY_NO_PROJECT: no validated project state to journal');
+        assertProjectState(snapshot.workingProjectState);
+        const checksum = await computeSha256Hex(JSON.stringify(snapshot));
+        db = await this.openRecoveryDb();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db!.transaction(IDB_STORE, 'readwrite');
+          tx.oncomplete = () => resolve();
+          // Settle failed writes only after the atomic transaction has actually aborted.
+          tx.onerror = () => {};
+          tx.onabort = () => reject(tx.error || new Error('RECOVERY_ABORT: transaction aborted'));
+          const store = tx.objectStore(IDB_STORE);
+          const prior = store.get(snapshot.queueId);
+          prior.onsuccess = () => {
+            try {
+              if (prior.result) store.put({ ...prior.result, queueId: `backup:${snapshot.queueId}`, originalQueueId: snapshot.queueId });
+              store.put({ queueId: snapshot.queueId, recoveryVersion: 1, record: snapshot, checksum, active });
+            } catch { tx.abort(); }
+          };
+        });
+        this.persistenceStatus = 'saved'; this.persistenceError = undefined; this.persistenceFailures.delete(snapshot.queueId);
+      } catch (error) {
+        this.persistenceStatus = 'error';
+        this.persistenceError = error instanceof Error ? error.message : String(error);
+        this.persistenceFailures.set(snapshot.queueId, this.persistenceError);
+        this.notify();
+      } finally { this.pendingRecoveryWrites--; db?.close(); }
+    });
+    return this.persistenceTail;
+  }
+
+  public getPersistenceStatus(): { status: string; error?: string } {
+    return { status: this.persistenceFailures.size ? 'error' : this.pendingRecoveryWrites ? 'pending' : this.persistenceStatus, error: this.persistenceFailures.values().next().value || this.persistenceError };
+  }
+
+  public async flushPersistence(): Promise<void> {
+    await this.persistenceTail;
+    if (this.getPersistenceStatus().status === 'error') throw new Error(this.getPersistenceStatus().error || 'RECOVERY_WRITE');
+    if (this.persistenceStatus === 'unavailable') throw new Error('RECOVERY_UNAVAILABLE: IndexedDB is unavailable');
+  }
+
+  public restorePersistedProjects(): Promise<AbletonProjectState | null> {
+    if (this.recoveryPromise) return this.recoveryPromise;
+    this.recoveryPromise = this.restoreRecoveryRecords();
+    return this.recoveryPromise;
+  }
+
+  private async restoreRecoveryRecords(): Promise<AbletonProjectState | null> {
+    if (typeof indexedDB === 'undefined') { this.persistenceStatus = 'unavailable'; return null; }
+    const db = await this.openRecoveryDb();
+    let rows: any[];
     try {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open(IDB_NAME, 1);
-        req.onupgradeneeded = () => {
-          const d = req.result;
-          if (!d.objectStoreNames.contains(IDB_STORE)) {
-            d.createObjectStore(IDB_STORE, { keyPath: 'queueId' });
+      rows = await new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readonly'); const request = tx.objectStore(IDB_STORE).getAll();
+        request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+      });
+    } finally { db.close(); }
+    const ids = new Set(rows.map(row => row.originalQueueId || row.queueId).filter(id => typeof id === 'string' && !id.startsWith('backup:')));
+    const restored: { record: QueuedProjectRecord; active: boolean }[] = [];
+    for (const id of ids) {
+      const candidates = [rows.find(row => row.queueId === id), rows.find(row => row.queueId === `backup:${id}`)];
+      if (candidates[0]?.recoveryVersion !== undefined && candidates[0].recoveryVersion !== 1) {
+        this.persistenceStatus = 'error'; this.persistenceError = 'RECOVERY_VERSION: unsupported journal; preserved without downgrade'; continue;
+      }
+      let recovered = false;
+      for (const row of candidates) {
+        if (!row) continue;
+        try {
+          if (row.recoveryVersion !== undefined && row.recoveryVersion !== 1) throw new Error('RECOVERY_VERSION: unsupported journal');
+          const record: QueuedProjectRecord = row.recoveryVersion === 1 ? row.record : { ...row, queueId: row.originalQueueId || row.queueId };
+          if (row.recoveryVersion === 1 && row.checksum !== await computeSha256Hex(JSON.stringify(record))) throw new Error('RECOVERY_CHECKSUM: damaged record');
+          assertProjectState(record.workingProjectState);
+          if (record.queueId !== id) throw new Error('RECOVERY_ID: wrong project identity');
+          const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
+          copy.workingProjectState.rawXmlModified = synchronizeProjectStateToXml(copy.workingProjectState);
+          copy.workingProjectState.rawXml = copy.workingProjectState.rawXmlModified;
+          delete copy.exportedWavBlob; delete copy.exportedMidiBlob;
+          if (['importing', 'analyzing', 'calibrating', 'compiling', 'validating', 'exported'].includes(copy.state)) {
+            copy.state = 'ready'; copy.errorDetails = 'Recovered interrupted operation; run it again explicitly.';
           }
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(IDB_STORE, 'readwrite');
-        const store = tx.objectStore(IDB_STORE);
-        store.put(JSON.parse(JSON.stringify(record)));
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-      db.close();
-    } catch {
-      // Fallback to in-memory map if IndexedDB is restricted in iframe
+          if (row === candidates[1]) copy.errorDetails = 'Recovered previous valid revision after journal corruption.';
+          if (!this.items.has(id)) this.items.set(id, copy);
+          restored.push({ record: copy, active: !!row.active }); recovered = true; break;
+        } catch (error) { this.persistenceError = error instanceof Error ? error.message : String(error); }
+      }
+      if (!recovered) this.persistenceStatus = 'error';
     }
+    restored.sort((a,b) => Number(b.active) - Number(a.active) || b.record.updatedAt.localeCompare(a.record.updatedAt));
+    if (!this.activeQueueId && restored[0]) this.activeQueueId = restored[0].record.queueId;
+    this.notify();
+    return this.getActiveItem()?.workingProjectState || null;
   }
 
   public getAllItems(): QueuedProjectRecord[] {
     return Array.from(this.items.values()).sort((a, b) =>
       a.createdAt.localeCompare(b.createdAt)
-    );
+    ).map(cloneQueueRecord);
   }
 
   public getItem(queueId: string): QueuedProjectRecord | undefined {
     const rec = this.items.get(queueId);
-    return rec ? (JSON.parse(JSON.stringify(rec)) as QueuedProjectRecord) : undefined;
+    return rec ? cloneQueueRecord(rec) : undefined;
   }
 
   public getActiveQueueId(): string | null {
@@ -209,6 +310,25 @@ export class ProjectQueueService {
   /**
    * Enqueues a browser File (.als gzip or .xml) into the Multi-Project Queue.
    */
+  public async enqueueProjectState(project: AbletonProjectState, filename = project.fileName, bytes?: Uint8Array): Promise<QueuedProjectRecord> {
+    assertProjectState(project);
+    const state = cloneProjectState(project);
+    const now = new Date().toISOString();
+    const queueId = `project_${crypto.randomUUID()}`;
+    const record: QueuedProjectRecord = {
+      queueId, originalFilename: filename, binaryChecksumSha256: await computeSha256Hex(bytes || JSON.stringify(state)),
+      sourceXmlSnapshot: state.rawXmlOriginal, workingProjectState: state,
+      workingProjectRevision: state.projectRevision || state.revision || 1,
+      importedLiveVersion: state.creator, state: 'ready',
+      renderCapabilities: evaluateProjectRenderCapabilities(state), stageAStatic: runStageAStaticAnalysis(state),
+      cancelRequested: false, createdAt: now, updatedAt: now,
+    };
+    this.items.set(queueId, record);
+    if (!this.activeQueueId) this.activeQueueId = queueId;
+    await this.persistRecordToIdb(record); this.notify();
+    return this.getItem(queueId)!;
+  }
+
   public async enqueueBrowserFile(file: File): Promise<QueuedProjectRecord> {
     const arrayBuffer = await file.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
@@ -240,6 +360,7 @@ export class ProjectQueueService {
     }
 
     this.activeQueueId = targetQueueId;
+    void this.persistRecordToIdb(targetRecord);
     this.notify();
     return cloneProjectState(targetRecord.workingProjectState);
   }
@@ -252,7 +373,6 @@ export class ProjectQueueService {
     if (!rec) return;
     rec.workingProjectState = cloneProjectState(updatedProject);
     rec.workingProjectRevision = (rec.workingProjectRevision || 1) + 1;
-    rec.workingProjectState.projectRevision = rec.workingProjectRevision;
     rec.updatedAt = new Date().toISOString();
     void this.persistRecordToIdb(rec);
     this.notify();
@@ -274,6 +394,10 @@ export class ProjectQueueService {
       throw new Error(`Queue item ${queueId} not found`);
     }
 
+    // A queued project owns its mix. Caller controls are only for legacy projects without settings.
+    const projectHumanization = rec.workingProjectState.audioSettings?.humanization || humanization;
+    const projectMasterBus = rec.workingProjectState.audioSettings?.masterBus || masterBus;
+
     const controller = new AbortController();
     this.abortControllers.set(queueId, controller);
     rec.cancelRequested = false;
@@ -294,8 +418,8 @@ export class ProjectQueueService {
 
       const stageB = await runStageBAudioMeasurement(
         rec.workingProjectState,
-        humanization,
-        masterBus
+        projectHumanization,
+        projectMasterBus
       );
       rec.stageBMeasured = stageB;
 
@@ -383,6 +507,10 @@ export class ProjectQueueService {
       throw new Error(`Queue item ${queueId} not found`);
     }
 
+    // A queued project owns its mix. Caller controls are only for legacy projects without settings.
+    const projectHumanization = rec.workingProjectState.audioSettings?.humanization || humanization;
+    const projectMasterBus = rec.workingProjectState.audioSettings?.masterBus || masterBus;
+
     const controller = new AbortController();
     this.abortControllers.set(queueId, controller);
 
@@ -397,8 +525,8 @@ export class ProjectQueueService {
         const stageEResult = await applyAndVerifyStageECalibration(
           rec.workingProjectState,
           rec.calibrationProposal,
-          humanization,
-          masterBus
+          projectHumanization,
+          projectMasterBus
         );
         const nextProject = stageEResult.updatedProject || stageEResult.calibratedProject;
         rec.workingProjectState = cloneProjectState(nextProject);
@@ -415,7 +543,7 @@ export class ProjectQueueService {
       this.transitionState(rec, 'validating');
       this.notify();
 
-      const compiledXml = compileRehumanizedAlsXml(rec.workingProjectState, humanization);
+      const compiledXml = compileRehumanizedAlsXml(rec.workingProjectState, projectHumanization);
       const xmlValidation = validateAlsStructuralIntegrity(
         compiledXml,
         rec.workingProjectState.tracks.length,
@@ -430,8 +558,8 @@ export class ProjectQueueService {
       const alsGzipBytes = new Uint8Array(await alsBlob.arrayBuffer());
       const exportResult = await executeMasterExport20(
         rec.workingProjectState,
-        humanization,
-        masterBus,
+        projectHumanization,
+        projectMasterBus,
         exportPreset
       );
 
@@ -613,14 +741,56 @@ export class ProjectQueueService {
     return this.getItem(queueId);
   }
 
+  private removeRecoveryRecord(queueId: string): void {
+    this.removedQueueIds.add(queueId);
+    if (typeof indexedDB === 'undefined') return;
+    this.persistenceTail = this.persistenceTail.then(async () => {
+      let db: IDBDatabase | undefined;
+      try {
+        db = await this.openRecoveryDb();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db!.transaction(IDB_STORE, 'readwrite');
+          tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error || new Error('RECOVERY_DELETE_ABORT'));
+          tx.onerror = () => {};
+          const store = tx.objectStore(IDB_STORE); store.delete(queueId); store.delete(`backup:${queueId}`);
+        });
+        this.persistenceFailures.delete(queueId);
+      } catch (error) {
+        this.persistenceStatus = 'error'; this.persistenceError = String(error); this.persistenceFailures.set(queueId, this.persistenceError); this.notify();
+      } finally { db?.close(); }
+    });
+  }
+
   public removeQueueItem(queueId: string): void {
     this.cancelQueueItem(queueId);
     this.items.delete(queueId);
+    this.removeRecoveryRecord(queueId);
     if (this.activeQueueId === queueId) {
       const remaining = this.getAllItems();
       this.activeQueueId = remaining.length > 0 ? remaining[0].queueId : null;
     }
     this.notify();
+  }
+
+  private async measureMidiArtifact(queueId: string, blob: Blob): Promise<void> {
+    try {
+      const buffer = typeof blob.arrayBuffer === 'function' ? await blob.arrayBuffer() : await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(reader.result as ArrayBuffer); reader.onerror = () => reject(reader.error); reader.readAsArrayBuffer(blob);
+      });
+      const checksum = await computeSha256Hex(new Uint8Array(buffer));
+      const record = this.items.get(queueId);
+      if (!record) return;
+      record.binaryChecksumSha256 = checksum;
+      if (record.exportArtifactRef) record.exportArtifactRef.checksumSha256 = checksum;
+      await this.persistRecordToIdb(record); this.notify();
+    } catch (error) {
+      const record = this.items.get(queueId);
+      if (record) { record.errorDetails = `Artifact checksum unavailable: ${String(error)}`; this.notify(); }
+    }
+  }
+
+  public async awaitArtifactChecksum(queueId: string): Promise<void> {
+    await this.artifactMeasurements.get(queueId);
   }
 
   public enqueueMidiClip(
@@ -637,7 +807,7 @@ export class ProjectQueueService {
     const record: QueuedProjectRecord = {
       queueId,
       originalFilename: `${trackName} - ${clipName} (${includeHumanization ? 'Humanized' : 'Quantized'} .mid)`,
-      binaryChecksumSha256: `midi_${Date.now()}`,
+      binaryChecksumSha256: '',
       workingProjectRevision: projectState.projectRevision || 1,
       importedLiveVersion: 'Ableton Live 12.0 MIDI Standard',
       state: 'exported',
@@ -648,10 +818,10 @@ export class ProjectQueueService {
       exportArtifactRef: {
         fileName: midiFileName,
         byteSize,
-        checksumSha256: `sha_${Date.now()}`,
+        checksumSha256: '',
         exportedAt: now,
       },
-      workingProjectState: projectState,
+      workingProjectState: cloneProjectState(projectState),
       createdAt: now,
       updatedAt: now,
       timestamps: {
@@ -664,12 +834,15 @@ export class ProjectQueueService {
     this.items.set(queueId, record);
     this.activeQueueId = queueId;
     this.notify();
-    return record;
+    const measured = this.measureMidiArtifact(queueId, blob);
+    this.artifactMeasurements.set(queueId, measured);
+    return this.getItem(queueId)!;
   }
 
   public clearQueue(): void {
     for (const id of this.items.keys()) {
       this.cancelQueueItem(id);
+      this.removeRecoveryRecord(id);
     }
     this.items.clear();
     this.activeQueueId = null;

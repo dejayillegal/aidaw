@@ -1,3 +1,4 @@
+import { assertAudioSettings } from './audioSettingsContracts';
 import type { AbletonProjectState } from '../types/ableton';
 
 /** Validates the existing domain; this does not create a second editable model. */
@@ -6,6 +7,8 @@ export function assertProjectState(project: AbletonProjectState): void {
   if (!project || !Array.isArray(project.tracks) || typeof project.fileName !== 'string') fail('missing project/tracks');
   if (!Number.isFinite(project.tempo) || project.tempo <= 0) fail('invalid tempo');
   if (project.arrangementLengthBars !== undefined && (!Number.isSafeInteger(project.arrangementLengthBars) || project.arrangementLengthBars < 1)) fail('invalid arrangement extent');
+  if (project.audioSettings) assertAudioSettings(project.audioSettings);
+  if ([project.generationSeed, project.humanizationSeed].some(seed => seed !== undefined && !Number.isFinite(seed))) fail('invalid generation seed');
   const trackIds = new Set<string>();
   for (const track of project.tracks) {
     if (!track || typeof track.id !== 'string' || !track.id || trackIds.has(track.id)) fail('duplicate or missing track identity');

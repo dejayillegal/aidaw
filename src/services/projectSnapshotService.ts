@@ -1,10 +1,11 @@
 import type { AbletonProjectState, HumanizationConfig, MasterBusConfig, TransportConfig } from '../types/ableton';
 import { synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
+import { assertAudioSettings } from '../engine/audioSettingsContracts';
 import { assertProjectState } from '../engine/projectStateContracts';
 
 export interface ProjectSnapshot {
   format: 'parametric-als-daw';
-  version: 1;
+  version: 2;
   project: AbletonProjectState;
   audioSettings: { humanization: HumanizationConfig; masterBus: MasterBusConfig; transport: TransportConfig };
 }
@@ -15,17 +16,16 @@ function assertFiniteJson(value: unknown): void {
 }
 function validate(snapshot: ProjectSnapshot): void {
   if (!snapshot || snapshot.format !== 'parametric-als-daw') throw new Error('PROJECT_SNAPSHOT: unrecognized project format');
-  if (snapshot.version !== 1) throw new Error('PROJECT_SNAPSHOT_VERSION: unsupported version; original file is unchanged');
-  assertProjectState(snapshot.project);
-  const settings = snapshot.audioSettings;
-  if (!settings?.humanization || !settings?.masterBus || !settings?.transport ||
-      !Number.isFinite(settings.humanization.cutoffHz) || settings.humanization.cutoffHz <= 0 ||
-      !Number.isFinite(settings.masterBus.masterVolumeDb) ||
-      !Number.isInteger(settings.transport.loopStartBar) || settings.transport.loopStartBar < 1 ||
-      !Number.isInteger(settings.transport.loopLengthBars) || settings.transport.loopLengthBars < 1) {
-    throw new Error('PROJECT_SNAPSHOT: invalid audio settings');
-  }
   assertFiniteJson(snapshot);
+  assertProjectState(snapshot.project);
+  assertAudioSettings(snapshot.project.audioSettings!);
+  assertFiniteJson(snapshot);
+}
+
+function exposedSnapshot(project: AbletonProjectState): ProjectSnapshot {
+  // Legacy API access is a derived getter, never another mutable or serialized settings owner.
+  return { format: 'parametric-als-daw', version: 2, project,
+    get audioSettings() { return project.audioSettings!; } };
 }
 
 /** Native project file stores the existing domain plus audio settings and opaque source XML. No assets are embedded. */
@@ -35,23 +35,30 @@ export function encodeProjectSnapshot(
   masterBus: MasterBusConfig,
   transport: TransportConfig
 ): string {
-  const input: ProjectSnapshot = { format: 'parametric-als-daw', version: 1, project,
-    audioSettings: { humanization, masterBus, transport } };
+  const input = exposedSnapshot({ ...project, audioSettings: project.audioSettings || { humanization, masterBus, transport } });
   validate(input);
-  const snapshot = JSON.parse(JSON.stringify(input)) as ProjectSnapshot;
-  snapshot.project.rawXmlModified = synchronizeProjectStateToXml(snapshot.project);
-  snapshot.project.rawXml = snapshot.project.rawXmlModified;
-  snapshot.audioSettings.transport.arrangementLengthBars = project.arrangementLengthBars || 16;
-  return JSON.stringify(snapshot, null, 2);
+  const clonedProject = JSON.parse(JSON.stringify(input.project)) as AbletonProjectState;
+  delete clonedProject.audioSettings!.transport.arrangementLengthBars;
+  clonedProject.rawXmlModified = synchronizeProjectStateToXml(clonedProject);
+  clonedProject.rawXml = clonedProject.rawXmlModified;
+  return JSON.stringify({ format: 'parametric-als-daw', version: 2, project: clonedProject }, null, 2);
 }
 
 export function decodeProjectSnapshot(text: string): ProjectSnapshot {
-  let snapshot: ProjectSnapshot;
-  try { snapshot = JSON.parse(text); } catch { throw new Error('PROJECT_SNAPSHOT: invalid JSON'); }
+  let input: { format: string; version: number; project: AbletonProjectState; audioSettings?: ProjectSnapshot['audioSettings'] };
+  try { input = JSON.parse(text); } catch { throw new Error('PROJECT_SNAPSHOT: invalid JSON'); }
+  if (!input || input.format !== 'parametric-als-daw') throw new Error('PROJECT_SNAPSHOT: unrecognized project format');
+  if (input.version !== 1 && input.version !== 2) throw new Error('PROJECT_SNAPSHOT_VERSION: unsupported version; original file is unchanged');
+  if (input.version === 1) {
+    if (input.project?.audioSettings && JSON.stringify(input.project.audioSettings) !== JSON.stringify(input.audioSettings)) {
+      throw new Error('PROJECT_SNAPSHOT: ambiguous settings owners');
+    }
+    input.project = { ...input.project, audioSettings: input.audioSettings };
+  } else if (input.audioSettings !== undefined) throw new Error('PROJECT_SNAPSHOT: duplicate settings owner');
+  const snapshot = exposedSnapshot(input.project);
   validate(snapshot);
-  // Typed project is authoritative; rebuild supported XML fields instead of trusting stale cached XML.
+  delete snapshot.project.audioSettings!.transport.arrangementLengthBars;
   snapshot.project.rawXmlModified = synchronizeProjectStateToXml(snapshot.project);
   snapshot.project.rawXml = snapshot.project.rawXmlModified;
-  snapshot.audioSettings.transport.arrangementLengthBars = snapshot.project.arrangementLengthBars || 16;
   return snapshot;
 }

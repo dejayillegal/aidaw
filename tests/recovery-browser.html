@@ -6,6 +6,7 @@
 <script type="module">
 import { buildStarterAbletonXml, parseAlsXmlString, synchronizeProjectStateToXml } from '/src/engine/alsXmlEngine.ts';
 import { renderArrangementToWavBlob, synthesizeProjectToStereoFloatBuffers, shouldPlayNote } from '/src/engine/webAudioSynth.ts';
+import { ProjectQueueService } from '/src/services/projectQueueService.ts';
 import { executeMasterExport20 } from '/src/engine/masteringEngine.ts';
 
 const humanization = {
@@ -81,6 +82,85 @@ async function inspectWav(blob, expectedSampleRate, expectedBitDepth, expectedDu
 }
 
 window.recovery = {
+  async futureUiJournal(action) {
+    const db = await new Promise((resolve, reject) => { const request = indexedDB.open('aidaw_project_queue_db_v1', 1); request.onsuccess = () => resolve(request.result); request.onerror = reject; });
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('queued_projects', 'readwrite'); const store = tx.objectStore('queued_projects');
+        if (action === 'seed') { store.clear(); store.put({ queueId: 'future-ui', recoveryVersion: 999 }); }
+        else {
+          const request = store.getAll(); request.onsuccess = () => {
+            const rows = request.result;
+            if (rows.length !== 1 || rows[0].queueId !== 'future-ui' || rows[0].recoveryVersion !== 999) { tx.abort(); return; }
+            store.clear();
+          };
+        }
+        tx.oncomplete = resolve; tx.onabort = () => reject(new Error('Future journal was replaced or default project was silently persisted'));
+      });
+    } finally { db.close(); }
+    return { blocked: true, futureRecordPreserved: true };
+  },
+  async runRecoveryCase() {
+    const started = performance.now();
+    const xml = buildStarterAbletonXml('berghain-134', 777, 4).xml;
+    const first = new ProjectQueueService();
+    const record = await first.enqueueProjectFromXml('Recovery_Fixture.als', xml);
+    const baseline = record.workingProjectState;
+    const edited = structuredClone(baseline); edited.tracks[0].mixer.pan = 0.2;
+    edited.arrangementLengthBars = 1024;
+    const stressNote = edited.tracks[0].clips[0].notes[0];
+    edited.tracks[0].clips[0].length = 4096; edited.tracks[0].clips[0].endTime = 4096;
+    edited.tracks[0].clips[0].notes = Array.from({ length: 4096 }, (_, i) => ({ ...stressNote, id: `recovery_${i}`, time: i + 0.25, quantizedTime: i + 0.25 }));
+    edited.audioSettings = { humanization, masterBus, transport: { loopEnabled: false, loopStartBar: 1, loopLengthBars: 4, metronomeEnabled: false, followPlayhead: true, showAutomationLanes: true } };
+    first.updateWorkingProjectState(record.queueId, edited); await first.flushPersistence();
+    const second = new ProjectQueueService(); const restored = await second.restorePersistedProjects();
+    assert(JSON.stringify(restored.tracks) === JSON.stringify(edited.tracks), 'Recovery lost canonical track state');
+    assert(JSON.stringify(restored.audioSettings) === JSON.stringify(edited.audioSettings), 'Recovery lost audio settings');
+    assert(restored.arrangementLengthBars === 1024 && restored.tracks[0].clips[0].notes.length === 4096, 'Large-project recovery was truncated');
+    assert(parseAlsXmlString(restored.rawXmlModified).tracks[0].clips[0].notes.length === 4096, 'Recovery trusted stale XML over canonical events');
+    const exposed = second.getAllItems(); exposed[0].workingProjectState.tracks = [];
+    assert(second.getItem(record.queueId).workingProjectState.tracks.length > 0, 'Queue inspection leaked mutable state');
+    const nativeTransaction = IDBDatabase.prototype.transaction;
+    let abortNext = true;
+    IDBDatabase.prototype.transaction = function(...args) {
+      const transaction = nativeTransaction.apply(this, args);
+      if (abortNext && args[1] === 'readwrite') { abortNext = false; queueMicrotask(() => transaction.abort()); }
+      return transaction;
+    };
+    let aborted = false;
+    try {
+      const bad = structuredClone(edited); bad.tracks[0].mixer.pan = 0.9;
+      first.updateWorkingProjectState(record.queueId, bad);
+      try { await first.flushPersistence(); } catch (error) { aborted = String(error).includes('RECOVERY_ABORT'); }
+    } finally { IDBDatabase.prototype.transaction = nativeTransaction; }
+    assert(aborted, 'Aborted journal write was not reported');
+    const afterAbort = await new ProjectQueueService().restorePersistedProjects();
+    assert(afterAbort.tracks[0].mixer.pan === 0.2, 'Aborted write replaced the previous saved revision');
+    const db = await new Promise((resolve, reject) => { const req = indexedDB.open('aidaw_project_queue_db_v1', 1); req.onsuccess = () => resolve(req.result); req.onerror = reject; });
+    const mutateRow = change => new Promise((resolve, reject) => {
+      const tx = db.transaction('queued_projects', 'readwrite'); const store = tx.objectStore('queued_projects'); const req = store.get(record.queueId);
+      req.onsuccess = () => { const row = req.result; change(row); store.put(row); }; tx.oncomplete = resolve; tx.onabort = reject;
+    });
+    let primary;
+    await mutateRow(row => { primary = structuredClone(row); row.checksum = 'damaged'; });
+    const fallback = await new ProjectQueueService().restorePersistedProjects();
+    assert(fallback.tracks[0].mixer.pan === baseline.tracks[0].mixer.pan, 'Corrupt journal did not recover its prior valid revision');
+    await mutateRow(row => { Object.assign(row, primary); row.recoveryVersion = 999; });
+    const futureReader = new ProjectQueueService();
+    assert(await futureReader.restorePersistedProjects() === null, 'Future journal was silently downgraded');
+    assert(futureReader.getPersistenceStatus().error.includes('RECOVERY_VERSION'), 'Future journal rejection missing');
+    await mutateRow(row => Object.assign(row, primary)); db.close();
+    for (let i = 0; i < 20; i++) {
+      const next = structuredClone(edited); next.tracks[0].mixer.pan = i / 100;
+      first.updateWorkingProjectState(record.queueId, next); await first.flushPersistence();
+      const reader = new ProjectQueueService(); const loaded = await reader.restorePersistedProjects();
+      assert(loaded.tracks[0].mixer.pan === i / 100, 'Repeated save/recovery returned a stale revision');
+    }
+    first.removeQueueItem(record.queueId); await first.flushPersistence();
+    assert(await new ProjectQueueService().restorePersistedProjects() === null, 'Removed queue record was resurrected by recovery');
+    return { scope: 'Real Chromium IndexedDB, not Android lifecycle qualification', status: 'PASS', projectBars: 1024, stressTrackNotes: 4096, repeatedCycles: 20,
+      removedRecordNotResurrected: true, abortedWritePreserved: true, corruptPrimaryFallback: true, futureVersionRejected: true, wallTimeMs: performance.now() - started };
+  },
   async runProbabilityCase() {
     const { xml } = buildStarterAbletonXml('berghain-134', 777, 4);
     const doc = new DOMParser().parseFromString(xml, 'application/xml');

@@ -54,6 +54,8 @@ try {
     console.log(JSON.stringify(result));
   }
   for (const repeat of report.audio.slice(1, 8)) assert(repeat.repeatMaxAbsoluteError < 0.001 && repeat.repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
+  report.projectRecovery = await page.evaluate(() => window.recovery.runRecoveryCase());
+  console.log(JSON.stringify({ projectRecovery: report.projectRecovery }));
   report.probabilityOffline = await page.evaluate(() => window.recovery.runProbabilityCase());
   console.log(JSON.stringify({ probabilityOffline: report.probabilityOffline }));
   await page.goto(origin);
@@ -86,6 +88,13 @@ try {
   await page.goto(`${origin}/tests/recovery-browser.html`);
   await page.waitForFunction(() => typeof window.recovery?.runTimeoutGuardCase === 'function');
   report.timeoutGuard = await page.evaluate(() => window.recovery.runTimeoutGuardCase());
+  await page.evaluate(() => window.recovery.futureUiJournal('seed'));
+  await page.goto(origin);
+  await page.getByText(/^Recovery blocked: RECOVERY_VERSION/).waitFor({ state: 'visible' });
+  await page.goto(`${origin}/tests/recovery-browser.html`);
+  await page.waitForFunction(() => typeof window.recovery?.futureUiJournal === 'function');
+  report.futureRecoveryUi = await page.evaluate(() => window.recovery.futureUiJournal('verify'));
+  console.log(JSON.stringify({ futureRecoveryUi: report.futureRecoveryUi }));
   assert.deepEqual(report.pageErrors, [], 'Uncaught browser runtime errors');
   assert.deepEqual(report.consoleErrors, [], 'Browser console errors');
   report.status = 'PASS';

@@ -805,8 +805,16 @@ export interface BatchWavExportItemResult {
   record: QueuedProjectRecord;
 }
 
+export interface ProjectAudioSettings {
+  humanization: HumanizationConfig;
+  masterBus: MasterBusConfig;
+  transport: TransportConfig;
+}
+
 export interface AbletonProjectState {
+  audioSettings?: ProjectAudioSettings;
   compatibilityWarnings?: string[];
+  humanizationSeed?: number;
   generationSeed?: number; // Seed persisted with generated starter XML
   fileName: string;
   schemaVersion: string;

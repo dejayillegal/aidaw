@@ -1,0 +1,40 @@
+{
+  "baseline": "f331b709bf17fb68f0b9ae343bfa8c433f43dde0",
+  "scope": "Local corrective subset only. G1 FAIL; browser/SDK on final PR head pending CI.",
+  "commands": [
+    {
+      "command": "npm ci --no-audit --no-fund",
+      "status": "PASS",
+      "packages": 676
+    },
+    {
+      "command": "npm test -- --reporter=json --outputFile=/tmp/aidaw-m4-tests.json",
+      "status": "PASS",
+      "tests": 114,
+      "passed": 114,
+      "failed": 0,
+      "success": true
+    },
+    {
+      "command": "npm run lint",
+      "status": "PASS",
+      "scope": "tsc --noEmit, not ESLint"
+    },
+    {
+      "command": "npm run build",
+      "status": "PASS",
+      "minifiedJsBytesApprox": 913950,
+      "warning": "chunk exceeds 500kB"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts -p 'test_*.py'",
+      "status": "PASS",
+      "tests": 12
+    }
+  ],
+  "browser": "NOT TESTED locally on final source. Associated PR retains CI result.",
+  "physicalAndroid": "BLOCKED",
+  "nativeLive": "NOT TESTED",
+  "listening": "NOT TESTED",
+  "sustainedCpuRss": "NOT TESTED"
+}

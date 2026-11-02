@@ -946,13 +946,13 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
         </div>
       </div>
 
-      {/* Row 4: Session View Clip Launch Matrix & Track Lock Manager */}
+      {/* Row 4: Scene Arrangement Replacement & Track Lock Manager */}
       <div className="p-3 bg-[#121722] border border-[#232C3D] rounded space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-emerald-400" />
             <span className="font-semibold text-slate-100">
-              ABLETON SESSION VIEW — 4-SCENE CLIP VARIATION LAUNCH MATRIX &amp; TRACK LOCKS ({project.tracks.length} TRACKS)
+              SCENE-TO-ARRANGEMENT VARIATIONS &amp; TRACK LOCKS ({project.tracks.length} TRACKS)
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -964,12 +964,13 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                 className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
               >
                 <Play className="w-2.5 h-2.5 fill-current" />
-                <span>Launch Scene {String.fromCharCode(65 + sceneIdx)}</span>
+                <span>Apply Scene {String.fromCharCode(65 + sceneIdx)}</span>
               </button>
             ))}
           </div>
         </div>
 
+        <p className="text-[10px] text-slate-400">Apply Scene replaces the targeted arrangement clips and can be undone. Live Session launch/record is not yet qualified.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2">
           {project.tracks.map((track) => {
             const isSelected = track.id === selectedTrack?.id;
