@@ -1,3 +1,7 @@
+import {
+  compileOrUpdateArrangementSchedule,
+  computeTrackScheduleSignature,
+} from "../engine/webAudioSynth";
 import { evaluateTrackMidiDeviceChain } from "../engine/abletonCapabilityMatrix";
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
@@ -155,5 +159,26 @@ describe("Persisted complete composition", () => {
         notes.map((n) => ({ ...n, harmonicOwner: undefined })),
       ).length,
     ).toBeGreaterThan(notes.length);
+  });
+  it("invalidates cached playback events when harmonic ownership or acid articulation changes", () => {
+    const p = fixture();
+    const q = composeSongPlan(p, createSongPlan(p, 777, "hypnotic_evolving"));
+    const before = compileOrUpdateArrangementSchedule(q, 256, null);
+    const changed = structuredClone(q);
+    const pad = changed.tracks.find((t) => t.archetype === "pad")!;
+    delete pad.clips[0].notes[0].harmonicOwner;
+    const next = compileOrUpdateArrangementSchedule(
+      changed,
+      256,
+      before.schedule,
+    );
+    expect(next.rebuiltTracksCount).toBe(1);
+    expect(next.schedule.events.length).toBeGreaterThan(
+      before.schedule.events.length,
+    );
+    const acid = changed.tracks.find((t) => t.archetype === "acid")!;
+    const signature = computeTrackScheduleSignature(acid);
+    acid.clips[0].notes[0].isSlide = !acid.clips[0].notes[0].isSlide;
+    expect(computeTrackScheduleSignature(acid)).not.toBe(signature);
   });
 });

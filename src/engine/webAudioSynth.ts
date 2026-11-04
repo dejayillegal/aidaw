@@ -3038,6 +3038,9 @@ export function computeTrackScheduleSignature(track: AbletonTrack): string {
             Math.round(n.duration * 960) ^
             (n.pitch << 8) ^
             n.velocity ^
+            (n.harmonicOwner==='voiced-midi'?1<<20:0) ^
+            (n.isSlide?1<<21:0) ^
+            (n.isAccent?1<<22:0) ^
             Math.round((n.probability ?? 1) * 1000)) >>>
           0;
       }

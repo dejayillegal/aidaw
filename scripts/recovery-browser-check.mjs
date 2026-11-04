@@ -22,7 +22,7 @@ catch (error) {
 }
 const output = process.env.RECOVERY_BROWSER_OUTPUT || await fs.mkdtemp(path.join(os.tmpdir(), 'aidaw-browser-'));
 await fs.mkdir(output, { recursive: true });
-const server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false } });
+const server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false, watch: null, hmr: false } });
 let browser;
 const report = { engine: 'Chromium real Web Audio', scope: 'Browser; Android device qualification remains separate',
   audio: [], responsive: [], pageErrors: [], consoleErrors: [], warnings: [] };
