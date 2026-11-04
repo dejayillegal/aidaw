@@ -1,3 +1,4 @@
+import type {ArrangementClipEdit,ArrangementNoteEdit} from '../engine/arrangementEditing';
 import React, { useState, useEffect } from 'react';
 import { SessionMatrix, type SessionMatrixProps } from './SessionMatrix';
 import {
@@ -76,7 +77,9 @@ export interface SoundCraftWorkstationProps {
   onChangeArrangementLength: (bars: number) => void;
   onDropMemoryLocationAtPlayhead: () => void;
   onSeekBeat: (beat: number) => void;
-  onToggleNoteInTrack: (trackId: string, beat: number, pitch: number, duration?: number) => void;
+  onToggleNoteInTrack: (trackId: string, beat: number, pitch: number, duration?: number,clipId?:string) => void;
+  onEditArrangementClip?:(trackId:string,clipId:string,edit:ArrangementClipEdit)=>void;
+  onEditArrangementNote?:(trackId:string,clipId:string,noteId:string,edit:ArrangementNoteEdit)=>void;
   onToggleMute: (trackId: string) => void;
   onToggleSolo: (trackId: string) => void;
   onUpdateTrackMixer: (trackId: string, partial: Partial<TrackMixerParams>) => void;
@@ -190,6 +193,8 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   onDropMemoryLocationAtPlayhead,
   onSeekBeat,
   onToggleNoteInTrack,
+  onEditArrangementClip,
+  onEditArrangementNote,
   onToggleMute,
   onToggleSolo,
   onUpdateTrackMixer,
@@ -513,7 +518,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
             leftDockOpen ? 'flex' : 'hidden'
           } bg-[#0C0F15] border-r border-[#1C222C] flex-col overflow-hidden select-none relative`}
         >
-          <div className="h-7 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
+          <div className="min-h-11 shrink-0 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
             <span className="font-bold text-zinc-300">TRACKS ({project.tracks.length})</span>
             <div className="flex items-center gap-1.5">
               <button
@@ -528,7 +533,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               <button
                 type="button"
                 onClick={onCloseLeftDock}
-                className="text-zinc-500 hover:text-zinc-300 text-[10px]"
+                className="min-h-11 min-w-11 flex items-center justify-center text-zinc-500 hover:text-zinc-300 text-[10px]"
                 title="Close Left Dock"
               >
                 <X className="w-3 h-3" />
@@ -543,7 +548,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               return (
                 <div
                   key={t.id}
-                  onClick={() => onSelectTrack(t.id)}
+                  onClick={() => {onSelectTrack(t.id);if(!inlineLeft)onCloseLeftDock();}}
                   className={`px-2.5 py-1.5 flex items-center justify-between cursor-pointer transition-colors text-xs font-mono ${
                     isSelected
                       ? 'bg-[#18202D] text-white border-l-2 border-amber-400'
@@ -708,6 +713,8 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               onUpdateMasterBus={onUpdateMasterBus}
               onSeekBeat={onSeekBeat}
               onToggleNoteInTrack={onToggleNoteInTrack}
+              onEditArrangementClip={onEditArrangementClip}
+              onEditArrangementNote={onEditArrangementNote}
               onToggleMute={onToggleMute}
               onToggleSolo={onToggleSolo}
               onUpdateTrackMixer={onUpdateTrackMixer}
@@ -874,7 +881,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
             rightDockOpen ? 'flex' : 'hidden'
           } w-80 bg-[#0C0F15] border-l border-[#1C222C] flex-col overflow-hidden`}
         >
-          <div className="h-7 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
+          <div className="min-h-11 shrink-0 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
             <span className="font-bold text-zinc-300">INSPECTOR &amp; AI</span>
             <button
               type="button"

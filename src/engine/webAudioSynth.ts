@@ -3027,26 +3027,30 @@ export interface SchedulerWindowQueryResult {
 }
 
 export function computeTrackScheduleSignature(track: AbletonTrack): string {
-  const clipsPart = (track.clips || [])
-    .map((clip) => {
-      const notes = clip.notes || [];
-      let noteChecksum = notes.length;
-      for (let i = 0; i < notes.length; i++) {
-        const n = notes[i];
-        noteChecksum =
-          (Math.imul(noteChecksum ^ Math.round(n.time * 960), 16777619) ^
-            Math.round(n.duration * 960) ^
-            (n.pitch << 8) ^
-            n.velocity ^
-            (n.harmonicOwner==='voiced-midi'?1<<20:0) ^
-            (n.isSlide?1<<21:0) ^
-            (n.isAccent?1<<22:0) ^
-            Math.round((n.probability ?? 1) * 1000)) >>>
-          0;
-      }
-      return `${clip.id}:${clip.startTime}:${clip.length}:${clip.loopEndBeats ?? 0}:${notes.length}:${noteChecksum}`;
-    })
-    .join(';');
+  // Exact coordinates and event identities are part of the editable score. A tick-rounded
+  // checksum can reuse stale events after legitimate fine edits or note replacement.
+  const clipsPart = JSON.stringify(
+    (track.clips || []).map((clip) => [
+      clip.id,
+      clip.startTime,
+      clip.length,
+      clip.loopEndBeats,
+      clip.contentOffsetBeats,
+      clip.notes.map((n) => [
+        n.id,
+        n.time,
+        n.quantizedTime,
+        n.duration,
+        n.pitch,
+        n.velocity,
+        n.probability ?? 1,
+        Boolean(n.isGhost),
+        Boolean(n.isSlide),
+        Boolean(n.isAccent),
+        n.harmonicOwner,
+      ]),
+    ]),
+  );
 
   const midiDevicesPart = (track.devices || [])
     .filter((d) => isMidiProcessorDeviceTag(d.xmlTag))
@@ -3936,6 +3940,7 @@ export class ParametricWebAudioEngine {
   private currentBeat = 0;
   private scheduledNoteKeys = new Set<string>();
   private sessionScheduledKeys = new Map<string, { trackId: string; beat: number }>();
+  private arrangementScheduledKeys = new Map<string, string>();
   private loopGeneration = 0;
 
   private schedulerTimerId: number | null = null;
@@ -4497,6 +4502,7 @@ export class ParametricWebAudioEngine {
     }
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
+    this.arrangementScheduledKeys.clear();
     this.playbackState = 'error';
     if (reason) {
       this.onPlaybackStopped?.(reason);
@@ -4513,9 +4519,9 @@ export class ParametricWebAudioEngine {
       lfoCutoffModHz: number,
       masterPeakDb: number,
       truePeakDbtp?: number,
-      lufs?: number
+      lufs?: number,
     ) => void,
-    onPlaybackStopped?: (reason?: string) => void
+    onPlaybackStopped?: (reason?: string) => void,
   ) {
     if (onPlayheadUpdate) {
       this.onPlayheadUpdate = onPlayheadUpdate;
@@ -4529,8 +4535,11 @@ export class ParametricWebAudioEngine {
     try {
       this.preflightProjectCandidate(project, transport);
     } catch (error) {
-      this.pendingBlockError = error instanceof Error ? error : new Error(String(error));
-      this.emergencyShutdown(`Playback blocked: ${this.pendingBlockError.message}`);
+      this.pendingBlockError =
+        error instanceof Error ? error : new Error(String(error));
+      this.emergencyShutdown(
+        `Playback blocked: ${this.pendingBlockError.message}`,
+      );
       return;
     }
 
@@ -4539,8 +4548,12 @@ export class ParametricWebAudioEngine {
     const modeChanged =
       this.project?.audioSettings?.transport.arrangementMode !==
       project.audioSettings?.transport.arrangementMode;
-    const previousSessionIds = new Set(this.project?.session?.events.map((e) => e.id) || []);
-    const nextEvents = new Map(project.session?.events.map((e) => [e.id, e]) || []);
+    const previousSessionIds = new Set(
+      this.project?.session?.events.map((e) => e.id) || [],
+    );
+    const nextEvents = new Map(
+      project.session?.events.map((e) => [e.id, e]) || [],
+    );
     const invalidatedTracks = new Set<string>();
     for (const event of this.project?.session?.events || []) {
       if (JSON.stringify(event) !== JSON.stringify(nextEvents.get(event.id)))
@@ -4549,22 +4562,59 @@ export class ParametricWebAudioEngine {
     for (const track of this.project?.tracks || []) {
       if (
         JSON.stringify(track.sessionClips) !==
-        JSON.stringify(project.tracks.find((t) => t.id === track.id)?.sessionClips)
+        JSON.stringify(
+          project.tracks.find((t) => t.id === track.id)?.sessionClips,
+        )
       )
         invalidatedTracks.add(track.id);
+    }
+    const editedArrangementTracks = new Set<string>();
+    const nextTracks = new Map(
+      project.tracks.map((track) => [track.id, track]),
+    );
+    for (const track of this.project?.tracks || []) {
+      const next = nextTracks.get(track.id);
+      if (
+        !next ||
+        computeTrackScheduleSignature(track) !==
+          computeTrackScheduleSignature(next)
+      )
+        editedArrangementTracks.add(track.id);
     }
     // Capture with the OLD tempo before replacing project state. RAF may be suspended
     // or several frames behind the audio clock. Queued voices use the old seconds map.
     const tempoChangedWhilePlaying =
-      this.isPlaying && prevTempo !== undefined && (prevTempo !== project.tempo || modeChanged);
+      this.isPlaying &&
+      prevTempo !== undefined &&
+      (prevTempo !== project.tempo || modeChanged);
     if (tempoChangedWhilePlaying) {
       this.currentBeat = this.getCurrentBeat();
       if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
       this.scheduledNoteKeys.clear();
       this.sessionScheduledKeys.clear();
+      this.arrangementScheduledKeys.clear();
       this.loopGeneration++;
       this.anchorBeat = this.currentBeat;
       if (this.ctx) this.anchorAudioTime = this.ctx.currentTime;
+    }
+    // Already queued Web Audio sources cannot be changed by recompiling the score.
+    // Retire the edited layer only; retain other layers' sustains and clock anchors.
+    if (
+      this.isPlaying &&
+      !tempoChangedWhilePlaying &&
+      this.bus &&
+      this.project?.audioSettings?.transport.arrangementMode !== 'session'
+    ) {
+      for (const trackId of editedArrangementTracks) {
+        for (const retire of [...(this.bus.trackVoices?.get(trackId) || [])])
+          retire();
+        for (const [key, owner] of this.arrangementScheduledKeys)
+          if (owner === trackId) {
+            this.scheduledNoteKeys.delete(key);
+            this.arrangementScheduledKeys.delete(key);
+          }
+        this.bus.acidMonoVoices?.delete(trackId);
+      }
     }
     this.project = project;
     this.humanization = humanization;
@@ -4584,9 +4634,11 @@ export class ParametricWebAudioEngine {
         for (const retire of [...this.bus.activeVoices]) retire();
         this.scheduledNoteKeys.clear();
         this.sessionScheduledKeys.clear();
+        this.arrangementScheduledKeys.clear();
       } else {
         for (const trackId of invalidatedTracks) {
-          for (const retire of this.bus.trackVoices?.get(trackId) || []) retire();
+          for (const retire of this.bus.trackVoices?.get(trackId) || [])
+            retire();
           for (const [key, metadata] of this.sessionScheduledKeys)
             if (metadata.trackId === trackId) {
               this.scheduledNoteKeys.delete(key);
@@ -4595,57 +4647,81 @@ export class ParametricWebAudioEngine {
         }
         for (const event of project.session?.events || [])
           if (!previousSessionIds.has(event.id)) {
-            const at = this.anchorAudioTime + (event.atBeat - this.anchorBeat) / (project.tempo / 60);
-            for (const retire of this.bus.trackVoices?.get(event.trackId) || []) retire(at);
+            const at =
+              this.anchorAudioTime +
+              (event.atBeat - this.anchorBeat) / (project.tempo / 60);
+            for (const retire of this.bus.trackVoices?.get(event.trackId) || [])
+              retire(at);
           }
       }
     }
 
     if (this.ctx && this.bus) {
       const now = this.ctx.currentTime;
+      const masterPoints = this.masterBus.masterAutomationPoints || [];
+      const masterTrim = masterPoints.length
+        ? (evaluateAutomationAtBeat(
+            masterPoints,
+            this.getCurrentBeat(),
+            this.getMaxArrangementBeats(),
+          ) -
+            0.55) *
+          8
+        : 0;
       this.bus.masterGain.gain.setTargetAtTime(
-        dbToGain(this.masterBus.masterVolumeDb) * (1 + this.masterBus.glueCompressionDrive * 0.25),
+        dbToGain(this.masterBus.masterVolumeDb + masterTrim),
         now,
-        0.02
+        0.02,
       );
       this.bus.reverbReturnGain.gain.setTargetAtTime(
         this.masterBus.reverbReturnLevel * 0.85,
         now,
-        0.02
+        0.02,
       );
       this.bus.delayReturnGain.gain.setTargetAtTime(
         this.masterBus.delayReturnLevel * 0.75,
         now,
-        0.02
+        0.02,
       );
       this.bus.delayFeedbackGain.gain.setTargetAtTime(
         Math.min(0.82, Math.max(0.1, this.masterBus.delayFeedback)),
         now,
-        0.02
+        0.02,
       );
       this.bus.delayLeftTapGain.gain.setTargetAtTime(
         Math.min(0.82, Math.max(0.1, this.masterBus.delayFeedback)),
         now,
-        0.02
+        0.02,
       );
       this.bus.compressor.threshold.setTargetAtTime(
         -14 - this.masterBus.glueCompressionDrive * 10,
         now,
-        0.03
+        0.03,
       );
       const threeSixteenthSec = Math.max(
         0.08,
-        Math.min(0.9, (60 / Math.max(90, project.tempo)) * 0.75)
+        Math.min(0.9, (60 / Math.max(90, project.tempo)) * 0.75),
       );
-      this.bus.delayNodeL.delayTime.setTargetAtTime(threeSixteenthSec, now, 0.03);
-      this.bus.delayNodeR.delayTime.setTargetAtTime(threeSixteenthSec * 2, now, 0.03);
+      this.bus.delayNodeL.delayTime.setTargetAtTime(
+        threeSixteenthSec,
+        now,
+        0.03,
+      );
+      this.bus.delayNodeR.delayTime.setTargetAtTime(
+        threeSixteenthSec * 2,
+        now,
+        0.03,
+      );
 
       // Immediately sync all persistent per-track channel strips in real time
       try {
         this.syncLiveTrackChannels();
       } catch (err) {
-        this.pendingBlockError = err instanceof Error ? err : new Error(String(err));
-        this.emergencyShutdown(`Playback blocked: ${this.pendingBlockError.message}`);
+        this.pendingBlockError =
+          err instanceof Error ? err : new Error(String(err));
+        this.emergencyShutdown(
+          `Playback blocked: ${this.pendingBlockError.message}`,
+        );
       }
     }
   }
@@ -4704,6 +4780,7 @@ export class ParametricWebAudioEngine {
     this.lastSchedulerPerfMs = performance.now();
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
+    this.arrangementScheduledKeys.clear();
     this.loopGeneration = 0;
     this.playbackState = 'playing';
 
@@ -4751,6 +4828,7 @@ export class ParametricWebAudioEngine {
     }
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
+    this.arrangementScheduledKeys.clear();
     if (this.compiledSchedule) {
       this.compiledSchedule.cursorIndex = 0;
       this.compiledSchedule.cursorBeat = -1;
@@ -4773,6 +4851,7 @@ export class ParametricWebAudioEngine {
     }
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
+    this.arrangementScheduledKeys.clear();
     this.loopGeneration++;
     if (this.compiledSchedule) {
       this.compiledSchedule.cursorIndex = findFirstEventIndexAtOrAfterBeat(
@@ -4993,6 +5072,8 @@ export class ParametricWebAudioEngine {
         this.loopGeneration += completedCycles;
         this.scheduledNoteKeys = new Set([...this.scheduledNoteKeys].filter(key =>
           key.startsWith(`${this.loopGeneration}_`) || key.startsWith(`metro_${this.loopGeneration}_`)));
+        for (const key of this.arrangementScheduledKeys.keys())
+          if (!this.scheduledNoteKeys.has(key)) this.arrangementScheduledKeys.delete(key);
       }
     } else {
       if (exactBeatNow >= maxBeats) {
@@ -5106,6 +5187,7 @@ export class ParametricWebAudioEngine {
               this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
             if (noteAudioTime >= nowAudio - 0.015) {
               this.scheduledNoteKeys.add(key);
+              this.arrangementScheduledKeys.set(key, evt.trackId);
               scheduleTrackVoiceAtTime(
                 this.ctx!,
                 this.bus!,
@@ -5133,6 +5215,7 @@ export class ParametricWebAudioEngine {
               const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
               if (noteAudioTime >= nowAudio - 0.01) {
                 this.scheduledNoteKeys.add(wrapKey);
+                this.arrangementScheduledKeys.set(wrapKey, evt.trackId);
                 scheduleTrackVoiceAtTime(
                   this.ctx!,
                   this.bus!,

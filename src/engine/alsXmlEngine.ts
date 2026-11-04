@@ -2181,6 +2181,7 @@ export function parseAbletonXmlDom(
 
       return {
         id: readAlsIdentity(clipEl) || `clip_${trackId}_${cIdx}`,
+        ...(clipEl.getAttribute('Data-Parametric-UserEdited')==='true'?{userEdited:true}:{}),
 
         name: clipName,
         startTime,
@@ -2744,6 +2745,18 @@ export function syncTrackClipsToXml(
   if (!events) events = ensure(ensure(ensure(ensure(track, 'DeviceChain'), 'MainSequencer'), 'ClipTimeable'), 'ArrangerAutomation').appendChild(doc.createElement('Events'));
   const existing = Array.from(events.children).filter(el => el.tagName === 'MidiClip');
   requireUnique(existing.map(el => identity(el)), 'native clip');
+  const noteTemplatesByClip=new Map(existing.map(el=>[identity(el),new Map(Array.from(el.querySelectorAll('MidiNoteEvent')).map(note=>[identity(note,'NoteId'),note.cloneNode(true) as Element]))]));
+  // Consolidation has one native clip envelope. Differing opaque state cannot be
+  // combined safely: reject the edit before removing any source material.
+  const opaqueClipState=(el:Element)=>JSON.stringify({
+    attributes:Array.from(el.attributes).filter(a=>!['Id','Time','Data-AIDAW-LogicalId','Data-Parametric-ClipId','Data-Parametric-UserEdited'].includes(a.name)).map(a=>[a.name,a.value]).sort(),
+    children:Array.from(el.children).filter(c=>!['Notes','Name','CurrentStart','CurrentEnd','Loop'].includes(c.tagName)).map(c=>new XMLSerializer().serializeToString(c)),
+  });
+  const opaqueByClip=new Map(existing.map(el=>[identity(el),opaqueClipState(el)]));
+  for(const clip of clips)if((clip.sourceClipIds?.length??0)>1&&!existing.some(el=>identity(el)===clip.id)){
+    const states=clip.sourceClipIds!.map(id=>opaqueByClip.get(id));
+    if(states.some(state=>state===undefined)||new Set(states).size>1)throw new Error('CLIP_CONSOLIDATION_UNSUPPORTED: source clips have incompatible opaque metadata; keep them separate');
+  }
   const requested = new Set(clips.map(c => c.id));
   for (const el of existing) if (!requested.has(identity(el))) el.remove();
   for (const clip of clips) {
@@ -2767,6 +2780,8 @@ export function syncTrackClipsToXml(
       if (Number(node.getAttribute(attr)) !== value || !node.hasAttribute(attr)) node.setAttribute(attr, Number(value.toFixed(digits)) === value ? value.toFixed(digits) : String(value));
     };
     putNumber(el, 'Time', clip.startTime);
+    if(clip.userEdited) el.setAttribute('Data-Parametric-UserEdited','true');
+    else el.removeAttribute('Data-Parametric-UserEdited');
     setValue(el, 'Name', clip.name);
     putNumber(ensure(el, 'CurrentStart'), 'Value', clip.startTime);
     putNumber(ensure(el, 'CurrentEnd'), 'Value', clip.startTime + clip.length);
@@ -2785,7 +2800,7 @@ export function syncTrackClipsToXml(
         setValue(keyTrack, 'MidiKey', String(n.pitch)); keyTracks.appendChild(keyTrack);
       }
       if (!note) {
-        const source = n.sourceNoteId ? oldById.get(n.sourceNoteId) : undefined;
+        const source = n.sourceNoteId ? (n.sourceNoteClipId ? noteTemplatesByClip.get(n.sourceNoteClipId)?.get(n.sourceNoteId) : oldById.get(n.sourceNoteId)) : undefined;
         if (n.sourceNoteId && !source) throw new Error(`Source note ${n.sourceNoteId} not found`);
         note = source ? source.cloneNode(true) as Element : doc.createElement('MidiNoteEvent');
         note.setAttribute('NoteId', /^\d+$/.test(n.id) ? n.id : numericId(el, 'NoteId'));
@@ -3338,7 +3353,7 @@ export function synchronizeProjectStateToXml(
   // new Session references are not resolvable until track metadata is written below.
   const serialized = previous ? null : parseAbletonXmlDom(project.rawXmlModified || project.rawXml || '', project.fileName);
   const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
-    id: c.id, name: c.name, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
+    id: c.id, name: c.name, userEdited:c.userEdited, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
     notes: c.notes.map(n => ({ id: n.id, time: n.time, quantizedTime: n.quantizedTime,
       duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1, harmonicOwner:n.harmonicOwner, isSlide:n.isSlide??false, isAccent:n.isAccent??(n.velocity>=110) })),
   }));

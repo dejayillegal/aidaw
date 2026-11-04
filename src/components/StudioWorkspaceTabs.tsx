@@ -49,9 +49,9 @@ export const StudioWorkspaceTabs: React.FC<StudioWorkspaceTabsProps> = ({
   ];
 
   return (
-    <div className="min-h-9 min-w-0 overflow-x-auto bg-[#0B0E13] border-b border-[#1E2530] px-3 flex items-center justify-between text-xs font-mono select-none shrink-0 z-20">
+    <div className="min-h-9 min-w-0 overflow-x-auto bg-[#0B0E13] border-b border-[#1E2530] px-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between text-xs font-mono select-none shrink-0 z-20">
       {/* Primary Workspace Tabs */}
-      <div className="min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar">
+      <div className="min-h-11 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -78,7 +78,7 @@ export const StudioWorkspaceTabs: React.FC<StudioWorkspaceTabsProps> = ({
       </div>
 
       {/* Dock Viewport Controls & Layout Presets */}
-      <div className="hidden sm:flex items-center gap-1.5 text-[10px]">
+      <div className="flex shrink-0 min-h-11 items-center justify-end gap-1.5 text-[10px]">
         {onApplyLayoutPreset && (
           <div className="hidden md:flex items-center gap-1 mr-2 border-r border-[#1E2530] pr-2 text-zinc-500">
             <span className="uppercase text-[9px]">PRESETS:</span>
@@ -117,42 +117,42 @@ export const StudioWorkspaceTabs: React.FC<StudioWorkspaceTabsProps> = ({
           type="button"
           onClick={onToggleLeftDock}
           title="Toggle Tracks &amp; Groups Tree (Left Dock)"
-          className={`px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
+          className={`min-h-11 min-w-11 px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
             leftDockOpen
               ? 'bg-[#18202C] text-amber-300 border-[#2C384B]'
               : 'bg-[#10141C] text-zinc-500 border-[#1E2530] hover:text-zinc-300'
           }`}
         >
           <PanelLeft className="w-3.5 h-3.5" />
-          <span className="hidden lg:inline">Tracks</span>
+          <span className="inline">Tracks</span>
         </button>
 
         <button
           type="button"
           onClick={onToggleBottomDock}
           title="Toggle MIDI / Device Editor (Bottom Dock)"
-          className={`px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
+          className={`min-h-11 min-w-11 px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
             bottomDockOpen
               ? 'bg-[#18202C] text-amber-300 border-[#2C384B]'
               : 'bg-[#10141C] text-zinc-500 border-[#1E2530] hover:text-zinc-300'
           }`}
         >
           <PanelBottom className="w-3.5 h-3.5" />
-          <span className="hidden lg:inline">Editor</span>
+          <span className="inline">Editor</span>
         </button>
 
         <button
           type="button"
           onClick={onToggleRightDock}
           title="Toggle AI &amp; Inspector (Right Dock)"
-          className={`px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
+          className={`min-h-11 min-w-11 px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
             rightDockOpen
               ? 'bg-[#18202C] text-amber-300 border-[#2C384B]'
               : 'bg-[#10141C] text-zinc-500 border-[#1E2530] hover:text-zinc-300'
           }`}
         >
           <PanelRight className="w-3.5 h-3.5" />
-          <span className="hidden lg:inline">Inspector</span>
+          <span className="inline">Inspector</span>
         </button>
       </div>
     </div>

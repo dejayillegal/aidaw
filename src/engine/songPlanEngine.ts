@@ -1,3 +1,4 @@
+import {deleteClipsInBeatRange,nextArrangementIdentity} from './compositionIntelligenceEngine';
 import type {
   AbletonProjectState,
   AbletonTrack,
@@ -850,11 +851,11 @@ export function composeSongPlan(
       scope.toBeat <= scope.fromBeat ||
       scope.toBeat > plan.durationBars * 4)
   )
-    throw new Error("SONG_PLAN_RANGE");
+    throw new Error('SONG_PLAN_RANGE');
   const tracks = project.tracks.map((track) => {
     if (
       track.locked ||
-      track.type !== "midi" ||
+      track.type !== 'midi' ||
       !roles.includes(track.archetype) ||
       (scope?.trackId && track.id !== scope.trackId)
     )
@@ -864,39 +865,47 @@ export function composeSongPlan(
       scope?.roleOverride ? { ...track, archetype: scope.roleOverride } : track,
     );
     if (scope) {
-      const clips = track.clips
-        .map((c) => ({
-          ...c,
-          notes: c.notes.filter(
-            (n) => n.time < scope.fromBeat || n.time >= scope.toBeat,
-          ),
-        }))
-        .filter(
-          (c) =>
-            c.notes.length ||
-            c.startTime + c.length <= scope.fromBeat ||
-            c.startTime >= scope.toBeat,
-        );
-      for (const c of generated) {
-        const notes = c.notes
-          .filter((n) => n.time >= scope.fromBeat && n.time < scope.toBeat)
-          .map((n) => ({
-            ...n,
-            duration: Math.min(n.duration, scope.toBeat - n.time),
-          }));
-        if (notes.length) {
-          const start = Math.max(c.startTime, scope.fromBeat),
-            end = Math.min(c.startTime + c.length, scope.toBeat);
-          clips.push({
-            ...c,
-            id: `${c.id}_range_${scope.fromBeat}_${scope.toBeat}`,
-            startTime: start,
-            length: end - start,
-            endTime: end,
-            notes,
-          });
+      // User-owned clips are protected as complete editable spans. Generate only
+      // the unprotected holes, so regeneration cannot overlay or erase an edit.
+      const protectedClips = track.clips.filter((c) => c.userEdited);
+      let ranges = [{ from: scope.fromBeat, to: scope.toBeat }];
+      for (const c of protectedClips)
+        ranges = ranges.flatMap((r) => {
+          const end = c.startTime + c.length;
+          if (end <= r.from || c.startTime >= r.to) return [r];
+          return [
+            { from: r.from, to: Math.min(r.to, c.startTime) },
+            { from: Math.max(r.from, end), to: r.to },
+          ].filter((r) => r.to > r.from);
+        });
+      let clips = track.clips;
+      for (const range of ranges) {
+        clips = deleteClipsInBeatRange(clips, range.from, range.to);
+        for (const c of generated) {
+          const start = Math.max(c.startTime, range.from),
+            end = Math.min(c.startTime + c.length, range.to);
+          if (end <= start) continue;
+          const notes = c.notes
+            .filter((n) => n.time >= start && n.time < end)
+            .map((n) => ({
+              ...n,
+              duration: Math.min(n.duration, end - n.time),
+            }));
+          if (notes.length)
+            clips.push({
+              ...c,
+              id: nextArrangementIdentity(
+                `${c.id}_range`,
+                clips.map((x) => x.id),
+              ),
+              startTime: start,
+              length: end - start,
+              endTime: end,
+              notes,
+            });
         }
       }
+      clips.sort((a, b) => a.startTime - b.startTime);
       return { ...track, clips };
     }
     const role = plan.roles.find((r) => r.role === track.archetype)!;
@@ -908,15 +917,15 @@ export function composeSongPlan(
         ...track.mixer,
         volumeDb: role.gainDb,
         reverbSend:
-          track.archetype === "pad"
+          track.archetype === 'pad'
             ? 0.25
-            : track.archetype === "acid"
+            : track.archetype === 'acid'
               ? 0.08
               : 0.12,
         delaySend:
-          track.archetype === "synth"
+          track.archetype === 'synth'
             ? 0.24
-            : track.archetype === "acid"
+            : track.archetype === 'acid'
               ? 0.1
               : 0.06,
       },
@@ -929,7 +938,7 @@ export function composeSongPlan(
     tracks,
     ...(!scope
       ? {
-          creationMode: "full-track" as const,
+          creationMode: 'full-track' as const,
           requestedDurationBars: plan.durationBars,
           arrangementLengthBars: plan.durationBars,
         }

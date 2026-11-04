@@ -141,6 +141,7 @@ export type MidiToolTransformationId =
 export interface MidiNoteEvent {
   harmonicOwner?: 'voiced-midi'; // Explicit chord ownership: MIDI pitches bypass further Chord expansion.
   id: string;
+  sourceNoteClipId?: string; // Exact native source clip for split/consolidated note templates.
   sourceNoteId?: string; // Native note template for preservation during duplication.
   time: number; // In beats (e.g., 1.012 with micro-timing shift)
   quantizedTime: number; // Original grid beat (e.g., 1.000)
@@ -165,6 +166,8 @@ export interface TrackVelocityRandomizerConfig {
 
 export interface AbletonMidiClip {
   id: string;
+  userEdited?: boolean; // Protects manually edited material from scoped composition.
+  sourceClipIds?: string[]; // Consolidation sources for opaque-metadata compatibility checks.
   sourceClipId?: string; // Native clip template for preservation during split/duplicate.
   name: string;
   startTime: number; // In beats (0 = Bar 1)

@@ -1,5 +1,7 @@
 # G1–G7 execution record — 2 November 2026
 
+**4 November arrangement-editing candidate:** [implemented editing scope and native evidence](../arrangement-editing/REPORT.md). Original gate statuses and thresholds remain unchanged.
+
 **4 November composition/signal-path candidate:** [implementation and explicit remaining evidence](../song-plan/REPORT.md). The authoritative gate meanings, thresholds and FAIL/BLOCKED statuses below are retained.
 
 **Latest implementation:** [attached-review corrections and current evidence](ATTACHMENT_IMPLEMENTATION.md) supersede the Session/precision/insert defects recorded below. This earlier milestone remains historical; the full gates remain open.
