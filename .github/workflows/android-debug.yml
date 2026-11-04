@@ -51,8 +51,10 @@ jobs:
 
       - name: Install isolated browser test runtime
         run: |
-          npm install --no-save --package-lock=false playwright
-          npx playwright install --with-deps chromium
+          browser_runtime="$RUNNER_TEMP/aidaw-browser-runtime"
+          npm install --prefix "$browser_runtime" --no-save --package-lock=false playwright@1.62.1
+          node "$browser_runtime/node_modules/playwright/cli.js" install --with-deps chromium
+          echo "CODEX_PRIMARY_RUNTIME_NODE_MODULES=$browser_runtime/node_modules" >> "$GITHUB_ENV"
 
       - name: Verify real audio rendering and responsive settings
         env:

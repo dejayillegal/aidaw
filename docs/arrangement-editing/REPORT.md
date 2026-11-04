@@ -65,3 +65,7 @@ ffmpeg -i .evidence/editing/edited.wav -af ebur128=peak=true -f null -
 ```
 
 `CHROMIUM_EXECUTABLE_PATH` optionally selects an installed native Chromium executable. `evidence.json` binds results to the source tree, production bundle and exported file hashes.
+
+## Android build dependency isolation
+
+The earlier CI browser setup ran `npm install --no-save --package-lock=false playwright` in the app root after `npm ci`; its log reported 661 changed packages before packaging. Browser tooling now installs pinned Playwright 1.62.1 into a separate runner-temporary directory, and both browser harnesses resolve it through their existing runtime fallback. This keeps the APK build on the lockfile dependencies exercised by the unit suite. No application dependency or lockfile is changed by this correction. Earlier APKs remain engineering candidates; the final merged-main artifact must be identified separately.
