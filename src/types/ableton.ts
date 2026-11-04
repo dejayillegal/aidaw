@@ -167,7 +167,7 @@ export interface TrackVelocityRandomizerConfig {
 export interface AbletonMidiClip {
   id: string;
   userEdited?: boolean; // Protects manually edited material from scoped composition.
-  sourceClipIds?: string[]; // Consolidation sources for opaque-metadata compatibility checks.
+  sourceClipIds?: string[]; // Pending consolidation templates; consumed by the command/XML boundary.
   sourceClipId?: string; // Native clip template for preservation during split/duplicate.
   name: string;
   startTime: number; // In beats (0 = Bar 1)

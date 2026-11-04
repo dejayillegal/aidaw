@@ -407,3 +407,30 @@ it("rejects consolidation of incompatible opaque clip metadata without committin
   expect(bus.getHistory("opaque")).toHaveLength(0);
   expect(p.rawXmlModified).toBe(original);
 });
+it("can duplicate and split a previously consolidated clip without stale source references", () => {
+  let p = fixture();
+  p.tracks[0].clips = [clip("one", 0, 1), clip("two", 1, 1)];
+  p.rawXmlModified = synchronizeProjectStateToXml(p);
+  const bus = new StudioCommandBus(),
+    id = p.tracks[0].id;
+  p = bus.executeMutation("sequence", "consolidate", "clip_edit", p, (d) => ({
+    ...d,
+    tracks: d.tracks.map((t, i) =>
+      i ? t : { ...t, clips: consolidateTrackClipsInRange(t.clips, 0, 2) },
+    ),
+  }));
+  const merged = p.tracks[0].clips[0].id;
+  expect(p.tracks[0].clips[0].sourceClipIds).toBeUndefined();
+  p = bus.executeMutation("sequence", "duplicate", "clip_edit", p, (d) =>
+    editArrangementClip(d, id, merged, { kind: "duplicate" }),
+  );
+  expect(p.tracks[0].clips).toHaveLength(2);
+  p = bus.executeMutation("sequence", "split", "clip_edit", p, (d) =>
+    editArrangementClip(d, id, merged, { kind: "split", atBeat: 0.5 }),
+  );
+  expect(p.tracks[0].clips).toHaveLength(3);
+  expect(bus.getHistory("sequence")).toHaveLength(3);
+  expect(
+    parseAbletonXmlDom(p.rawXmlModified, "sequence").tracks[0].clips,
+  ).toHaveLength(3);
+});

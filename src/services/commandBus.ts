@@ -157,6 +157,11 @@ export class StudioCommandBus {
     mutated.projectRevision = nextRev;
     const syncedXml = synchronizeProjectStateToXml(mutated, currentProject);
 
+    // Multi-source templates are a pending XML projection instruction, not saved
+    // score state. Consuming them here prevents stale references in later clones
+    // (including Session copies/capture) after the source clips were removed.
+    for (const track of mutated.tracks) for (const clip of track.clips) delete clip.sourceClipIds;
+
     mutated.rawXmlModified = syncedXml;
     mutated.rawXml = syncedXml;
     const afterSnapshot = deepCloneProject(mutated);
