@@ -1,0 +1,120 @@
+<!doctype html><meta charset="utf-8" /><title>
+  Continuous export qualification
+</title>
+<script type="module">
+  import {
+    buildStarterAbletonXml,
+    parseAlsXmlString,
+  } from "/src/engine/alsXmlEngine.ts";
+  import {
+    createSongPlan,
+    composeSongPlan,
+  } from "/src/engine/songPlanEngine.ts";
+  import {
+    renderArrangementToWavBlob,
+    renderArrangementToWavStream,
+    planArrangementWavExport,
+  } from "/src/engine/webAudioSynth.ts";
+  import {
+    DEFAULT_HUMANIZATION,
+    DEFAULT_MASTER_BUS,
+  } from "/src/engine/projectDefaults.ts";
+  window.runContinuousExport = async function (options) {
+    const {
+      bars = 4,
+      sampleRate = 44100,
+      bitDepth = 24,
+      mode = "stream",
+      seed = 777,
+    } = options;
+    let p = parseAlsXmlString(
+      buildStarterAbletonXml("berghain-134", seed, 4).xml,
+    );
+    p.tempo = 144;
+    p.arrangementLengthBars = bars;
+    if (bars > 4)
+      p = composeSongPlan(p, createSongPlan(p, seed, "hypnotic_evolving"));
+    const h = structuredClone(DEFAULT_HUMANIZATION),
+      m = structuredClone(DEFAULT_MASTER_BUS);
+    if (options.highFeedback) {
+      m.delayFeedback = 0.82;
+      for (const track of p.tracks) track.mixer.delaySend = 0.7;
+    }
+    const plan = planArrangementWavExport(p, m, sampleRate, bitDepth, bars);
+    let largestBlock = 0,
+      written = 0;
+    const write = async (block) => {
+      largestBlock = Math.max(largestBlock, block.byteLength);
+      written += block.byteLength;
+      let binary = "";
+      for (let i = 0; i < block.length; i++)
+        binary += String.fromCharCode(block[i]);
+      await window.writeExportBlock(btoa(binary));
+    };
+    let legacyRejection;
+    if (options.probeLegacy)
+      try {
+        await renderArrangementToWavBlob(p, h, m, bars, bitDepth);
+      } catch (e) {
+        legacyRejection = e.message;
+      }
+    if (mode === "blob") {
+      const { blob } = await renderArrangementToWavBlob(
+        p,
+        h,
+        m,
+        bars,
+        bitDepth,
+      );
+      for (let start = 0; start < blob.size; start += 192 * 1024)
+        await write(
+          new Uint8Array(
+            await blob.slice(start, start + 192 * 1024).arrayBuffer(),
+          ),
+        );
+    } else if (mode === "cancel") {
+      const controller = new AbortController();
+      let cancelled = false;
+      try {
+        await renderArrangementToWavStream(p, h, m, write, {
+          sampleRate,
+          bitDepth,
+          totalBars: bars,
+          signal: controller.signal,
+          onProgress: (percent) => {
+            window.exportProgress?.(percent);
+            if (percent > 1) controller.abort();
+          },
+        });
+      } catch (e) {
+        if (e.name !== "AbortError") throw e;
+        cancelled = true;
+      }
+      if (!cancelled || written !== 0) throw new Error("CANCEL_NOT_ATOMIC");
+      return { cancelled, written };
+    } else
+      await renderArrangementToWavStream(p, h, m, write, {
+        sampleRate,
+        bitDepth,
+        totalBars: bars,
+        onProgress: (percent) => window.exportProgress?.(percent),
+      });
+    return {
+      bars,
+      seed,
+      sampleRate,
+      bitDepth,
+      frames: plan.frames,
+      durationSeconds: plan.durationSeconds,
+      tailSeconds: plan.tailSeconds,
+      expectedSize: plan.sizeBytes,
+      written,
+      largestBlock,
+      memory: plan.memory,
+      legacyRejection,
+      compositionVersion: p.songPlan?.version,
+      sourceTrackCount: p.tracks.length,
+    };
+  };
+  window.ready = true;
+</script>

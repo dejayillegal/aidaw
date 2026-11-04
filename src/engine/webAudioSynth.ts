@@ -1,3 +1,7 @@
+import { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
+import { estimateArrangementTailSeconds, estimateContinuousExportMemory } from './wavExportPolicy';
+export { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
+export { estimateArrangementTailSeconds, estimateContinuousExportMemory } from './wavExportPolicy';
 import { OrderedAudioSum, connectOrderedSources } from './orderedAudioSum';
 import {
   assertValidPpq,
@@ -2487,66 +2491,6 @@ function scheduleMetronomeClick(
 }
 
 /**
- * Encodes a stereo AudioBuffer into an uncompressed 16-bit, 24-bit PCM, or 32-bit Float RIFF WAVE (.wav) Blob.
- */
-export async function encodeAudioBufferToWavBlob(
-  buffer: { numberOfChannels: number; sampleRate: number; length: number; getChannelData: (channel: number) => Float32Array },
-  bitDepth: 16 | 24 | 32 = 24,
-  onProgress?: (progressPercent: number) => void
-): Promise<Blob> {
-  if (buffer.numberOfChannels !== 2 || ![16, 24, 32].includes(bitDepth)) {
-    throw new Error('ENCODE_FORMAT: stereo PCM16/24 or Float32 required');
-  }
-  const frames = buffer.length;
-  const bytes = bitDepth / 8;
-  const dataSize = frames * 2 * bytes;
-  if (!Number.isSafeInteger(dataSize) || dataSize <= 0 || dataSize > 0xffffffff - 36) {
-    throw new Error('ENCODE_SIZE: output exceeds RIFF limits');
-  }
-  const header = new ArrayBuffer(44);
-  const view = new DataView(header);
-  const ascii = (at: number, str: string) => [...str].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
-  ascii(0, 'RIFF'); view.setUint32(4, 36 + dataSize, true); ascii(8, 'WAVE');
-  ascii(12, 'fmt '); view.setUint32(16, 16, true);
-  view.setUint16(20, bitDepth === 32 ? 3 : 1, true);
-  view.setUint16(22, 2, true); view.setUint32(24, buffer.sampleRate, true);
-  view.setUint32(28, buffer.sampleRate * 2 * bytes, true);
-  view.setUint16(32, 2 * bytes, true); view.setUint16(34, bitDepth, true);
-  ascii(36, 'data'); view.setUint32(40, dataSize, true);
-  const channels = [buffer.getChannelData(0), buffer.getChannelData(1)];
-  const parts: BlobPart[] = [header];
-  let peak = 0;
-  // Yield between bounded allocations so the Android UI and bridge remain responsive.
-  for (let start = 0; start < frames; start += 65536) {
-    const end = Math.min(frames, start + 65536);
-    const block = new ArrayBuffer((end - start) * 2 * bytes);
-    const out = new DataView(block);
-    let offset = 0;
-    for (let i = start; i < end; i++) for (const channel of channels) {
-      const raw = channel[i];
-      if (!Number.isFinite(raw)) throw new Error(`ENCODE_NONFINITE: frame ${i}`);
-      peak = Math.max(peak, Math.abs(raw));
-      const sample = Math.max(-1, Math.min(1, raw));
-      if (bitDepth === 32) out.setFloat32(offset, sample, true);
-      else if (bitDepth === 16) out.setInt16(offset, Math.round(sample * (sample < 0 ? 32768 : 32767)), true);
-      else {
-        const value = Math.round(sample * (sample < 0 ? 8388608 : 8388607));
-        out.setUint8(offset, value & 255); out.setUint8(offset + 1, (value >> 8) & 255);
-        out.setUint8(offset + 2, (value >> 16) & 255);
-      }
-      offset += bytes;
-    }
-    parts.push(block);
-    onProgress?.(end / frames * 100);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  }
-  if (peak <= 1e-8) throw new Error('ENCODE_SILENT: no audible samples; check clips and mute/solo');
-  const blob = new Blob(parts, { type: 'audio/wav' });
-  if (blob.size !== dataSize + 44) throw new Error('ENCODE_SIZE: WAV length mismatch');
-  return blob;
-}
-
-/**
  * Deterministic sample-accurate stereo PCM synthesizer used for:
  * - Analysis previews and lightweight Vitest fixtures only
  * This approximation is never production WAV export or live/offline parity evidence.
@@ -3453,6 +3397,270 @@ export function synthesizeDeterministicStereoPcm(
  */
 let activeOfflineRender: OfflineAudioContext | null = null;
 
+async function renderContinuousAudioBuffer(
+  project: AbletonProjectState,
+  humanization: HumanizationConfig,
+  masterBus: MasterBusConfig,
+  sampleRate: 44100 | 48000 | 96000 = 44100,
+  totalBars?: number,
+  _segmentCount = 1,
+  onProgress?: (completedFrames: number, totalFrames: number) => void,
+  workingBytesPerFrame = 32,
+  options?: { streaming?: boolean; signal?: AbortSignal },
+): Promise<AudioBuffer> {
+  assertExecutableInsertLimits(project);
+  if (project.audioSettings?.transport.arrangementMode === 'session')
+    throw new Error(
+      'SESSION_CAPTURE_REQUIRED: capture the performance and return to Arrangement before offline export',
+    );
+  const bars = totalBars ?? project.arrangementLengthBars ?? 16;
+  if (
+    !Number.isFinite(project.tempo) ||
+    project.tempo <= 0 ||
+    !Number.isInteger(bars) ||
+    bars < 1
+  ) {
+    throw new Error(
+      'RENDER_INPUT: positive tempo and positive whole bars required',
+    );
+  }
+  const totalBeats = MusicalTimeService.arrangementTotalBeats(
+    { ...project, arrangementLengthBars: bars },
+    1,
+  );
+  // One continuous context retains delay, convolver, compressor and sustaining voices.
+  // Bounded scheduling windows are NOT independent PCM segments.
+  const tail = estimateArrangementTailSeconds(project, masterBus);
+  const durationSeconds = MusicalTimeService.arrangementDurationSeconds(
+    { ...project, arrangementLengthBars: bars },
+    totalBeats,
+    tail,
+  );
+  const frames = Math.ceil(durationSeconds * sampleRate);
+  if (options?.signal?.aborted)
+    throw new DOMException('Export cancelled', 'AbortError');
+  if (!Number.isFinite(workingBytesPerFrame) || workingBytesPerFrame < 8)
+    throw new Error('RENDER_INPUT: invalid working-buffer estimate');
+  if (options?.streaming)
+    estimateContinuousExportMemory(project, masterBus, sampleRate, frames);
+  // PCM + encoded output + mastering copies; reject before allocating, never swap engines.
+  if (
+    !options?.streaming &&
+    frames * workingBytesPerFrame > 256 * 1024 * 1024
+  ) {
+    throw new Error(
+      'RENDER_MEMORY: this Blob/mastering profile exceeds 256 MiB. Direct WAV file export has a separate encoder budget; project and settings are unchanged',
+    );
+  }
+  if (typeof OfflineAudioContext === 'undefined') {
+    throw new Error(
+      'RENDER_UNSUPPORTED: OfflineAudioContext unavailable; use a supported WebView/browser',
+    );
+  }
+  if (activeOfflineRender)
+    throw new Error(
+      'RENDER_BUSY: an earlier render is still active; restart the app after a stalled export',
+    );
+  const ctx = new OfflineAudioContext(2, frames, sampleRate);
+  activeOfflineRender = ctx;
+  let started = false;
+  let cancelled = false;
+  let renderingPromise: Promise<AudioBuffer> | undefined;
+  let bus: AudioBusGraph | undefined;
+  try {
+    const activeBus = buildAudioBusGraph(ctx, project.tempo, masterBus, false);
+    bus = activeBus;
+    const noise = createNoiseBuffer(ctx);
+    const masterPoints = [...(masterBus.masterAutomationPoints || [])].sort(
+      (a, b) => a.beat - b.beat,
+    );
+    if (masterPoints.length) {
+      activeBus.masterGain.gain.setValueAtTime(
+        dbToGain(
+          masterBus.masterVolumeDb +
+            (evaluateAutomationAtBeat(masterPoints, 0, totalBeats) - 0.55) * 8,
+        ),
+        0,
+      );
+      for (const point of masterPoints)
+        if (point.beat > 0 && point.beat <= totalBeats) {
+          activeBus.masterGain.gain.linearRampToValueAtTime(
+            dbToGain(masterBus.masterVolumeDb + (point.value - 0.55) * 8),
+            (point.beat * 60) / project.tempo,
+          );
+        }
+    }
+    const bps = project.tempo / 60;
+    const mutedTrackIds = new Set(
+      project.tracks
+        .filter(
+          (track) =>
+            composeEffectiveTrackGain(
+              track,
+              project.tracks,
+              project.vcaGroups || [],
+            ).effectivelyMuted,
+        )
+        .map((track) => track.id),
+    );
+    const evaluatedEvents = evaluatePlayableArrangementEvents(
+      project,
+      0,
+      totalBeats,
+      {
+        includeProbability: true,
+        evaluateMidiChain: true,
+      },
+    );
+    const events: { track: AbletonTrack; note: MidiNoteEvent; time: number }[] =
+      [];
+    for (const evt of evaluatedEvents) {
+      if (mutedTrackIds.has(evt.trackId)) continue;
+      events.push({
+        track: evt.track,
+        note: evt.note,
+        time: evt.startTimeSeconds,
+      });
+    }
+    events.sort((a, b) => a.time - b.time);
+    let cursor = 0;
+    const scheduleUntil = (end: number) => {
+      while (cursor < events.length && events[cursor].time < end) {
+        const e = events[cursor++];
+        scheduleTrackVoiceAtTime(
+          ctx,
+          activeBus,
+          noise,
+          e.track,
+          e.note,
+          e.time,
+          bps,
+          humanization,
+          project,
+        );
+      }
+    };
+    // Align suspension times to render quanta to avoid scheduling notes in the past.
+    const windowFrames = Math.ceil((sampleRate * 2) / 128) * 128;
+    let boundary = windowFrames;
+    scheduleUntil(boundary / sampleRate);
+    onProgress?.(0, frames);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let resetDeadline = () => {};
+    const deadline = new Promise<never>((_, reject) => {
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          cancelled = true;
+          reject(
+            new Error(
+              'RENDER_TIMEOUT: no completed audio window for 60 seconds; restart the app before retrying',
+            ),
+          );
+        }, 60000);
+      };
+      arm();
+      resetDeadline = arm;
+    });
+    let rendered: AudioBuffer;
+    try {
+      const pump = async () => {
+        let suspended =
+          boundary < frames ? ctx.suspend(boundary / sampleRate) : null;
+        started = true;
+        const rendering = ctx.startRendering();
+        renderingPromise = rendering;
+        rendering.then(
+          () => {
+            if (activeOfflineRender === ctx) activeOfflineRender = null;
+          },
+          () => {
+            if (activeOfflineRender === ctx) activeOfflineRender = null;
+          },
+        );
+        // Observe rejection immediately, including while awaiting a suspend boundary.
+        const failed = rendering.then(
+          () => new Promise<never>(() => {}),
+          (error) => Promise.reject(error),
+        );
+        while (suspended) {
+          await Promise.race([suspended, failed]);
+          if (options?.signal?.aborted)
+            throw new DOMException('Export cancelled', 'AbortError');
+          if (cancelled)
+            throw new Error(
+              'RENDER_CANCELLED: timed-out context cannot resume',
+            );
+          onProgress?.(
+            Math.min(frames, Math.round(ctx.currentTime * sampleRate)),
+            frames,
+          );
+          resetDeadline();
+          activeBus.offlineRetirements = activeBus.offlineRetirements.filter(
+            (retirement) => {
+              if (retirement.at > ctx.currentTime) return true;
+              retirement.releaseMix();
+              for (const node of retirement.nodes) node.disconnect();
+              return false;
+            },
+          );
+          boundary += windowFrames;
+          scheduleUntil(Math.min(frames, boundary) / sampleRate);
+          suspended =
+            boundary < frames ? ctx.suspend(boundary / sampleRate) : null;
+          await ctx.resume();
+          if (cancelled)
+            throw new Error(
+              'RENDER_CANCELLED: timed-out context cannot continue',
+            );
+        }
+        return await rendering;
+      };
+      rendered = await Promise.race([pump(), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+    onProgress?.(frames, frames);
+    return rendered;
+  } catch (error) {
+    cancelled = true;
+    if (!started) activeOfflineRender = null;
+    else if (options?.signal?.aborted && renderingPromise) {
+      bus?.masterGain.disconnect();
+      if (ctx.state === 'suspended') await ctx.resume();
+      // Do not allocate a replacement context until this one settles. No DSP is
+      // re-used for accepted output after cancellation.
+      let drainTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          renderingPromise.catch(() => undefined),
+          new Promise<never>((_, reject) => {
+            drainTimer = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    'RENDER_CANCEL_DRAIN: native context did not settle; restart before retry',
+                  ),
+                ),
+              60000,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(drainTimer);
+      }
+    } else if (ctx.state === 'running') {
+      const stopAt =
+        ((Math.floor((ctx.currentTime * sampleRate) / 128) + 2) * 128) /
+        sampleRate;
+      if (stopAt < durationSeconds) void ctx.suspend(stopAt).catch(() => {});
+    }
+    // OfflineAudioContext has no close/cancel API. A stalled context retains the guard
+    // until it settles or app restart, preventing two full PCM allocations after retry.
+    throw error;
+  }
+}
+
 export async function synthesizeProjectToStereoFloatBuffers(
   project: AbletonProjectState,
   humanization: HumanizationConfig,
@@ -3461,132 +3669,138 @@ export async function synthesizeProjectToStereoFloatBuffers(
   totalBars?: number,
   _segmentCount = 1,
   onProgress?: (completedFrames: number, totalFrames: number) => void,
-  workingBytesPerFrame = 32
-): Promise<{ left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number }> {
-  assertExecutableInsertLimits(project);
-  if (project.audioSettings?.transport.arrangementMode==='session') throw new Error('SESSION_CAPTURE_REQUIRED: capture the performance and return to Arrangement before offline export');
-  const bars = totalBars ?? project.arrangementLengthBars ?? 16;
-  if (!Number.isFinite(project.tempo) || project.tempo <= 0 || !Number.isInteger(bars) || bars < 1) {
-    throw new Error('RENDER_INPUT: positive tempo and positive whole bars required');
-  }
-  const totalBeats = MusicalTimeService.arrangementTotalBeats(
-    { ...project, arrangementLengthBars: bars },
-    1
+  workingBytesPerFrame = 32,
+): Promise<{
+  left: Float32Array;
+  right: Float32Array;
+  sampleRate: number;
+  durationSeconds: number;
+}> {
+  const rendered = await renderContinuousAudioBuffer(
+    project,
+    humanization,
+    masterBus,
+    sampleRate,
+    totalBars,
+    _segmentCount,
+    onProgress,
+    workingBytesPerFrame,
   );
-  // One continuous context retains delay, convolver, compressor and sustaining voices.
-  // Bounded scheduling windows are NOT independent PCM segments.
-  const tail = Math.max(2.4, masterBus.reverbDecaySec || 0, 8);
-  const durationSeconds = MusicalTimeService.arrangementDurationSeconds(
-    { ...project, arrangementLengthBars: bars },
-    totalBeats,
-    tail
-  );
-  const frames = Math.ceil(durationSeconds * sampleRate);
-  // PCM + encoded output + mastering copies; reject before allocating, never swap engines.
-  if (frames * workingBytesPerFrame > 256 * 1024 * 1024) {
-    throw new Error('RENDER_MEMORY: estimated working set exceeds 256 MiB; reduce length or sample rate');
-  }
-  if (typeof OfflineAudioContext === 'undefined') {
-    throw new Error('RENDER_UNSUPPORTED: OfflineAudioContext unavailable; use a supported WebView/browser');
-  }
-  if (activeOfflineRender) throw new Error('RENDER_BUSY: an earlier render is still active; restart the app after a stalled export');
-  const ctx = new OfflineAudioContext(2, frames, sampleRate);
-  activeOfflineRender = ctx;
-  let started = false;
-  let cancelled = false;
-  try {
-  const bus = buildAudioBusGraph(ctx, project.tempo, masterBus, false);
-  const noise = createNoiseBuffer(ctx);
-  const masterPoints = [...(masterBus.masterAutomationPoints || [])].sort((a, b) => a.beat - b.beat);
-  if (masterPoints.length) {
-    bus.masterGain.gain.setValueAtTime(dbToGain(masterBus.masterVolumeDb + (evaluateAutomationAtBeat(masterPoints, 0, totalBeats) - 0.55) * 8), 0);
-    for (const point of masterPoints) if (point.beat > 0 && point.beat <= totalBeats) {
-      bus.masterGain.gain.linearRampToValueAtTime(dbToGain(masterBus.masterVolumeDb + (point.value - 0.55) * 8), point.beat * 60 / project.tempo);
-    }
-  }
-  const bps = project.tempo / 60;
-  const mutedTrackIds = new Set(
-    project.tracks
-      .filter((track) => composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []).effectivelyMuted)
-      .map((track) => track.id)
-  );
-  const evaluatedEvents = evaluatePlayableArrangementEvents(project, 0, totalBeats, {
-    includeProbability: true,
-    evaluateMidiChain: true,
-  });
-  const events: { track: AbletonTrack; note: MidiNoteEvent; time: number }[] = [];
-  for (const evt of evaluatedEvents) {
-    if (mutedTrackIds.has(evt.trackId)) continue;
-    events.push({ track: evt.track, note: evt.note, time: evt.startTimeSeconds });
-  }
-  events.sort((a, b) => a.time - b.time);
-  let cursor = 0;
-  const scheduleUntil = (end: number) => {
-    while (cursor < events.length && events[cursor].time < end) {
-      const e = events[cursor++];
-      scheduleTrackVoiceAtTime(ctx, bus, noise, e.track, e.note, e.time, bps, humanization, project);
-    }
+  return {
+    left: rendered.getChannelData(0),
+    right: rendered.getChannelData(1),
+    sampleRate,
+    durationSeconds: rendered.length / sampleRate,
   };
-  // Align suspension times to render quanta to avoid scheduling notes in the past.
-  const windowFrames = Math.ceil(sampleRate * 2 / 128) * 128;
-  let boundary = windowFrames;
-  scheduleUntil(boundary / sampleRate);
-  onProgress?.(0, frames);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let resetDeadline = () => {};
-  const deadline = new Promise<never>((_, reject) => {
-    const arm = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => { cancelled = true; reject(new Error('RENDER_TIMEOUT: no completed audio window for 60 seconds; restart the app before retrying')); }, 60000);
-    };
-    arm();
-    resetDeadline = arm;
-  });
-  let rendered: AudioBuffer;
-  try {
-    const pump = async () => {
-      let suspended = boundary < frames ? ctx.suspend(boundary / sampleRate) : null;
-      started = true;
-      const rendering = ctx.startRendering();
-      rendering.then(() => { if (activeOfflineRender === ctx) activeOfflineRender = null; }, () => { if (activeOfflineRender === ctx) activeOfflineRender = null; });
-      // Observe rejection immediately, including while awaiting a suspend boundary.
-      const failed = rendering.then(() => new Promise<never>(() => {}), (error) => Promise.reject(error));
-      while (suspended) {
-        await Promise.race([suspended, failed]);
-        if (cancelled) throw new Error('RENDER_CANCELLED: timed-out context cannot resume');
-        onProgress?.(Math.min(frames, Math.round(ctx.currentTime * sampleRate)), frames);
-        resetDeadline();
-        bus.offlineRetirements = bus.offlineRetirements.filter(retirement => {
-          if (retirement.at > ctx.currentTime) return true;
-          retirement.releaseMix();
-          for (const node of retirement.nodes) node.disconnect();
-          return false;
-        });
-        boundary += windowFrames;
-        scheduleUntil(Math.min(frames, boundary) / sampleRate);
-        suspended = boundary < frames ? ctx.suspend(boundary / sampleRate) : null;
-        await ctx.resume();
-        if (cancelled) throw new Error('RENDER_CANCELLED: timed-out context cannot continue');
-      }
-      return await rendering;
-    };
-    rendered = await Promise.race([pump(), deadline]);
-  } finally {
-    clearTimeout(timer);
+}
+export function planArrangementWavExport(
+  project: AbletonProjectState,
+  masterBus: MasterBusConfig,
+  sampleRate: 44100 | 48000 | 96000 = 44100,
+  bitDepth: 16 | 24 | 32 = 24,
+  totalBars = project.arrangementLengthBars ?? 16,
+) {
+  if (
+    ![16, 24, 32].includes(bitDepth) ||
+    ![44100, 48000, 96000].includes(sampleRate)
+  )
+    throw new Error('ENCODE_FORMAT: unsupported rate/bit depth');
+  if (
+    !Number.isInteger(totalBars) ||
+    totalBars < 1 ||
+    !Number.isFinite(project.tempo) ||
+    project.tempo <= 0
+  )
+    throw new Error('RENDER_INPUT: positive whole bars and tempo required');
+  const beats = MusicalTimeService.arrangementTotalBeats(
+    { ...project, arrangementLengthBars: totalBars },
+    1,
+  );
+  const frames = Math.ceil(
+    MusicalTimeService.arrangementDurationSeconds(
+      { ...project, arrangementLengthBars: totalBars },
+      beats,
+      estimateArrangementTailSeconds(project, masterBus),
+    ) * sampleRate,
+  );
+  const sizeBytes = 44 + (frames * 2 * bitDepth) / 8;
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes > 0xffffffff + 8)
+    throw new Error('ENCODE_SIZE: output exceeds RIFF limit');
+  return {
+    frames,
+    sampleRate,
+    bitDepth,
+    sizeBytes,
+    durationSeconds: frames / sampleRate,
+    tailSeconds: estimateArrangementTailSeconds(project, masterBus),
+    memory: estimateContinuousExportMemory(
+      project,
+      masterBus,
+      sampleRate,
+      frames,
+    ),
+  };
+}
+export async function renderArrangementToWavStream(
+  project: AbletonProjectState,
+  humanization: HumanizationConfig,
+  masterBus: MasterBusConfig,
+  write: (block: Uint8Array) => Promise<void>,
+  options?: {
+    sampleRate?: 44100 | 48000 | 96000;
+    bitDepth?: 16 | 24 | 32;
+    totalBars?: number;
+    onProgress?: (percent: number) => void;
+    signal?: AbortSignal;
+  },
+) {
+  const sampleRate = options?.sampleRate ?? 44100,
+    bitDepth = options?.bitDepth ?? 24;
+  const plan = planArrangementWavExport(
+    project,
+    masterBus,
+    sampleRate,
+    bitDepth,
+    options?.totalBars,
+  );
+  options?.onProgress?.(0);
+  const rendered = await renderContinuousAudioBuffer(
+    project,
+    humanization,
+    masterBus,
+    sampleRate,
+    options?.totalBars,
+    1,
+    (done, total) => options?.onProgress?.((done / total) * 75),
+    8,
+    { streaming: true, signal: options?.signal },
+  );
+  let written = 0;
+  for await (const block of encodeAudioBufferToWavChunks(
+    {
+      numberOfChannels: 2,
+      sampleRate,
+      length: rendered.length,
+      getChannelData: () => {
+        throw new Error('STREAM_BUFFER: full channel copies forbidden');
+      },
+      copyFromChannel: (out, channel, start) =>
+        rendered.copyFromChannel(
+          out as Float32Array<ArrayBuffer>,
+          channel,
+          start,
+        ),
+    },
+    bitDepth,
+    (percent) => options?.onProgress?.(75 + percent * 0.25),
+    options?.signal,
+  )) {
+    await write(block);
+    written += block.byteLength;
   }
-  onProgress?.(frames, frames);
-  return { left: rendered.getChannelData(0), right: rendered.getChannelData(1), sampleRate, durationSeconds: frames / sampleRate };
-  } catch (error) {
-    cancelled = true;
-    if (!started) activeOfflineRender = null;
-    else if (ctx.state === 'running') {
-      const stopAt = (Math.floor(ctx.currentTime * sampleRate / 128) + 2) * 128 / sampleRate;
-      if (stopAt < durationSeconds) void ctx.suspend(stopAt).catch(() => {});
-    }
-    // OfflineAudioContext has no close/cancel API. A stalled context retains the guard
-    // until it settles or app restart, preventing two full PCM allocations after retry.
-    throw error;
-  }
+  if (written !== plan.sizeBytes)
+    throw new Error('ENCODE_SIZE: streamed WAV size mismatch');
+  return plan;
 }
 
 /** Continuous shared-graph export. Progress measures rendered and encoded frames. */
@@ -3596,18 +3810,45 @@ export async function renderArrangementToWavBlob(
   masterBus: MasterBusConfig,
   totalBars?: number,
   bitDepthOrOnProgress: 16 | 24 | 32 | ((progressPercent: number) => void) = 24,
-  onProgress?: (progressPercent: number) => void
-): Promise<{ blob: Blob; durationSeconds: number; sampleRate: number; bitDepth: number }> {
-  const bitDepth = typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
-  const progress = typeof bitDepthOrOnProgress === 'function' ? bitDepthOrOnProgress : onProgress;
+  onProgress?: (progressPercent: number) => void,
+  signal?: AbortSignal,
+): Promise<{
+  blob: Blob;
+  durationSeconds: number;
+  sampleRate: number;
+  bitDepth: number;
+}> {
+  const bitDepth =
+    typeof bitDepthOrOnProgress === 'number' ? bitDepthOrOnProgress : 24;
+  const progress =
+    typeof bitDepthOrOnProgress === 'function'
+      ? bitDepthOrOnProgress
+      : onProgress;
   progress?.(0);
-  const pcm = await synthesizeProjectToStereoFloatBuffers(project, humanization, masterBus, 44100, totalBars, 1,
-    (done, total) => progress?.(Math.floor(done / total * 75)), 8 + (bitDepth / 8) * 4);
-  const blob = await encodeAudioBufferToWavBlob({ numberOfChannels: 2, sampleRate: pcm.sampleRate,
-    length: pcm.left.length, getChannelData: (channel) => channel === 0 ? pcm.left : pcm.right }, bitDepth,
-    (done) => progress?.(75 + Math.floor(done * 0.25)));
+  const pcm = await renderContinuousAudioBuffer(
+    project,
+    humanization,
+    masterBus,
+    44100,
+    totalBars,
+    1,
+    (done, total) => progress?.(Math.floor((done / total) * 75)),
+    8 + (bitDepth / 8) * 4,
+    { signal },
+  );
+  const blob = await encodeAudioBufferToWavBlob(
+    pcm,
+    bitDepth,
+    (done) => progress?.(75 + Math.floor(done * 0.25)),
+    signal,
+  );
   progress?.(100);
-  return { blob, durationSeconds: pcm.durationSeconds, sampleRate: pcm.sampleRate, bitDepth };
+  return {
+    blob,
+    durationSeconds: pcm.length / pcm.sampleRate,
+    sampleRate: pcm.sampleRate,
+    bitDepth,
+  };
 }
 
 export interface MidiSixteenthHeatmapBin {

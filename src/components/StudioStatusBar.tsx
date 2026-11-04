@@ -31,6 +31,8 @@ interface StudioStatusBarProps {
   isPlaying: boolean;
   isExportingWav?: boolean;
   wavExportProgress?: number;
+  onCancelExport?:()=>void;
+  canCancelExport?:boolean;
   statusMessage?: string;
   alsValid: boolean;
   canUndo: boolean;
@@ -56,6 +58,8 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
   isPlaying,
   isExportingWav = false,
   wavExportProgress = 0,
+  onCancelExport,
+  canCancelExport=true,
   statusMessage,
   alsValid,
   storageStatus = 'saved',
@@ -247,9 +251,9 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
           {statusMessage}
         </div>
       )}
-      <div className="h-6.5 bg-[#080A0D] border-t border-[#1C222C] px-3 flex items-center justify-between text-[10px] font-mono text-zinc-400 select-none shrink-0 z-30">
+      <div className={`${isExportingWav?'min-h-14':'h-6.5'} bg-[#080A0D] border-t border-[#1C222C] px-3 flex items-center justify-between text-[10px] font-mono text-zinc-400 select-none shrink-0 z-30`}>
         {/* LEFT: SEPARATED PLAYBACK, STORAGE & MIGRATION STATUS */}
-        <div className="flex items-center gap-3">
+        <div className={`${isExportingWav?'hidden sm:flex':'flex'} items-center gap-3`}>
           <div className="flex items-center gap-1.5 text-zinc-300" data-testid="status-bar-playback">
             <span className={`w-1.5 h-1.5 rounded-full ${playbackDotClass}`} />
             <span className="font-bold text-zinc-200">{playbackLabel}</span>
@@ -323,6 +327,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
         <div className="flex items-center gap-2 truncate max-w-lg text-zinc-300 text-center px-2">
           {isExportingWav && (
             <div className="flex items-center gap-2 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 shrink-0">
+              {onCancelExport&&<button type="button" disabled={!canCancelExport} className="min-h-12 min-w-12 px-2 border border-emerald-500/50 rounded disabled:opacity-40" onClick={onCancelExport}>Cancel export</button>}
               <Disc className="w-3 h-3 animate-spin" />
               <span className="font-bold tabular-nums">WAV RENDER {clampedWavPct}%</span>
               <div
@@ -331,7 +336,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={clampedWavPct}
-                className="w-24 h-1.5 bg-[#0B0E14] rounded-full overflow-hidden border border-emerald-500/30"
+                className="hidden sm:block w-24 h-1.5 bg-[#0B0E14] rounded-full overflow-hidden border border-emerald-500/30"
               >
                 <div
                   className="h-full bg-emerald-400 transition-all duration-150"

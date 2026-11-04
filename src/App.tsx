@@ -4,7 +4,7 @@ import {createSongPlan,composeSongPlan,materializeSongPlanTrack,songPlanAutomati
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
 import { CANONICAL_PPQ, MAX_SUPPORTED_TIMELINE_BARS } from './engine/timelineCoordinates';
 import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
-import { saveExportBlob } from './services/fileExportService';
+import { saveExportBlob, saveExportStream, supportsStreamingFileExport, usesNativeStreamingFileExport } from './services/fileExportService';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AbletonProjectState,
@@ -72,7 +72,7 @@ import {
   transformTrackArrangementNotes,
   randomizeTrackNoteVelocities,
 } from './engine/compositionIntelligenceEngine';
-import { renderArrangementToWavBlob, synthEngine } from './engine/webAudioSynth';
+import { renderArrangementToWavBlob, renderArrangementToWavStream, planArrangementWavExport, synthEngine } from './engine/webAudioSynth';
 import { TimelineCanvas } from './components/TimelineCanvas';
 import { DeviceRackPanel } from './components/DeviceRackPanel';
 import { MasterSpectrumAnalyzer } from './components/MasterSpectrumAnalyzer';
@@ -283,6 +283,9 @@ export default function App() {
 
   const [selectedTrackId, setSelectedTrackId] = useState<string>('1');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const wavExportAbort=useRef<AbortController|null>(null);
+  const wavExportPhase=useRef('idle');
+  const [canCancelWavExport,setCanCancelWavExport]=useState(true);
   const [isExportingWav, setIsExportingWav] = useState<boolean>(false);
   const [wavExportProgress, setWavExportProgress] = useState<number>(0);
   const [playheadBeat, setPlayheadBeat] = useState<number>(0);
@@ -1822,42 +1825,101 @@ export default function App() {
     }
   };
 
-  const handleExportLosslessWav = async (bitDepth: 16 | 24 = 24) => {
-    if (isExportingWav) return;
-    const totalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
+  const handleExportLosslessWav = async (
+    bitDepth: 16 | 24 = 24,
+    options?: { stream?: boolean; sampleRate?: 44100 | 48000 | 96000 },
+  ) => {
+    if (wavExportAbort.current) return;
+    const control = new AbortController();
+    wavExportAbort.current = control;
+    wavExportPhase.current = 'rendering';
+    setCanCancelWavExport(true);
+    const totalBars =
+      project.arrangementLengthBars || transport.arrangementLengthBars || 16;
+    const sampleRate = options?.sampleRate ?? 44100;
+    const streaming = options?.stream || usesNativeStreamingFileExport();
+    const exportName = `${project.fileName.replace(/\.(als|xml)$/i, '')}_${project.tempo}bpm_${totalBars}bars_${bitDepth}bit.wav`;
+    const progress = (percent: number) => {
+      setWavExportProgress(Math.min(99, Math.floor(percent)));
+      setStatusMessage(
+        `Exporting complete ${totalBars}-bar arrangement (${sampleRate} Hz / ${bitDepth}-bit): ${Math.floor(percent)}%`,
+      );
+    };
     try {
       setIsExportingWav(true);
       setWavExportProgress(0);
+      if (streaming) {
+        const plan = planArrangementWavExport(
+          project,
+          masterBus,
+          sampleRate,
+          bitDepth,
+          totalBars,
+        );
+        setStatusMessage(
+          'Choose a destination. The complete arrangement will render directly to that file.',
+        );
+        const result = await saveExportStream(
+          exportName,
+          plan.sizeBytes,
+          async (write) =>
+            renderArrangementToWavStream(
+              project,
+              humanization,
+              masterBus,
+              write,
+              {
+                sampleRate,
+                bitDepth,
+                totalBars,
+                onProgress: progress,
+                signal: control.signal,
+              },
+            ),
+          control.signal,
+          (phase) => {
+            wavExportPhase.current = phase;
+            setCanCancelWavExport(phase !== 'verifying');
+            if (phase === 'verifying')
+              setStatusMessage('Verifying the saved file; please wait...');
+          },
+        );
+        setWavExportProgress(100);
+        setStatusMessage(
+          `${result.verified ? 'Saved and verified' : 'Saved (file size checked)'}: ${exportName} (${(plan.sizeBytes / (1024 * 1024)).toFixed(2)} MB · ${plan.durationSeconds.toFixed(1)}s · ${sampleRate} Hz/${bitDepth}-bit).`,
+        );
+      } else {
+        setStatusMessage(
+          `Rendering complete ${totalBars}-bar arrangement (${sampleRate} Hz / ${bitDepth}-bit)...`,
+        );
+        const { blob, durationSeconds } = await renderArrangementToWavBlob(
+          project,
+          humanization,
+          masterBus,
+          totalBars,
+          bitDepth,
+          progress,
+          control.signal,
+        );
+        const saved = await saveExportBlob(blob, exportName);
+        setWavExportProgress(100);
+        setStatusMessage(
+          `${saved.verified ? 'Saved and verified' : 'Download requested'}: ${exportName} (${(blob.size / (1024 * 1024)).toFixed(2)} MB · ${durationSeconds.toFixed(1)}s · 44.1kHz/${bitDepth}-bit PCM).`,
+        );
+      }
+    } catch (error) {
+      const e = error as Error;
       setStatusMessage(
-        `Rendering complete ${totalBars}-bar arrangement (44.1kHz / ${bitDepth}-bit Lossless Stereo WAV with Sidechain, Reverb, 3/16 Delay & Master Glue)...`
+        e.name === 'AbortError' ||
+          /SAVE_CANCELLED|Save cancelled/.test(e.message)
+          ? 'WAV export cancelled; partial destination discarded.'
+          : `Lossless WAV render failed: ${e.message}`,
       );
-      const { blob, durationSeconds } = await renderArrangementToWavBlob(
-        project,
-        humanization,
-        masterBus,
-        totalBars,
-        bitDepth,
-        (progressPct) => {
-          setWavExportProgress(progressPct);
-          setStatusMessage(
-            `Rendering complete ${totalBars}-bar arrangement to ${bitDepth}-bit Lossless Stereo WAV (${progressPct}%)...`
-          );
-        }
-      );
-      const cleanBase = project.fileName.replace(/\.(als|xml)$/i, '');
-      const exportName = `${cleanBase}_${project.tempo}bpm_${totalBars}bars_${bitDepth}bit.wav`;
-      setStatusMessage('Audio rendered. Select a destination to save the WAV…');
-      const saved = await saveExportBlob(blob, exportName);
-      setStatusMessage(
-        `${saved.verified ? 'Saved and verified' : 'Download requested'}: ${exportName} (${(blob.size / (1024 * 1024)).toFixed(2)} MB · ${durationSeconds.toFixed(1)}s · 44.1kHz/${bitDepth}-bit PCM).`
-      );
-    } catch (err: any) {
-      setStatusMessage(`Lossless WAV render failed: ${err.message}`);
     } finally {
+      if (wavExportAbort.current === control) wavExportAbort.current = null;
       setIsExportingWav(false);
     }
   };
-
   const selectedTrack = project.tracks.find((t) => t.id === selectedTrackId) || project.tracks[0];
   const hasSubOrRumble = project.tracks.some((t) => t.archetype === 'rumble');
   const activeTotalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
@@ -2047,6 +2109,8 @@ export default function App() {
         onImportAlsClick={() => fileInputRef.current?.click()}
         onExportAls={handleExportNativeAls}
         onExportWav={() => handleExportLosslessWav(24)}
+        onExportFileWav={()=>handleExportLosslessWav(24,{stream:true,sampleRate:48000})}
+        fileWavAvailable={supportsStreamingFileExport()}
         onOpenQueueModal={() => setIsBulkQueueModalOpen(true)}
         onOpenClearModal={() => setStudioWorkspace('queue')}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -2330,6 +2394,8 @@ export default function App() {
         isPlaying={isPlaying}
         isExportingWav={isExportingWav}
         wavExportProgress={wavExportProgress}
+        onCancelExport={()=>{if(wavExportPhase.current==='verifying')return;wavExportAbort.current?.abort();setStatusMessage('Cancelling WAV export and discarding the partial file...');}}
+        canCancelExport={canCancelWavExport}
         statusMessage={statusMessage}
         alsValid={!!project.alsValidation?.isValid}
         canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}

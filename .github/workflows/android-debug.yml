@@ -63,6 +63,8 @@ jobs:
           node scripts/inventory-ui-controls.mjs recovery-browser-evidence/ui-controls.json
           node scripts/recovery-browser-check.mjs
           ARRANGEMENT_EDITING_OUTPUT=recovery-browser-evidence/arrangement-editing node scripts/arrangement-editing-check.mjs
+          REFERENCE_EXPORT_OUTPUT=recovery-browser-evidence/continuous-export node scripts/reference-export-check.mjs
+          REFERENCE_UI_OUTPUT=recovery-browser-evidence/continuous-export-ui node scripts/reference-export-ui-check.mjs
 
       - name: Upload browser evidence
         if: always()

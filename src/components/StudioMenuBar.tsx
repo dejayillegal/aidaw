@@ -47,6 +47,8 @@ interface StudioMenuBarProps {
   onImportAlsClick: () => void;
   onExportAls: () => void;
   onExportWav: () => void;
+  onExportFileWav?:()=>void;
+  fileWavAvailable?:boolean;
   onOpenQueueModal: () => void;
   onOpenClearModal: () => void;
   onOpenCommandPalette: () => void;
@@ -76,6 +78,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
   onImportAlsClick,
   onExportAls,
   onExportWav,
+  onExportFileWav,
+  fileWavAvailable,
   onOpenQueueModal,
   onOpenClearModal,
   onOpenCommandPalette,
@@ -93,7 +97,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
 
   return (
     <div
-      className="h-7 bg-[#090B0E] border-b border-[#1E242E] px-2 flex items-center justify-between text-[11px] font-sans text-zinc-300 select-none shrink-0 z-40 relative"
+      className="min-h-12 sm:min-h-0 sm:h-7 bg-[#090B0E] border-b border-[#1E242E] px-2 flex items-center justify-between text-[11px] font-sans text-zinc-300 select-none shrink-0 z-[45] relative"
       onMouseLeave={closeMenu}
     >
       {/* Brand & Menu Items */}
@@ -109,14 +113,14 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
             type="button"
             onClick={() => setActiveMenu(activeMenu === 'file' ? null : 'file')}
             onMouseEnter={() => activeMenu && setActiveMenu('file')}
-            className={`px-2 py-1 rounded transition-colors ${
+            className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
               activeMenu === 'file' ? 'bg-[#1E2530] text-amber-400' : 'hover:bg-[#161C24] text-zinc-300'
             }`}
           >
             File
           </button>
           {activeMenu === 'file' && (
-            <div className="absolute top-full left-0 mt-0.5 w-60 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
+            <div className="absolute top-full left-0 mt-0.5 w-60 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 max-h-[calc(100dvh-4rem)] overflow-y-auto text-[11px]">
               <button
                 type="button"
                 onClick={() => {
@@ -124,7 +128,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                   else onNewProject();
                   closeMenu();
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>New Project (16-Bar Sketch)</span>
                 <span className="text-[10px] text-zinc-500">Cmd+N</span>
@@ -137,7 +141,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                       onCreateProjectWithMode('full-track', 64);
                       closeMenu();
                     }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                    className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
                   >
                     <span>New Full Track (64 Bars)</span>
                     <span className="text-[10px] text-amber-400">FULL</span>
@@ -148,7 +152,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                       onCreateProjectWithMode('full-track', 128);
                       closeMenu();
                     }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                    className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
                   >
                     <span>New Extended Full Track (128 Bars)</span>
                     <span className="text-[10px] text-sky-400">128B</span>
@@ -156,13 +160,13 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 </>
               )}
               {onOpenProject && <button type="button" onClick={() => { onOpenProject(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Open Project (.aidaw.json)…</button>}
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Open Project (.aidaw.json)…</button>}
               {onSaveProject && <button type="button" onClick={() => { onSaveProject(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Save Project (.aidaw.json)…</button>}
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20">Save Project (.aidaw.json)…</button>}
               <button
                 type="button"
                 onClick={() => { onImportAlsClick(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Import Ableton .ALS File...</span>
                 <span className="text-[10px] text-zinc-500">Cmd+O</span>
@@ -171,7 +175,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onExportAls(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Export Ableton Live 12 (.ALS)</span>
                 <span className="text-[10px] text-zinc-500">Cmd+S</span>
@@ -179,15 +183,16 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onExportWav(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Master Export WAV (24-bit PCM)...</span>
                 <span className="text-[10px] text-zinc-500">Cmd+E</span>
               </button>
+              {onExportFileWav&&<button type="button" disabled={!fileWavAvailable} title={fileWavAvailable?'Choose a file destination before rendering; bounded encoding for long tracks':'Direct file export requires Android or the browser File System Access API'} className="min-h-12 w-full text-left px-3 py-2 hover:bg-amber-500/20 disabled:opacity-40" onClick={()=>{onExportFileWav();closeMenu();}}>Save WAV to File (48 kHz / 24-bit)…</button>}
               <button
                 type="button"
                 onClick={() => { onOpenQueueModal(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Multi-Project Batch Queue...</span>
                 <span className="text-[10px] text-zinc-500">Cmd+B</span>
@@ -202,7 +207,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                   });
                   closeMenu();
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-emerald-500/20 text-emerald-300 flex items-center justify-between font-semibold"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-emerald-500/20 text-emerald-300 flex items-center justify-between font-semibold"
               >
                 <span>Download Android Debug APK (.apk)</span>
                 <span className="text-[10px] text-emerald-400">APK</span>
@@ -211,7 +216,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onOpenClearModal(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-rose-500/20 text-rose-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-rose-500/20 text-rose-300 flex items-center justify-between"
               >
                 <span>Clear Arrangement State...</span>
               </button>
@@ -229,19 +234,19 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
             type="button"
             onClick={() => setActiveMenu(activeMenu === 'edit' ? null : 'edit')}
             onMouseEnter={() => activeMenu && setActiveMenu('edit')}
-            className={`px-2 py-1 rounded transition-colors ${
+            className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
               activeMenu === 'edit' ? 'bg-[#1E2530] text-amber-400' : 'hover:bg-[#161C24] text-zinc-300'
             }`}
           >
             Edit
           </button>
           {activeMenu === 'edit' && (
-            <div className="absolute top-full left-0 mt-0.5 w-52 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
+            <div className="absolute top-full left-0 mt-0.5 w-52 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 max-h-[calc(100dvh-4rem)] overflow-y-auto text-[11px]">
               <button
                 type="button"
                 disabled={!canUndo}
                 onClick={() => { onUndo(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 disabled:opacity-40 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Undo</span>
                 <span className="text-[10px] text-zinc-500">Cmd+Z</span>
@@ -250,7 +255,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 type="button"
                 disabled={!canRedo}
                 onClick={() => { onRedo(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 disabled:opacity-40 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 disabled:opacity-40 flex items-center justify-between"
               >
                 <span>Redo</span>
                 <span className="text-[10px] text-zinc-500">Cmd+Y</span>
@@ -259,14 +264,14 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onOpenCompingModal(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Comping Takes &amp; Strip Silence</span>
               </button>
               <button
                 type="button"
                 onClick={() => { onOpenCommandPalette(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Command Palette...</span>
                 <span className="text-[10px] text-zinc-500">Cmd+K</span>
@@ -281,18 +286,18 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
             type="button"
             onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
             onMouseEnter={() => activeMenu && setActiveMenu('view')}
-            className={`px-2 py-1 rounded transition-colors ${
+            className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
               activeMenu === 'view' ? 'bg-[#1E2530] text-amber-400' : 'hover:bg-[#161C24] text-zinc-300'
             }`}
           >
             View
           </button>
           {activeMenu === 'view' && (
-            <div className="absolute top-full left-0 mt-0.5 w-52 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
+            <div className="absolute top-full left-0 mt-0.5 w-52 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 max-h-[calc(100dvh-4rem)] overflow-y-auto text-[11px]">
               <button
                 type="button"
                 onClick={() => { onSwitchWorkspace('edit'); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>SoundCraft Edit Window</span>
                 <span className="text-[10px] text-zinc-500">1</span>
@@ -300,7 +305,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onSwitchWorkspace('mix'); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>SoundCraft Mix Console</span>
                 <span className="text-[10px] text-zinc-500">2</span>
@@ -308,7 +313,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onSwitchWorkspace('session'); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Session Matrix</span>
                 <span className="text-[10px] text-zinc-500">3</span>
@@ -316,7 +321,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onSwitchWorkspace('devices'); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Device Rack</span>
                 <span className="text-[10px] text-zinc-500">4</span>
@@ -324,7 +329,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onSwitchWorkspace('ai'); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>AI Composer Studio</span>
                 <span className="text-[10px] text-zinc-500">5</span>
@@ -333,7 +338,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button
                 type="button"
                 onClick={() => { onResetLayout(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Reset Workstation Layout</span>
               </button>
@@ -347,32 +352,33 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
             type="button"
             onClick={() => setActiveMenu(activeMenu === 'tools' ? null : 'tools')}
             onMouseEnter={() => activeMenu && setActiveMenu('tools')}
-            className={`px-2 py-1 rounded transition-colors ${
+            className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
               activeMenu === 'tools' ? 'bg-[#1E2530] text-amber-400' : 'hover:bg-[#161C24] text-zinc-300'
             }`}
           >
             Tools
           </button>
           {activeMenu === 'tools' && (
-            <div className="absolute top-full left-0 mt-0.5 w-56 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
+            <div className="absolute top-full left-0 mt-0.5 w-56 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 max-h-[calc(100dvh-4rem)] overflow-y-auto text-[11px]">
+              {onExportFileWav&&<button type="button" disabled={!fileWavAvailable} title={fileWavAvailable?'Choose a file destination before rendering; bounded encoding for long tracks':'Direct file export requires Android or the browser File System Access API'} className="min-h-12 w-full text-left px-3 py-2 hover:bg-amber-500/20 disabled:opacity-40" onClick={()=>{onExportFileWav();closeMenu();}}>Save WAV to File (48 kHz / 24-bit)…</button>}
               <button
                 type="button"
                 onClick={() => { onOpenQueueModal(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Smart Leveling 2.0 Calibrator</span>
               </button>
               <button
                 type="button"
                 onClick={() => { onOpenXmlInspector(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Ableton XML Inspector</span>
               </button>
               <button
                 type="button"
                 onClick={() => { onOpenPythonExporter(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Python FastAPI Exporter</span>
               </button>
@@ -380,7 +386,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 <button
                   type="button"
                   onClick={() => { onOpenArchitectureModal(); closeMenu(); }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                  className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
                 >
                   <span>System Architecture Spec</span>
                 </button>
@@ -395,25 +401,25 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
             type="button"
             onClick={() => setActiveMenu(activeMenu === 'window' ? null : 'window')}
             onMouseEnter={() => activeMenu && setActiveMenu('window')}
-            className={`px-2 py-1 rounded transition-colors ${
+            className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
               activeMenu === 'window' ? 'bg-[#1E2530] text-amber-400' : 'hover:bg-[#161C24] text-zinc-300'
             }`}
           >
             Window
           </button>
           {activeMenu === 'window' && (
-            <div className="absolute top-full left-0 mt-0.5 w-52 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 text-[11px]">
+            <div className="absolute top-full left-0 mt-0.5 w-52 bg-[#10141B] border border-[#232B36] rounded-md shadow-2xl py-1 z-50 max-h-[calc(100dvh-4rem)] overflow-y-auto text-[11px]">
               <button
                 type="button"
                 onClick={() => { onResetLayout(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300"
               >
                 Restore Default Layout
               </button>
               <button
                 type="button"
                 onClick={() => { onOpenCommandPalette(); closeMenu(); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
+                className="min-h-12 sm:min-h-0 w-full text-left px-3 py-1.5 hover:bg-amber-500/20 hover:text-amber-300 flex items-center justify-between"
               >
                 <span>Command Search</span>
                 <span className="text-[10px] text-zinc-500">Cmd+K</span>
