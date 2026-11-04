@@ -2230,213 +2230,272 @@ export function generateClipForBarRange(options: GenerateClipForRangeOptions): {
  * Inserts `newClip` into `existingClips`, splitting or trimming any existing clip that overlaps
  * `[newClip.startTime, newClip.startTime + newClip.length)` so other bars on the track remain untouched.
  */
-export function insertClipIntoTrackTimeline(
-  existingClips: AbletonMidiClip[],
-  newClip: AbletonMidiClip
+/** Stable, collision-free identities; wall-clock resolution is not event identity. */
+export function nextArrangementIdentity(
+  prefix: string,
+  existing: Iterable<string>,
+): string {
+  const ids = new Set(existing);
+  let suffix = 1;
+  while (ids.has(`${prefix}_${suffix}`)) suffix++;
+  return `${prefix}_${suffix}`;
+}
+function assertClipExtent(start: number, length: number): void {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(length) ||
+    start < 0 ||
+    length <= 0 ||
+    !Number.isFinite(start + length)
+  )
+    throw new Error(
+      'CLIP_INPUT: finite non-negative start and positive length required',
+    );
+}
+function assertBeatRange(start: number, end: number): void {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end <= start
+  )
+    throw new Error(
+      'CLIP_RANGE: finite increasing non-negative bounds required',
+    );
+}
+/** Slice a represented clip without losing a note sustained across the edit boundary. */
+function clipRemainder(
+  clip: AbletonMidiClip,
+  start: number,
+  end: number,
+  id: string,
+  side: 'left' | 'right',
+): AbletonMidiClip {
+  const used = new Set(clip.notes.map((n) => n.id));
+  const notes: MidiNoteEvent[] = [];
+  for (const n of clip.notes) {
+    if (side === 'left') {
+      if (n.time < end)
+        notes.push({
+          ...n,
+          duration:
+            n.time >= clip.startTime
+              ? Math.min(n.duration, end - n.time)
+              : n.duration,
+        });
+    } else if (n.time >= start) notes.push({ ...n });
+    else if (
+      n.time >= clip.startTime &&
+      n.time < clip.startTime + clip.length &&
+      n.time + n.duration > start
+    ) {
+      const noteId = nextArrangementIdentity(`${n.id}_continued`, used);
+      used.add(noteId);
+      notes.push({
+        ...n,
+        id: noteId,
+        sourceNoteId: n.id,
+        sourceNoteClipId: clip.id,
+        time: start,
+        quantizedTime: n.quantizedTime + start - n.time,
+        duration: n.time + n.duration - start,
+      });
+    }
+  }
+  return {
+    ...clip,
+    id,
+    sourceClipId: clip.id,
+    startTime: start,
+    endTime: end,
+    length: end - start,
+    notes,
+  };
+}
+/** Delete only the requested interval. Prefix/suffix material and other clips survive. */
+export function deleteClipsInBeatRange(
+  clips: AbletonMidiClip[],
+  start: number,
+  end: number,
 ): AbletonMidiClip[] {
-  const targetStart = newClip.startTime;
-  const targetEnd = newClip.startTime + Math.max(1 / 960, newClip.length);
+  assertBeatRange(start, end);
   const result: AbletonMidiClip[] = [];
-
-  for (const clip of existingClips) {
-    const cStart = clip.startTime;
-    const cEnd = clip.startTime + Math.max(1 / 960, clip.length);
-
-    // No overlap
-    if (cEnd <= targetStart + 0.001 || cStart >= targetEnd - 0.001) {
+  const ids = new Set(clips.map((c) => c.id));
+  for (const clip of clips) {
+    assertClipExtent(clip.startTime, clip.length);
+    const clipEnd = clip.startTime + clip.length;
+    if (clipEnd <= start || clip.startTime >= end) {
       result.push(clip);
       continue;
     }
-
-    // Left remainder before targetStart
-    if (cStart < targetStart - 0.001) {
-      const leftLen = targetStart - cStart;
-      const leftNotes = clip.notes.filter((n) => n.time >= cStart - 0.01 && n.time < targetStart - 0.001);
-      result.push({
-        ...clip,
-        id: `${clip.id}_L_${Math.round(cStart)}`,
-        sourceClipId: clip.id,
-        endTime: targetStart,
-        length: leftLen,
-        notes: leftNotes,
-      });
+    if (clip.startTime < start) {
+      const id = nextArrangementIdentity(`${clip.id}_left`, ids);
+      ids.add(id);
+      result.push(clipRemainder(clip, clip.startTime, start, id, 'left'));
     }
-
-    // Right remainder after targetEnd
-    if (cEnd > targetEnd + 0.001) {
-      const rightLen = cEnd - targetEnd;
-      const rightNotes = clip.notes.filter((n) => n.time >= targetEnd - 0.001 && n.time < cEnd + 0.01);
-      result.push({
-        ...clip,
-        id: `${clip.id}_R_${Math.round(targetEnd)}`,
-        sourceClipId: clip.id,
-        name: `${clip.name}_Cont`,
-        startTime: targetEnd,
-        endTime: cEnd,
-        length: rightLen,
-        notes: rightNotes,
-      });
+    if (clipEnd > end) {
+      const id = nextArrangementIdentity(`${clip.id}_right`, ids);
+      ids.add(id);
+      result.push(clipRemainder(clip, end, clipEnd, id, 'right'));
     }
   }
-
-  result.push(newClip);
   return result.sort((a, b) => a.startTime - b.startTime);
 }
-
-/**
- * Splits a clip at `splitBeat` into two independent clips `[startTime, splitBeat)` and `[splitBeat, endBeat)`.
- */
+export function insertClipIntoTrackTimeline(
+  existingClips: AbletonMidiClip[],
+  newClip: AbletonMidiClip,
+): AbletonMidiClip[] {
+  assertClipExtent(newClip.startTime, newClip.length);
+  return [
+    ...deleteClipsInBeatRange(
+      existingClips,
+      newClip.startTime,
+      newClip.startTime + newClip.length,
+    ),
+    newClip,
+  ].sort((a, b) => a.startTime - b.startTime);
+}
 export function splitTrackClipAtBeat(
   clips: AbletonMidiClip[],
-  splitBeat: number
+  splitBeat: number,
+  targetClipId?: string,
 ): { clips: AbletonMidiClip[]; splitOccurred: boolean } {
+  if (!Number.isFinite(splitBeat) || splitBeat < 0)
+    throw new Error('CLIP_INPUT: invalid split coordinate');
   const out: AbletonMidiClip[] = [];
+  const ids = new Set(clips.map((c) => c.id));
   let splitOccurred = false;
-
   for (const clip of clips) {
-    const cStart = clip.startTime;
-    const cEnd = clip.startTime + Math.max(1 / 960, clip.length);
-    if (splitBeat > cStart + 0.24 && splitBeat < cEnd - 0.24) {
+    assertClipExtent(clip.startTime, clip.length);
+    const end = clip.startTime + clip.length;
+    if (
+      (!targetClipId || clip.id === targetClipId) &&
+      splitBeat > clip.startTime &&
+      splitBeat < end
+    ) {
+      const left = nextArrangementIdentity(`${clip.id}_left`, ids);
+      ids.add(left);
+      const right = nextArrangementIdentity(`${clip.id}_right`, ids);
+      ids.add(right);
+      out.push(
+        clipRemainder(clip, clip.startTime, splitBeat, left, 'left'),
+        clipRemainder(clip, splitBeat, end, right, 'right'),
+      );
       splitOccurred = true;
-      const leftNotes = clip.notes.filter((n) => n.time < splitBeat - 0.001);
-      const rightNotes = clip.notes.filter((n) => n.time >= splitBeat - 0.001);
-      out.push({
-        ...clip,
-        id: `${clip.id}_A`,
-        sourceClipId: clip.id,
-        name: `${clip.name}_A`,
-        startTime: cStart,
-        endTime: splitBeat,
-        length: splitBeat - cStart,
-        notes: leftNotes,
-      });
-      out.push({
-        ...clip,
-        id: `${clip.id}_B_${Math.round(splitBeat)}`,
-        sourceClipId: clip.id,
-        name: `${clip.name}_B`,
-        startTime: splitBeat,
-        endTime: cEnd,
-        length: cEnd - splitBeat,
-        notes: rightNotes,
-      });
-    } else {
-      out.push(clip);
-    }
+    } else out.push(clip);
   }
-
-  return { clips: out.sort((a, b) => a.startTime - b.startTime), splitOccurred };
+  return {
+    clips: out.sort((a, b) => a.startTime - b.startTime),
+    splitOccurred,
+  };
 }
-
-/**
- * Duplicates a target clip immediately after its end beat (`startTime + length`), shifting all note times accordingly.
- */
 export function duplicateTrackClip(
   clips: AbletonMidiClip[],
-  clipId: string
+  clipId: string,
 ): { clips: AbletonMidiClip[]; duplicatedClip: AbletonMidiClip | null } {
   const source = clips.find((c) => c.id === clipId);
   if (!source) throw new Error(`Target clip ${clipId} not found`);
-
-  const deltaBeats = source.length;
-  if (!Number.isFinite(deltaBeats) || deltaBeats <= 0) throw new Error('Invalid source clip length');
-  const newStart = source.startTime + deltaBeats;
-  const newEnd = newStart + deltaBeats;
-  const dupNotes: MidiNoteEvent[] = source.notes.map((n, i) => ({
-    ...n,
-    id: `${n.id}_dup_${i}_${Date.now()}`,
-    sourceNoteId: n.id,
-    time: Number((n.time + deltaBeats).toFixed(3)),
-    quantizedTime: Number((n.quantizedTime + deltaBeats).toFixed(3)),
-  }));
-
+  assertClipExtent(source.startTime, source.length);
+  const id = nextArrangementIdentity(
+    `${source.id}_copy`,
+    clips.map((c) => c.id),
+  );
+  const delta = source.length;
   const duplicatedClip: AbletonMidiClip = {
     ...source,
-    id: `${source.id}_dup_${Math.round(newStart)}`,
+    id,
     sourceClipId: source.id,
-    name: `${source.name}_Dup`,
-    startTime: newStart,
-    endTime: newEnd,
-    length: deltaBeats,
-    notes: dupNotes,
+    name: `${source.name} Copy`,
+    startTime: source.startTime + delta,
+    endTime: source.startTime + delta * 2,
+    notes: source.notes.map((n, i) => ({
+      ...n,
+      id: `${id}_note_${i}`,
+      sourceNoteId: n.id,
+      sourceNoteClipId: source.id,
+      time: n.time + delta,
+      quantizedTime: n.quantizedTime + delta,
+    })),
   };
-
-  const merged = insertClipIntoTrackTimeline(clips, duplicatedClip);
-  return { clips: merged, duplicatedClip };
+  return {
+    clips: insertClipIntoTrackTimeline(clips, duplicatedClip),
+    duplicatedClip,
+  };
 }
-
-/**
- * Consolidates all clips overlapping `[startBeat, endBeat)` into a single contiguous clip.
- */
 export function consolidateTrackClipsInRange(
   clips: AbletonMidiClip[],
   startBeat: number,
   endBeat: number,
-  trackName = 'Track'
+  trackName = 'Track',
 ): AbletonMidiClip[] {
-  const lo = Math.max(0, Math.min(startBeat, endBeat));
-  const hi = Math.max(lo + 4, Math.max(startBeat, endBeat));
-  const collectedNotes: MidiNoteEvent[] = [];
-
-  for (const c of clips) {
+  assertBeatRange(startBeat, endBeat);
+  const notes: MidiNoteEvent[] = [];
+  const sources = clips.filter(
+    (c) => c.startTime < endBeat && c.startTime + c.length > startBeat,
+  );
+  const id = nextArrangementIdentity(
+    'consolidated',
+    clips.map((c) => c.id),
+  );
+  for (const c of sources)
     for (const n of c.notes) {
-      if (n.time >= Math.max(lo, c.startTime) && n.time < Math.min(hi, c.startTime + c.length)) {
-        collectedNotes.push({ ...n });
-      }
+      if (n.time < c.startTime || n.time >= c.startTime + c.length) continue;
+      const from = Math.max(n.time, startBeat),
+        to = Math.min(n.time + n.duration, c.startTime + c.length, endBeat);
+      if (to <= from) continue;
+      notes.push({
+        ...n,
+        id: `${id}_note_${notes.length}`,
+        sourceNoteId: n.id,
+        sourceNoteClipId: c.id,
+        time: from,
+        quantizedTime: n.quantizedTime + from - n.time,
+        duration: to - from,
+      });
     }
-  }
-
   const consolidated: AbletonMidiClip = {
-    id: `consolidated_${Math.round(lo)}_${Math.round(hi)}_${Date.now()}`,
-    name: `${trackName}_Consolidated_Bars_${Math.floor(lo / 4) + 1}_${Math.floor(hi / 4)}`,
-    startTime: lo,
-    endTime: hi,
-    length: hi - lo,
-    notes: collectedNotes.sort((a, b) => a.time - b.time),
-    revision: Date.now(),
+    ...sources[0],
+    id,
+    sourceClipId: sources[0]?.id,
+    sourceClipIds: sources.map(c=>c.id),
+    name: `${trackName} Consolidated`,
+    startTime: startBeat,
+    endTime: endBeat,
+    length: endBeat - startBeat,
+    loopEndBeats: endBeat - startBeat,
+    contentOffsetBeats: 0,
+    isPolymeter: false,
+    notes: notes.sort((a, b) => a.time - b.time || a.pitch - b.pitch),
   };
-
   return insertClipIntoTrackTimeline(clips, consolidated);
 }
-
-/**
- * Moves or resizes a specific clip on a track, shifting its notes when `newStartTime` changes.
- */
 export function moveOrResizeTrackClip(
   clips: AbletonMidiClip[],
   clipId: string,
   newStartTime: number,
-  newLength: number
+  newLength: number,
 ): AbletonMidiClip[] {
+  assertClipExtent(newStartTime, newLength);
   const target = clips.find((c) => c.id === clipId);
   if (!target) throw new Error(`Target clip ${clipId} not found`);
-
-  const safeStart = Math.max(0, newStartTime);
-  const safeLen = Math.max(1, newLength);
-  const deltaStart = safeStart - target.startTime;
-
-  const shiftedNotes = target.notes
-    .map((n) => ({
-      ...n,
-      time: Number((n.time + deltaStart).toFixed(3)),
-      quantizedTime: Number((n.quantizedTime + deltaStart).toFixed(3)),
-    }));
-
-  const updatedClip: AbletonMidiClip = {
+  const delta = newStartTime - target.startTime;
+  const updated: AbletonMidiClip = {
     ...target,
-    startTime: safeStart,
-    endTime: safeStart + safeLen,
-    length: safeLen,
-    notes: shiftedNotes,
+    startTime: newStartTime,
+    endTime: newStartTime + newLength,
+    length: newLength,
+    notes: target.notes.map((n) => ({
+      ...n,
+      time: n.time + delta,
+      quantizedTime: n.quantizedTime + delta,
+    })),
   };
-
-  const others = clips.filter((c) => c.id !== clipId);
-  return insertClipIntoTrackTimeline(others, updatedClip);
+  return insertClipIntoTrackTimeline(
+    clips.filter((c) => c.id !== clipId),
+    updated,
+  );
 }
 
-/**
- * Creates a brand-new user track from any Group A–H Instrument Role Template.
- */
 export function createUserTrackFromRole(
   roleCode: string,
   trackIndex: number,

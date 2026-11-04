@@ -139,6 +139,14 @@ export class StudioCommandBus {
     // A mutator may return caller-owned state instead of its draft. Detach the
     // entire result, including nested objects, before publishing it to the UI.
     const mutated = deepCloneProject(mutator(workingDraft));
+    for (const before of currentProject.tracks.filter(track=>track.locked)) {
+      const after=mutated.tracks.find(track=>track.id===before.id);
+      if(!after) throw new Error(`TRACK_LOCKED: unlock ${before.name} before deleting it`);
+      if(after.locked!==false && ['clips','sessionClips','devices','automationPoints'].some(key=>JSON.stringify(before[key as keyof AbletonTrack])!==JSON.stringify(after[key as keyof AbletonTrack]))) {
+        throw new Error(`TRACK_LOCKED: unlock ${before.name} before editing its content`);
+      }
+    }
+
     if (mutated.audioSettings) {
       const { arrangementLengthBars: derivedExtent, ...transport } = mutated.audioSettings.transport;
       mutated.audioSettings = { ...mutated.audioSettings, transport };
@@ -301,6 +309,7 @@ export function applyNoteEditWithMode(
   const track = draft.tracks.find((t) => t.id === trackId);
   if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
+  if(track.locked) throw new Error(`TRACK_LOCKED: ${track.name}`);
   const clip = track.clips[clipIndex];
   const noteIdx = clip.notes.findIndex((n) => n.id === noteId);
   if (noteIdx === -1) throw new Error(`Target note ${noteId} not found`);
@@ -364,6 +373,7 @@ export function deleteNoteWithEditMode(
   const track = draft.tracks.find((t) => t.id === trackId);
   if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
+  if(track.locked) throw new Error(`TRACK_LOCKED: ${track.name}`);
   const clip = track.clips[clipIndex];
   const targetNote = clip.notes.find((n) => n.id === noteId);
   if (!targetNote) throw new Error(`Target note ${noteId} not found`);
@@ -404,6 +414,7 @@ export function applyClipPositionWithEditMode(
   const track = draft.tracks.find((t) => t.id === trackId);
   if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
+  if(track.locked) throw new Error(`TRACK_LOCKED: ${track.name}`);
   const clip = track.clips[clipIndex];
   const oldStart = clip.startTime || 0;
   const clipDuration = clip.length;

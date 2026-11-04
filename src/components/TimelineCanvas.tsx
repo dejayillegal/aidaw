@@ -1,3 +1,6 @@
+import {pianoPitchRows} from '../engine/arrangementEditing';
+import {ArrangementEditInspector} from './ArrangementEditInspector';
+import type {ArrangementClipEdit,ArrangementNoteEdit} from '../engine/arrangementEditing';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AbletonMidiClip,
@@ -22,7 +25,7 @@ import {
 import { evaluateAutomationAtBeat, synthEngine } from '../engine/webAudioSynth';
 import { exportClipToMidiFile, downloadMidiFile } from '../engine/midiFileExporter';
 import { projectQueueService } from '../services/projectQueueService';
-import { spotPositionToBeat } from '../services/commandBus';
+import { resolveBeatForEditMode, spotPositionToBeat } from '../services/commandBus';
 import {
   beatToBarBeatTick,
   CANONICAL_PPQ,
@@ -200,7 +203,9 @@ interface TimelineCanvasProps {
   onChangeArrangementLength?: (bars: number) => void;
   onUpdateMasterBus?: (partial: Partial<MasterBusConfig>) => void;
   onSeekBeat: (beat: number) => void;
-  onToggleNoteInTrack: (trackId: string, stepBeat: number, pitch: number, stepDuration?: number) => void;
+  onToggleNoteInTrack: (trackId: string, stepBeat: number, pitch: number, stepDuration?: number, clipId?:string) => void;
+  onEditArrangementClip?:(trackId:string,clipId:string,edit:ArrangementClipEdit)=>void;
+  onEditArrangementNote?:(trackId:string,clipId:string,noteId:string,edit:ArrangementNoteEdit)=>void;
   onToggleMute: (trackId: string) => void;
   onToggleSolo: (trackId: string) => void;
   onUpdateTrackMixer: (trackId: string, partial: Partial<TrackMixerParams>) => void;
@@ -252,6 +257,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   onUpdateMasterBus,
   onSeekBeat,
   onToggleNoteInTrack,
+  onEditArrangementClip,
+  onEditArrangementNote,
   onToggleMute,
   onToggleSolo,
   onUpdateTrackMixer,
@@ -276,6 +283,83 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 }) => {
   const arrangementCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pianoRollCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [selectedClipId, setSelectedClipId] = useState<string>();
+  const [selectedNoteId, setSelectedNoteId] = useState<string>();
+  const [clipPreview, setClipPreview] = useState<{
+    trackId: string;
+    clipId: string;
+    start: number;
+    length: number;
+  }>();
+  const [notePreview, setNotePreview] = useState<{
+    clipId: string;
+    noteId: string;
+    time: number;
+    duration: number;
+    pitch: number;
+  }>();
+  const clipGesture = useRef<
+    | {
+        pointerId: number;
+        trackId: string;
+        clipId: string;
+        start: number;
+        length: number;
+        anchorX: number;
+        pixelsPerBeat: number;
+        resize: boolean;
+        moved: boolean;
+      }
+    | undefined
+  >(undefined);
+  const noteGesture = useRef<
+    | {
+        pointerId: number;
+        trackId: string;
+        clipId: string;
+        noteId: string;
+        time: number;
+        duration: number;
+        pitch: number;
+        anchorX: number;
+        anchorY: number;
+        pixelsPerBeat: number;
+        rowHeight: number;
+        resize: boolean;
+        moved: boolean;
+        clipStart: number;
+        clipEnd: number;
+      }
+    | undefined
+  >(undefined);
+  const [editorSelectionTrackId, setEditorSelectionTrackId] =
+    useState(selectedTrackId);
+  const activeClipId =
+    editorSelectionTrackId === selectedTrackId ? selectedClipId : undefined;
+  const activeNoteId =
+    editorSelectionTrackId === selectedTrackId ? selectedNoteId : undefined;
+  const selectEditorTarget = (
+    clipId: string,
+    noteId?: string,
+    trackId = selectedTrackId,
+  ) => {
+    setEditorSelectionTrackId(trackId);
+    setSelectedClipId(clipId);
+    setSelectedNoteId(noteId);
+  };
+  useEffect(() => {
+    const cancel = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        clipGesture.current = undefined;
+        noteGesture.current = undefined;
+        setClipPreview(undefined);
+        setNotePreview(undefined);
+        setIsDraggingArrangement(false);
+      }
+    };
+    window.addEventListener('keydown', cancel);
+    return () => window.removeEventListener('keydown', cancel);
+  }, []);
   const reusableFftRef = useRef<Uint8Array>(new Uint8Array(256));
   const [zoomBars, setZoomBars] = useState<1 | 2 | 4>(2);
   const [pianoScrollBar, setPianoScrollBar] = useState<number>(0);
@@ -1002,12 +1086,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
     const allTrackPitches = allClipsNotes.length > 0 ? allClipsNotes.map((n) => n.pitch) : [36];
     const uniquePitches = Array.from(new Set(allTrackPitches)).sort((a, b) => b - a);
-    const centerPitch = uniquePitches[0] || 36;
-    const pitchRows: number[] = [];
-    for (let p = centerPitch + 3; p >= centerPitch - 3; p--) {
-      pitchRows.push(p);
-    }
-
+    const pitchRows = pianoPitchRows(selectedTrack);
     const rowHeight = rollHeight / pitchRows.length;
     const stepBeats = gridDivisionToStepBeats(pianoGridDivision);
 
@@ -1121,11 +1200,14 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     ctx.setLineDash([]);
 
     // 4. Draw <MidiNoteEvent> Blocks + Micro-Timing Shift Vectors + Velocity Stalks
-    visibleNotes.forEach((note: MidiNoteEvent) => {
+    visibleNotes.forEach((sourceNote: MidiNoteEvent) => {
+      const preview=notePreview?.noteId===sourceNote.id&&selectedTrack.clips.find(c=>c.id===notePreview.clipId)?.notes.includes(sourceNote)?notePreview:undefined;
+      const note=preview?{...sourceNote,...preview}:sourceNote;
       const rowIdx = pitchRows.indexOf(note.pitch);
-      const effectiveRow = rowIdx >= 0 ? rowIdx : Math.floor(pitchRows.length / 2);
+      if(rowIdx<0)return;
+      const effectiveRow = rowIdx;
       const y = effectiveRow * rowHeight + 3;
-      const h = Math.max(10, rowHeight - 6);
+      const h = Math.max(4, rowHeight - 6);
 
       const relQuantBeat = note.quantizedTime - windowStartBeat;
       const relActualBeat = note.time - windowStartBeat;
@@ -1212,6 +1294,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     pianoScrollBar,
     totalBars,
     pianoGridDivision,
+    notePreview,
+    selectedClipId,
+    selectedNoteId,
     playheadBeat,
     syncedPlayheadBeat,
     humanization,
@@ -1276,9 +1361,6 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         // Standard Interactive Timeline Mode (Default): Select Track, Seek/Scrub Playhead & Sync Piano Roll Window
         onSeekBeat(rawBeat);
         setPianoScrollBar(Math.floor(rawBeat / 4));
-        if (isInitialDown) {
-          synthEngine.triggerLivePad(targetTrack.archetype, 95);
-        }
       }
     } else {
       // Clicked inside Return / Master Lanes at bottom: Seek Playhead
@@ -1287,30 +1369,117 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     }
   };
 
-  const handleArrangementPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleArrangementPointerDown = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ) => {
+    if (clipGesture.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left,
+      y = e.clientY - rect.top;
+    const track = project.tracks[Math.floor((y - headerHeight) / laneHeight)];
+    const beat = arrStartBeat + (x / Math.max(1, rect.width)) * arrVisibleBeats;
+    const clip =
+      y > headerHeight && track?.type === 'midi'
+        ? [...track.clips]
+            .reverse()
+            .find((c) => beat >= c.startTime && beat < c.startTime + c.length)
+        : undefined;
+    if (
+      clip &&
+      !track.locked &&
+      !transport.showAutomationLanes &&
+      onEditArrangementClip
+    ) {
+      onSelectTrack(track.id);
+      selectEditorTarget(clip.id, undefined, track.id);
+      clipGesture.current = {
+        pointerId: e.pointerId,
+        trackId: track.id,
+        clipId: clip.id,
+        start: clip.startTime,
+        length: clip.length,
+        anchorX: e.clientX,
+        pixelsPerBeat: rect.width / arrVisibleBeats,
+        resize:
+          Math.abs(
+            ((clip.startTime + clip.length - beat) / arrVisibleBeats) *
+              rect.width,
+          ) <= 8,
+        moved: false,
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+      return;
+    }
     setIsDraggingArrangement(true);
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // Ignore pointer capture errors on synthetic events
-    }
+    } catch {}
     processArrangementPointer(e, true);
   };
-
-  const handleArrangementPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDraggingArrangement) return;
-    processArrangementPointer(e, false);
+  const clipGestureValue = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const g = clipGesture.current;
+    if (!g) return;
+    const delta = (e.clientX - g.anchorX) / Math.max(0.000001, g.pixelsPerBeat);
+    return {
+      trackId: g.trackId,
+      clipId: g.clipId,
+      start: g.resize
+        ? g.start
+        : resolveBeatForEditMode(
+            g.start + delta,
+            editMode,
+            gridDivisionToStepBeats(pianoGridDivision),
+          ),
+      length: g.resize
+        ? Math.max(
+            1 / CANONICAL_PPQ,
+            resolveBeatForEditMode(
+              g.length + delta,
+              editMode,
+              gridDivisionToStepBeats(pianoGridDivision),
+            ),
+          )
+        : g.length,
+    };
   };
-
-  const handleArrangementPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDraggingArrangement) return;
+  const handleArrangementPointerMove = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ) => {
+    const g = clipGesture.current;
+    if (g && g.pointerId !== e.pointerId) return;
+    if (g) {
+      if (Math.abs(e.clientX - g.anchorX) > 3) g.moved = true;
+      if (g.moved) setClipPreview(clipGestureValue(e));
+      return;
+    }
+    if (isDraggingArrangement) processArrangementPointer(e, false);
+  };
+  const finishArrangementPointer = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    cancelled = false,
+  ) => {
+    const g = clipGesture.current;
+    if (g && g.pointerId !== e.pointerId) return;
+    const next = clipGestureValue(e);
+    clipGesture.current = undefined;
+    setClipPreview(undefined);
     setIsDraggingArrangement(false);
+    if (g?.moved && next && !cancelled)
+      onEditArrangementClip?.(g.trackId, g.clipId, {
+        kind: 'place',
+        startBeat: next.start,
+        lengthBeats: next.length,
+        mode: editMode,
+      });
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // Ignore pointer release errors
-    }
+    } catch {}
   };
+  const handleArrangementPointerUp = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ) => finishArrangementPointer(e);
 
   const handleApplyAutomationPreset = (
     preset: 'drop-ramp' | 'tension-wave' | 'sub-scoop' | 'flat' | 'clear'
@@ -1359,81 +1528,187 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     onUpdateTrackAutomation(selectedTrack.id, pts);
   };
 
-  const handlePianoRollPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = pianoRollCanvasRef.current;
-    if (!canvas || !selectedTrack) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const keyColWidth = 58;
-    const velLaneHeight = 54;
-    const rollHeight = rect.height - velLaneHeight;
-
+  const pianoPointerContext = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left,
+      y = e.clientY - rect.top;
     const visibleBeats = zoomBars * 4;
-    const maxPianoStartBar = Math.max(0, totalBars - zoomBars);
-    const effectivePianoBar = transport.followPlayhead
-      ? Math.min(maxPianoStartBar, Math.floor(playheadBeat / visibleBeats) * zoomBars)
-      : Math.min(maxPianoStartBar, pianoScrollBar);
-    const windowStartBeat = effectivePianoBar * 4;
-
-    if (y >= rollHeight) {
-      // Clicked in the Velocity Lane at bottom: seek playhead to that beat
-      if (x > keyColWidth) {
-        const relBeat = ((x - keyColWidth) / Math.max(1, rect.width - keyColWidth)) * visibleBeats;
-        onSeekBeat(windowStartBeat + relBeat);
+    const maxBar = Math.max(0, totalBars - zoomBars);
+    const start =
+      (transport.followPlayhead
+        ? Math.min(maxBar, Math.floor(playheadBeat / visibleBeats) * zoomBars)
+        : Math.min(maxBar, pianoScrollBar)) * 4;
+    const rows = selectedTrack ? pianoPitchRows(selectedTrack) : [36];
+    const height = rect.height - 54;
+    const row = Math.max(
+      0,
+      Math.min(
+        rows.length - 1,
+        Math.floor((y / Math.max(1, height)) * rows.length),
+      ),
+    );
+    return {
+      rect,
+      x,
+      y,
+      start,
+      rows,
+      height,
+      pitch: rows[row],
+      pixelsPerBeat: Math.max(1, rect.width - 58) / visibleBeats,
+      beat: start + ((x - 58) / Math.max(1, rect.width - 58)) * visibleBeats,
+      rowHeight: height / rows.length,
+    };
+  };
+  const handlePianoRollPointerDown = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ) => {
+    if (!selectedTrack || noteGesture.current) return;
+    const c = pianoPointerContext(e);
+    if (c.x <= 58) {
+      synthEngine.triggerLivePad(selectedTrack.archetype, 100, c.pitch);
+      return;
+    }
+    if (c.y >= c.height) {
+      onSeekBeat(Math.max(0, c.beat));
+      return;
+    }
+    if (selectedTrack.locked) return;
+    const clips = [...selectedTrack.clips].sort(
+      (a, b) => Number(b.id === activeClipId) - Number(a.id === activeClipId),
+    );
+    let hit: { clip: AbletonMidiClip; note: MidiNoteEvent } | undefined;
+    for (const clip of clips) {
+      const note = clip.notes.find(
+        (n) =>
+          n.pitch === c.pitch &&
+          n.time >= clip.startTime &&
+          n.time < clip.startTime + clip.length &&
+          c.beat >= n.time &&
+          c.beat <=
+            Math.min(
+              clip.startTime + clip.length,
+              n.time + Math.max(n.duration, 6 / c.pixelsPerBeat),
+            ),
+      );
+      if (note) {
+        hit = { clip, note };
+        break;
       }
+    }
+    if (hit && onEditArrangementNote) {
+      selectEditorTarget(hit.clip.id, hit.note.id);
+      if (e.altKey) {
+        onEditArrangementNote(selectedTrack.id, hit.clip.id, hit.note.id, {
+          delete: true,
+        });
+        return;
+      }
+      noteGesture.current = {
+        pointerId: e.pointerId,
+        trackId: selectedTrack.id,
+        clipId: hit.clip.id,
+        noteId: hit.note.id,
+        time: hit.note.time,
+        duration: hit.note.duration,
+        pitch: hit.note.pitch,
+        anchorX: e.clientX,
+        anchorY: e.clientY,
+        pixelsPerBeat: c.pixelsPerBeat,
+        rowHeight: c.rowHeight,
+        resize:
+          Math.abs(
+            (hit.note.time + hit.note.duration - c.beat) * c.pixelsPerBeat,
+          ) <= 8,
+        moved: false,
+        clipStart: hit.clip.startTime,
+        clipEnd: hit.clip.startTime + hit.clip.length,
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
       return;
     }
-
-    const allClipsNotes = selectedTrack.clips.flatMap((c) => c.notes);
-    const allPitches = allClipsNotes.length > 0 ? allClipsNotes.map((n) => n.pitch) : [36];
-    const uniquePitches = Array.from(new Set(allPitches)).sort((a, b) => b - a);
-    const centerPitch = uniquePitches[0] || 36;
-    const pitchRows: number[] = [];
-    for (let p = centerPitch + 3; p >= centerPitch - 3; p--) {
-      pitchRows.push(p);
-    }
-    const clip = selectedTrack.clips[0];
-
-    const rowIdx = Math.floor((y / rollHeight) * pitchRows.length);
-    const pitch = pitchRows[Math.max(0, Math.min(pitchRows.length - 1, rowIdx))];
-
-    if (x <= keyColWidth) {
-      synthEngine.triggerLivePad(selectedTrack.archetype, 110, pitch);
-      return;
-    }
-
-    const stepBeats = gridDivisionToStepBeats(pianoGridDivision);
-    const relBeat = ((x - keyColWidth) / Math.max(1, rect.width - keyColWidth)) * visibleBeats;
-    const rawTargetBeat =
+    const step = gridDivisionToStepBeats(pianoGridDivision);
+    const beat =
       editMode === 'spot'
         ? spotPositionToBeat(spotBar, spotBeat, spotSixteenth)
         : editMode === 'slip'
-        ? Number((windowStartBeat + relBeat).toFixed(3))
-        : Number((windowStartBeat + Math.floor(relBeat / stepBeats) * stepBeats).toFixed(3));
-
-    // In Shuffle or Spot mode, if clicking near an existing note on another beat, move/ripple it
-    if (
-      (editMode === 'shuffle' || editMode === 'spot') &&
-      onApplyNoteEditModeOperation &&
-      clip &&
-      clip.notes.length > 0 &&
-      e.shiftKey
-    ) {
-      const targetNote = clip.notes[0];
-      onApplyNoteEditModeOperation(
-        selectedTrack.id,
-        targetNote.id,
-        rawTargetBeat,
-        editMode,
-        stepBeats,
-        clip.id
-      );
-      return;
-    }
-
-    synthEngine.triggerLivePad(selectedTrack.archetype, 100, pitch);
-    onToggleNoteInTrack(selectedTrack.id, rawTargetBeat, pitch, stepBeats);
+          ? Math.max(0, c.beat)
+          : c.start + Math.floor((c.beat - c.start) / step) * step;
+    const destinations = selectedTrack.clips.filter(
+      (clip) => beat >= clip.startTime && beat < clip.startTime + clip.length,
+    );
+    const destination =
+      destinations.find((clip) => clip.id === activeClipId) ??
+      (destinations.length === 1 ? destinations[0] : undefined);
+    if (destination) selectEditorTarget(destination.id);
+    onToggleNoteInTrack(selectedTrack.id, beat, c.pitch, step, destination?.id);
+  };
+  const noteGestureValue = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const g = noteGesture.current;
+    if (!g) return;
+    const step = gridDivisionToStepBeats(pianoGridDivision);
+    const delta = (e.clientX - g.anchorX) / g.pixelsPerBeat;
+    const time = g.resize
+      ? g.time
+      : Math.max(
+          g.clipStart,
+          Math.min(
+            g.clipEnd - 1 / CANONICAL_PPQ,
+            resolveBeatForEditMode(g.time + delta, editMode, step),
+          ),
+        );
+    const duration = g.resize
+      ? Math.min(
+          g.clipEnd - g.time,
+          Math.max(
+            1 / CANONICAL_PPQ,
+            resolveBeatForEditMode(g.duration + delta, editMode, step),
+          ),
+        )
+      : g.duration;
+    const pitch = g.resize
+      ? g.pitch
+      : Math.max(
+          0,
+          Math.min(
+            127,
+            g.pitch -
+              Math.round((e.clientY - g.anchorY) / Math.max(1, g.rowHeight)),
+          ),
+        );
+    return { clipId: g.clipId, noteId: g.noteId, time, duration, pitch };
+  };
+  const handlePianoRollPointerMove = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ) => {
+    const g = noteGesture.current;
+    if (!g || g.pointerId !== e.pointerId) return;
+    if (Math.hypot(e.clientX - g.anchorX, e.clientY - g.anchorY) > 3)
+      g.moved = true;
+    if (g.moved) setNotePreview(noteGestureValue(e));
+  };
+  const finishPianoPointer = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    cancelled = false,
+  ) => {
+    const g = noteGesture.current;
+    if (g && g.pointerId !== e.pointerId) return;
+    const next = noteGestureValue(e);
+    noteGesture.current = undefined;
+    setNotePreview(undefined);
+    if (g?.moved && next && !cancelled)
+      onEditArrangementNote?.(g.trackId, g.clipId, g.noteId, {
+        time: next.time,
+        quantizedTime: next.time,
+        duration: next.duration,
+        pitch: next.pitch,
+        mode: editMode,
+      });
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
   };
 
   const posCoord = beatToBarBeatTick(
@@ -1449,7 +1724,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   );
 
   return (
-    <div className="flex flex-col h-full bg-[#0D1015] select-none">
+    <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-[#0D1015] select-none">
       {/* Ableton Arrangement View Header Bar with Duration, Real-Time Zoom, Loop & Automation */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-1.5 bg-[#12161E] border-b border-[#232934] text-xs">
         <div className="flex flex-wrap items-center gap-2.5 text-slate-300 font-mono tabular-nums">
@@ -1962,12 +2237,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             <button
               type="button"
               data-testid="range-split-clip-btn"
-              onClick={() =>
-                onSplitClipAtBeat(
-                  selectedTrack.id,
-                  playheadBeat > 0 ? Math.round(playheadBeat / 4) * 4 : (effectiveRangeStartBar - 1) * 4
-                )
-              }
+              onClick={() => {
+                const atBeat=playheadBeat > 0 ? playheadBeat : (effectiveRangeStartBar - 1) * 4;
+                if(onEditArrangementClip && activeClipId) onEditArrangementClip(selectedTrack.id,activeClipId,{kind:'split',atBeat});
+                else onSplitClipAtBeat(selectedTrack.id,atBeat);
+              }}
               className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-300"
               title="Split clip at current bar/playhead"
             >
@@ -1979,7 +2253,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             <button
               type="button"
               data-testid="range-duplicate-clip-btn"
-              onClick={() => onDuplicateClipOnTrack(selectedTrack.id)}
+              onClick={() => onDuplicateClipOnTrack(selectedTrack.id,activeClipId??selectedTrack.clips[0]?.id)}
               className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-300"
               title="Duplicate active clip to next bar span"
             >
@@ -2050,7 +2324,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
       {/* Upper Arrangement Split: Left Ableton Track + Return Headers + Right Arrangement Canvas */}
       <div
-        className="flex w-full border-b border-[#232934] overflow-y-auto"
+        className="flex w-full shrink-0 border-b border-[#232934] overflow-y-auto"
         style={{ height: `${Math.min(340, totalArrangementHeight)}px` }}
       >
         <div
@@ -2263,10 +2537,12 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               ref={arrangementCanvasRef}
               onPointerDown={handleArrangementPointerDown}
               onPointerMove={handleArrangementPointerMove}
+              aria-label="Arrangement clips" data-testid="arrangement-clips-canvas"
               onPointerUp={handleArrangementPointerUp}
-              onPointerCancel={handleArrangementPointerUp}
+              onPointerCancel={e=>finishArrangementPointer(e,true)}
               className="w-full h-full block cursor-pointer touch-none"
             />
+            {clipPreview&&<div data-testid="clip-drag-preview" className="absolute border-2 border-amber-300 bg-amber-400/20 pointer-events-none" style={{left:(clipPreview.start-arrStartBeat)/arrVisibleBeats*arrangementWidthPx,width:Math.max(2,clipPreview.length/arrVisibleBeats*arrangementWidthPx),top:headerHeight+project.tracks.findIndex(t=>t.id===clipPreview.trackId)*laneHeight+3,height:laneHeight-6}}/>}
             {arrangementPlayheadTransform.isVisible && (
               <div
                 data-testid="arrangement-smooth-playhead"
@@ -2324,7 +2600,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             Cyan = Ghost ({humanization.ghostVelocityMin}–{humanization.ghostVelocityMax})
           </span>
           <span className="hidden xl:inline text-amber-400">
-            Click grid to add/remove MIDI notes
+            Click empty grid to draw · drag notes/edges · Alt-click to delete
           </span>
           <span
             data-testid="playhead-midi-grid-sync"
@@ -2370,7 +2646,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                 onClick={() =>
                   onExportClipToMidi(
                     selectedTrack.id,
-                    selectedTrack.clips[0].id,
+                    activeClipId??selectedTrack.clips[0].id,
                     effectiveIncludeHumanization
                   )
                 }
@@ -2463,12 +2739,23 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         </div>
       </div>
 
+      <ArrangementEditInspector track={selectedTrack} clipId={activeClipId} noteId={activeNoteId} playheadBeat={playheadBeat} onSelect={selectEditorTarget} onEditClip={onEditArrangementClip} onEditNote={onEditArrangementNote}/>
+      <div className="flex shrink-0 items-center gap-2 px-3 text-xs text-slate-300">
+        <button type="button" className="min-h-11 px-2 border border-slate-700 rounded" onClick={()=>pianoRollCanvasRef.current?.parentElement?.scrollBy({top:-144,behavior:'auto'})}>Higher keys</button>
+        <button type="button" className="min-h-11 px-2 border border-slate-700 rounded" onClick={()=>pianoRollCanvasRef.current?.parentElement?.scrollBy({top:144,behavior:'auto'})}>Lower keys</button>
+        <span>Drags commit on release. Escape cancels a drag. Click empty grid to draw.</span>
+      </div>
       {/* Lower Piano Roll + Velocity Stalks Canvas (Single Pointer Pipeline — No Double-Firing) */}
-      <div className="relative flex-1 min-h-[175px] w-full overflow-hidden">
+      <div className="relative flex-1 min-h-[175px] w-full overflow-auto">
         <canvas
           ref={pianoRollCanvasRef}
+          aria-label="MIDI piano roll" data-testid="midi-piano-roll"
+          style={{height:Math.max(175,(selectedTrack?pianoPitchRows(selectedTrack).length:7)*18+54)}}
           onPointerDown={handlePianoRollPointerDown}
-          className="w-full h-full block cursor-crosshair touch-none"
+          onPointerMove={handlePianoRollPointerMove}
+          onPointerUp={e=>finishPianoPointer(e)}
+          onPointerCancel={e=>finishPianoPointer(e,true)}
+          className="w-full block cursor-crosshair touch-none"
         />
         {midiGridSync.isInsideWindow && (
           <div

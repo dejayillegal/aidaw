@@ -1,3 +1,5 @@
+import {editArrangementClip,editArrangementNote,toggleArrangementNote} from './engine/arrangementEditing';
+import type {ArrangementClipEdit,ArrangementNoteEdit} from './engine/arrangementEditing';
 import {createSongPlan,composeSongPlan,materializeSongPlanTrack,songPlanAutomation} from './engine/songPlanEngine';
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
 import { CANONICAL_PPQ, MAX_SUPPORTED_TIMELINE_BARS } from './engine/timelineCoordinates';
@@ -59,6 +61,7 @@ import {
   INSTRUMENT_ROLE_TAXONOMY,
   decomposeNotesIntoSectionClips,
   duplicateTrackClip,
+  deleteClipsInBeatRange,
   generateClipForBarRange,
   generateContextualAutomationPoints,
   generateSectionArrangementPlan,
@@ -1555,68 +1558,14 @@ export default function App() {
     }));
   };
 
-  const handleToggleNoteInTrack = (
-    trackId: string,
-    stepBeat: number,
-    pitch: number,
-    stepDuration = 0.25
-  ) => {
-    handleExecuteProjectCommand('Toggle MIDI Note', 'clip_edit', (prev) => {
-      let workingXml = prev.rawXmlModified;
-      const updatedTracks = prev.tracks.map((track) => {
-        if (track.id !== trackId) return track;
-
-        // Find the clip covering stepBeat, or create a 4-bar clip at that bar if none covers stepBeat
-        let targetClipIdx = track.clips.findIndex(
-          (c) => stepBeat >= c.startTime - 0.05 && stepBeat < c.startTime + Math.max(1 / CANONICAL_PPQ, c.length) + 0.05
-        );
-        let nextClips = [...track.clips];
-        if (targetClipIdx < 0) {
-          const barIndex = Math.floor(stepBeat / 4);
-          const clipStart = barIndex * 4;
-          const newClip = {
-            id: `clip_${track.id}_${barIndex + 1}_${Date.now()}`,
-            name: `${track.name}_Bar_${barIndex + 1}`,
-            startTime: clipStart,
-            endTime: clipStart + 16,
-            length: 16,
-            notes: [] as typeof track.clips[0]['notes'],
-            revision: 1,
-          };
-          nextClips.push(newClip);
-          nextClips.sort((a, b) => a.startTime - b.startTime);
-          targetClipIdx = nextClips.findIndex((c) => c.id === newClip.id);
-        }
-
-        const clip = nextClips[targetClipIdx];
-        const existingIdx = clip.notes.findIndex(
-          (n) => Math.abs(n.quantizedTime - stepBeat) < stepDuration * 0.45 && n.pitch === pitch
-        );
-        const nextNotes = [...clip.notes];
-        if (existingIdx >= 0) {
-          nextNotes.splice(existingIdx, 1);
-        } else {
-          nextNotes.push({
-            id: `manual_${Date.now()}`,
-            time: Number((stepBeat + (track.archetype === 'kick' ? 0 : 0.005)).toFixed(3)),
-            quantizedTime: stepBeat,
-            duration: stepDuration,
-            pitch,
-            velocity: 98,
-            isGhost: false,
-          });
-          nextNotes.sort((a, b) => a.time - b.time);
-        }
-
-        nextClips[targetClipIdx] = { ...clip, notes: nextNotes };
-        workingXml = syncTrackClipsToXml(workingXml, track.id, nextClips);
-        return {
-          ...track,
-          clips: nextClips,
-        };
-      });
-      return { ...prev, tracks: updatedTracks, rawXmlModified: workingXml };
-    });
+  const handleToggleNoteInTrack = (trackId:string,stepBeat:number,pitch:number,stepDuration=.25,clipId?:string) => {
+    handleExecuteProjectCommand('Toggle MIDI Note','clip_edit',draft=>toggleArrangementNote(draft,trackId,stepBeat,pitch,stepDuration,clipId));
+  };
+  const handleEditArrangementClip = (trackId:string,clipId:string,edit:ArrangementClipEdit) => {
+    handleExecuteProjectCommand(`Clip ${edit.kind}`,'clip_edit',draft=>editArrangementClip(draft,trackId,clipId,edit));
+  };
+  const handleEditArrangementNote = (trackId:string,clipId:string,noteId:string,edit:ArrangementNoteEdit) => {
+    handleExecuteProjectCommand(edit.delete?'Delete MIDI note':'Edit MIDI note','clip_edit',draft=>editArrangementNote(draft,trackId,clipId,noteId,edit));
   };
 
   const [barRangeSelection, setBarRangeSelection] = useState<TimelineBarRangeSelection>({
@@ -1696,13 +1645,11 @@ export default function App() {
             setStatusMessage('No clip boundary spanned the target split bar.');
             return draft;
           }
-          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
           setStatusMessage(
             `Split clip on "${targetTrack.name}" at Bar ${Math.floor(splitBeat / 4) + 1} (${nextClips.length} clips on track).`
           );
           return {
             ...draft,
-            rawXmlModified: updatedXml,
             tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
           };
         }
@@ -1726,14 +1673,12 @@ export default function App() {
           draft.arrangementLengthBars || 16,
           Math.ceil((duplicatedClip.startTime + duplicatedClip.length) / 4)
         );
-        const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
         setStatusMessage(
           `Duplicated clip "${duplicatedClip.name}" to Bar ${Math.floor(duplicatedClip.startTime / 4) + 1}.`
         );
         return {
           ...draft,
           arrangementLengthBars: neededBars,
-          rawXmlModified: updatedXml,
           tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
         };
       });
@@ -1755,13 +1700,11 @@ export default function App() {
             (endBar - 1) * 4,
             targetTrack.name
           );
-          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
           setStatusMessage(
             `Consolidated Bars ${startBar}–${endBar - 1} into a single contiguous MIDI clip on "${targetTrack.name}".`
           );
           return {
             ...draft,
-            rawXmlModified: updatedXml,
             tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
           };
         }
@@ -1780,16 +1723,12 @@ export default function App() {
           if (!targetTrack) return draft;
           const startBeat = (startBar - 1) * 4;
           const endBeat = (endBar - 1) * 4;
-          const nextClips = targetTrack.clips.filter(
-            (c) => c.startTime + c.length <= startBeat + 0.01 || c.startTime >= endBeat - 0.01
-          );
-          const updatedXml = syncTrackClipsToXml(draft.rawXmlModified, trackId, nextClips);
+          const nextClips = deleteClipsInBeatRange(targetTrack.clips,startBeat,endBeat);
           setStatusMessage(
             `Deleted clip content in Bars ${startBar}–${endBar - 1} on "${targetTrack.name}".`
           );
           return {
             ...draft,
-            rawXmlModified: updatedXml,
             tracks: draft.tracks.map((t) => (t.id === trackId ? { ...t, clips: nextClips } : t)),
           };
         }
@@ -2213,6 +2152,8 @@ export default function App() {
               setPlayheadBeat(beat);
             }}
             onToggleNoteInTrack={handleToggleNoteInTrack}
+            onEditArrangementClip={handleEditArrangementClip}
+            onEditArrangementNote={handleEditArrangementNote}
             onToggleMute={handleToggleMute}
             onToggleSolo={handleToggleSolo}
             onUpdateTrackMixer={handleUpdateTrackMixer}
