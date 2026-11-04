@@ -1,0 +1,1166 @@
+{
+  "scope": "Core/export and structural reference-analysis subsets only; entire attachment incomplete",
+  "requirementSha256": "f3eed233c8559b626bb18ee24fb3b7c5a39ad8d9160e33c7b0d8a005a4454dfb",
+  "baseline": {
+    "sourceSha": "984b87cdc6ffaee5bc15c8ca05d05ed59203dfe2",
+    "tree": "ae6f12b46307ac5f3007415b6718561ac6dc3d82",
+    "unitTests": 261,
+    "pythonTests": 12,
+    "nativeStatus": "PASS"
+  },
+  "candidateCore": {
+    "sourceSha": "ba79d3773c97898697b21be3112fd7dd41c6334b",
+    "tree": "dc74d8f4cb3eb31aaf77e6a046d918a1271ce05a",
+    "unitTests": 276,
+    "pythonTests": 16,
+    "lint": "PASS",
+    "build": "PASS",
+    "bundle": "dist/assets/index-Bb5JeTXH.js",
+    "bundleSha256": "694930a8496393eac1a5c5a88dc808001e2b2a2862c5c3e610b71a305f398317",
+    "deployedPreview": {
+      "status": "UNVERIFIED",
+      "identity": null
+    }
+  },
+  "nativeRegression": {
+    "engine": "Chromium real Web Audio",
+    "scope": "Browser; Android device qualification remains separate",
+    "audio": [
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5302
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4621
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4832
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4824
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5104
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5024
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4752
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5045
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5573
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4850
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5393
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 6292
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5063
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5428
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5851
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4777
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4849
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4840
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 4709
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 7419152,
+        "frames": 1236518,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 28.038956916099774,
+        "peak": 0.8647929430007935,
+        "nonzero": 1481900,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "c1ef15b4cc5d61a15bd59ec2b9a2289e75e81e1b6b92120415f423d97d3d6206",
+        "progressEvents": 56,
+        "wallTimeMs": 5036
+      },
+      {
+        "bars": 64,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "7bdaa36884b2f0777ce8d2cabdabe465e361e436ddbad8967d9c8aadeaa20cc5",
+        "musicalDuration": 112.11678832116789,
+        "sizeBytes": 35231120,
+        "frames": 5871846,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 133.14843537414967,
+        "peak": 0.887704610824585,
+        "nonzero": 10739382,
+        "lastMusicalQuarterPeak": 0.8667563199996948,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "64fcb7a26ceacce1ff205384f831f1618478800661b757cad6ab459840ffe57b",
+        "progressEvents": 250,
+        "wallTimeMs": 48649
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": true,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 8075258,
+        "frames": 1345869,
+        "sampleRate": 48000,
+        "bitDepth": 24,
+        "durationSeconds": 28.0389375,
+        "peak": 0.8778821229934692,
+        "nonzero": 1588007,
+        "lastMusicalQuarterPeak": 0.8778821229934692,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "e1150265dc35d8b15f473e0b0ed180c31dd36bd30f552f66e47278541b5c904b",
+        "progressEvents": 0,
+        "wallTimeMs": 5718
+      }
+    ],
+    "responsive": [
+      {
+        "name": "compact",
+        "width": 360,
+        "height": 640,
+        "topClose": {
+          "x": 307,
+          "y": 33,
+          "width": 24,
+          "height": 24
+        },
+        "bottomClose": {
+          "x": 215.640625,
+          "y": 587,
+          "width": 115.359375,
+          "height": 28
+        },
+        "screenshot": ".evidence/reference-core/frozen-regression/settings-compact.png"
+      },
+      {
+        "name": "unfolded",
+        "width": 900,
+        "height": 720,
+        "topClose": {
+          "x": 745,
+          "y": 181.84375,
+          "width": 24,
+          "height": 24
+        },
+        "bottomClose": {
+          "x": 653.640625,
+          "y": 510.15625,
+          "width": 115.359375,
+          "height": 28
+        },
+        "screenshot": ".evidence/reference-core/frozen-regression/settings-unfolded.png"
+      },
+      {
+        "name": "landscape",
+        "width": 800,
+        "height": 360,
+        "topClose": {
+          "x": 695,
+          "y": 25,
+          "width": 24,
+          "height": 24
+        },
+        "bottomClose": {
+          "x": 603.640625,
+          "y": 307,
+          "width": 115.359375,
+          "height": 28
+        },
+        "screenshot": ".evidence/reference-core/frozen-regression/settings-landscape.png"
+      }
+    ],
+    "pageErrors": [],
+    "consoleErrors": [],
+    "warnings": [],
+    "browserVersion": "153.0.8010.0",
+    "playwrightVersion": "1.62.1",
+    "transport": {
+      "status": "PASS",
+      "nativeAudioContext": true,
+      "sampleRate": 44100,
+      "seed": 777,
+      "tempoBefore": 120,
+      "tempoAfter": 90,
+      "beforePause": 0.3024943310657596,
+      "paused": 0.45922902494331064,
+      "tempoPosition": 0.6804535147392291,
+      "retiredOldVoices": 4,
+      "endpoint": 16,
+      "visualCallbackSuspended": true
+    },
+    "projectRecovery": {
+      "scope": "Real Chromium IndexedDB, not Android lifecycle qualification",
+      "status": "PASS",
+      "projectBars": 1024,
+      "stressTrackNotes": 4096,
+      "repeatedCycles": 20,
+      "removedRecordNotResurrected": true,
+      "abortedWritePreserved": true,
+      "corruptPrimaryFallback": true,
+      "futureVersionRejected": true,
+      "wallTimeMs": 12697.099999999627
+    },
+    "futureRecoveryUi": {
+      "blocked": true,
+      "futureRecordPreserved": true
+    },
+    "probabilityOffline": {
+      "scope": "Offline probability eligibility oracle; not live-loop audio capture or listening approval",
+      "results": [
+        {
+          "sampleRate": 44100,
+          "frames": 430056,
+          "eligibleIds": [
+            "p1",
+            "p2"
+          ],
+          "peak": 0.769932210445404,
+          "maxError": 0,
+          "rmsError": 0
+        },
+        {
+          "sampleRate": 48000,
+          "frames": 468088,
+          "eligibleIds": [
+            "p1",
+            "p2"
+          ],
+          "peak": 0.7703852653503418,
+          "maxError": 0,
+          "rmsError": 0
+        }
+      ]
+    },
+    "fullTrackWorkflow": {
+      "creation": "visible File \u2192 New Full Track 64",
+      "seed": 8364056,
+      "planVersion": 2,
+      "tracks": 8,
+      "saveReopen": "exact score/plan match",
+      "fullJourneyQualified": false
+    },
+    "trackWorkflows": {
+      "status": "PASS",
+      "scope": "track velocity/quantize, undo/redo, native save/reload, action reachability",
+      "transactions": 2,
+      "arrangementClips": 2,
+      "restoredTracks": 2,
+      "viewports": [
+        {
+          "width": 360,
+          "height": 640
+        },
+        {
+          "width": 900,
+          "height": 720
+        },
+        {
+          "width": 800,
+          "height": 360
+        },
+        {
+          "width": 1440,
+          "height": 900
+        }
+      ],
+      "deviceQualification": false,
+      "fullUiCoverage": false
+    },
+    "sessionWorkflows": {
+      "status": "PASS",
+      "scope": "Visible Session slots/launch/capture/stop/return, native track meters, undo/redo, save/reopen and insert-limit error",
+      "audibleTracks": [
+        true,
+        true
+      ],
+      "stoppedPeak": -60,
+      "otherPeak": -19.2,
+      "stopAt": 6,
+      "capturedCyclesPerTrack": 4,
+      "nativeProjectVersion": 3,
+      "realJournalRecovery": true,
+      "deviceQualification": false,
+      "liveOfflineCaptureParity": false
+    },
+    "timeoutGuard": {
+      "timedOut": true,
+      "retryBlocked": true,
+      "allocations": 1
+    },
+    "status": "PASS"
+  },
+  "arrangementEditing": {
+    "browser": "153.0.8010.0",
+    "steps": [
+      "Opened canonical two-layer fixture",
+      "Edited the selected later clip, preserving other clips/layers",
+      "Moved a clip and its notes by an exact fractional beat",
+      "Duplicated selected clip through canonical history",
+      "Deleted only bars 2\u20133, retaining prefix/suffix and sustained continuation",
+      "Dragged and resized the selected note; Escape cancelled without a history entry",
+      "Moved/resized the selected arrangement clip and verified undo/redo",
+      "Saved and reopened exact edited layer state",
+      "Regenerated a selected phrase without overwriting protected edits or the other layer, then undid it",
+      "Exported selected later MIDI, reimported edited ALS and rendered complete WAV",
+      "Consolidated a range, duplicated and split its result, then undid all three operations",
+      "Live edit retired the edited layer while the other sustained and master level stayed constant"
+    ],
+    "errors": [],
+    "live": {
+      "before": {
+        "playing": true,
+        "beat": 0.9990929705215419,
+        "master": 1,
+        "voices": [
+          1,
+          1
+        ],
+        "meters": [
+          {
+            "peakDb": -20.6,
+            "rmsDb": -28.2,
+            "faderLinear": 1,
+            "gateLinear": 1,
+            "pan": 0
+          },
+          {
+            "peakDb": -30.1,
+            "rmsDb": -34.4,
+            "faderLinear": 0.8413951416451951,
+            "gateLinear": 1,
+            "pan": 0
+          }
+        ]
+      },
+      "after": {
+        "playing": true,
+        "beat": 2.13687074829932,
+        "master": 1,
+        "voices": [
+          0,
+          1
+        ],
+        "meters": [
+          {
+            "peakDb": -60,
+            "rmsDb": -60,
+            "faderLinear": 1,
+            "gateLinear": 1,
+            "pan": 0
+          },
+          {
+            "peakDb": -32.6,
+            "rmsDb": -38.6,
+            "faderLinear": 0.8413951416451951,
+            "gateLinear": 1,
+            "pan": 0
+          }
+        ]
+      }
+    },
+    "status": "PASS"
+  },
+  "phoneExport": {
+    "browser": "153.0.8010.0",
+    "steps": [
+      "Phone export cancels, removes its partial destination and leaves the score unchanged",
+      "Retry completes a real 48k WAV, with final verification and no project/history mutation"
+    ],
+    "errors": [],
+    "scope": "Visible browser workflow with real file bytes and a simulated destination picker; Android SAF itself remains a hardware gate",
+    "status": "PASS",
+    "savedFile": ".evidence/reference-core/frozen-ui/save-2.wav",
+    "savedBytes": 21310316
+  },
+  "continuousExports": {
+    "browser": "153.0.8010.0",
+    "cases": [
+      {
+        "name": "short-blob",
+        "bars": 4,
+        "seed": 777,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "frames": 1205135,
+        "durationSeconds": 27.32732426303855,
+        "tailSeconds": 20.660651177693566,
+        "expectedSize": 7230854,
+        "written": 7230854,
+        "largestBlock": 196608,
+        "memory": {
+          "outputPcmBytes": 9641080,
+          "declaredBufferBytes": 6562081,
+          "fixedReserveBytes": 20185088,
+          "encodedWholeFileBytes": 0,
+          "totalBytes": 36388249,
+          "limitBytes": 268435456
+        },
+        "sourceTrackCount": 8,
+        "wallTimeMs": 7711,
+        "sha256": "492eb50598d30722ace6f043a461403773254b87291f39923f59e272d130c07e",
+        "memoryBefore": {
+          "heapUsed": 3781480,
+          "backingStorage": 2269817,
+          "rssBytes": 316755968
+        },
+        "memoryPeak": {
+          "heapUsed": 15965912,
+          "backingStorage": 13771626,
+          "rssBytes": 459083776
+        },
+        "memoryAfter": {
+          "heapUsed": 16249312,
+          "backingStorage": 8137962,
+          "rssBytes": 423862272
+        }
+      },
+      {
+        "name": "short-stream",
+        "bars": 4,
+        "seed": 777,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "frames": 1205135,
+        "durationSeconds": 27.32732426303855,
+        "tailSeconds": 20.660651177693566,
+        "expectedSize": 7230854,
+        "written": 7230854,
+        "largestBlock": 196608,
+        "memory": {
+          "outputPcmBytes": 9641080,
+          "declaredBufferBytes": 6562081,
+          "fixedReserveBytes": 20185088,
+          "encodedWholeFileBytes": 0,
+          "totalBytes": 36388249,
+          "limitBytes": 268435456
+        },
+        "sourceTrackCount": 8,
+        "wallTimeMs": 8063,
+        "sha256": "492eb50598d30722ace6f043a461403773254b87291f39923f59e272d130c07e",
+        "memoryBefore": {
+          "heapUsed": 16255792,
+          "backingStorage": 8137962,
+          "rssBytes": 423870464
+        },
+        "memoryPeak": {
+          "heapUsed": 9419584,
+          "backingStorage": 10303196,
+          "rssBytes": 503193600
+        },
+        "memoryAfter": {
+          "heapUsed": 13013476,
+          "backingStorage": 3746672,
+          "rssBytes": 422776832
+        }
+      },
+      {
+        "name": "cancel",
+        "cancelled": true,
+        "written": 0,
+        "wallTimeMs": 883,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "memoryBefore": {
+          "heapUsed": 13020252,
+          "backingStorage": 3746672,
+          "rssBytes": 422797312
+        },
+        "memoryPeak": {
+          "heapUsed": 0,
+          "backingStorage": 0,
+          "rssBytes": 0
+        },
+        "memoryAfter": {
+          "heapUsed": 6046016,
+          "backingStorage": 5136240,
+          "rssBytes": 485842944
+        }
+      },
+      {
+        "name": "retry",
+        "bars": 4,
+        "seed": 777,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "frames": 1205135,
+        "durationSeconds": 27.32732426303855,
+        "tailSeconds": 20.660651177693566,
+        "expectedSize": 7230854,
+        "written": 7230854,
+        "largestBlock": 196608,
+        "memory": {
+          "outputPcmBytes": 9641080,
+          "declaredBufferBytes": 6562081,
+          "fixedReserveBytes": 20185088,
+          "encodedWholeFileBytes": 0,
+          "totalBytes": 36388249,
+          "limitBytes": 268435456
+        },
+        "sourceTrackCount": 8,
+        "wallTimeMs": 8711,
+        "sha256": "492eb50598d30722ace6f043a461403773254b87291f39923f59e272d130c07e",
+        "memoryBefore": {
+          "heapUsed": 6051264,
+          "backingStorage": 5136240,
+          "rssBytes": 485847040
+        },
+        "memoryPeak": {
+          "heapUsed": 30644992,
+          "backingStorage": 6931679,
+          "rssBytes": 562094080
+        },
+        "memoryAfter": {
+          "heapUsed": 13301236,
+          "backingStorage": 4205448,
+          "rssBytes": 428601344
+        }
+      },
+      {
+        "name": "high-feedback-tail",
+        "bars": 4,
+        "seed": 777,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "frames": 2191709,
+        "durationSeconds": 49.69861678004535,
+        "tailSeconds": 43.03194523181172,
+        "expectedSize": 13150298,
+        "written": 13150298,
+        "largestBlock": 196608,
+        "memory": {
+          "outputPcmBytes": 17533672,
+          "declaredBufferBytes": 6562081,
+          "fixedReserveBytes": 20185088,
+          "encodedWholeFileBytes": 0,
+          "totalBytes": 44280841,
+          "limitBytes": 268435456
+        },
+        "sourceTrackCount": 8,
+        "wallTimeMs": 9075,
+        "sha256": "0190000e857f841454ef863e7857823d9e4e8891c99ef7aee64428d07de7c224",
+        "memoryBefore": {
+          "heapUsed": 13308044,
+          "backingStorage": 4205448,
+          "rssBytes": 428613632
+        },
+        "memoryPeak": {
+          "heapUsed": 32134608,
+          "backingStorage": 7977398,
+          "rssBytes": 512151552
+        },
+        "memoryAfter": {
+          "heapUsed": 5437356,
+          "backingStorage": 9759948,
+          "rssBytes": 445247488
+        },
+        "peakAfterOldEightSecondTail": 0.060662150382995605
+      },
+      {
+        "name": "five-min-48k",
+        "bars": 180,
+        "seed": 777,
+        "sampleRate": 48000,
+        "bitDepth": 24,
+        "frames": 15391712,
+        "durationSeconds": 320.66066666666666,
+        "tailSeconds": 20.660651177693566,
+        "expectedSize": 92350316,
+        "written": 92350316,
+        "largestBlock": 196608,
+        "memory": {
+          "outputPcmBytes": 123133696,
+          "declaredBufferBytes": 7142401,
+          "fixedReserveBytes": 20185088,
+          "encodedWholeFileBytes": 0,
+          "totalBytes": 150461185,
+          "limitBytes": 268435456
+        },
+        "legacyRejection": "RENDER_MEMORY: this Blob/mastering profile exceeds 256 MiB. Direct WAV file export has a separate encoder budget; project and settings are unchanged",
+        "compositionVersion": 2,
+        "sourceTrackCount": 8,
+        "wallTimeMs": 52693,
+        "sha256": "3f3e69b4377a33a87ddeb60e3dfa467e06ba9301ce354016cefbacdc52024fa9",
+        "memoryBefore": {
+          "heapUsed": 5444164,
+          "backingStorage": 9759948,
+          "rssBytes": 445255680
+        },
+        "memoryPeak": {
+          "heapUsed": 26176792,
+          "backingStorage": 10817872,
+          "rssBytes": 589365248
+        },
+        "memoryAfter": {
+          "heapUsed": 10072060,
+          "backingStorage": 9551690,
+          "rssBytes": 501624832
+        }
+      },
+      {
+        "name": "ten-min-48k",
+        "bars": 360,
+        "seed": 777,
+        "sampleRate": 48000,
+        "bitDepth": 24,
+        "frames": 29791712,
+        "durationSeconds": 620.6606666666667,
+        "tailSeconds": 20.660651177693566,
+        "expectedSize": 178750316,
+        "written": 178750316,
+        "largestBlock": 196608,
+        "memory": {
+          "outputPcmBytes": 238333696,
+          "declaredBufferBytes": 7142401,
+          "fixedReserveBytes": 20185088,
+          "encodedWholeFileBytes": 0,
+          "totalBytes": 265661185,
+          "limitBytes": 268435456
+        },
+        "legacyRejection": "RENDER_MEMORY: this Blob/mastering profile exceeds 256 MiB. Direct WAV file export has a separate encoder budget; project and settings are unchanged",
+        "compositionVersion": 2,
+        "sourceTrackCount": 8,
+        "wallTimeMs": 111818,
+        "sha256": "84c4a948702ada78d34bb443a22e03a0b71c6241aa060a7e1230004807f2b3a3",
+        "memoryBefore": {
+          "heapUsed": 10078876,
+          "backingStorage": 9551690,
+          "rssBytes": 501653504
+        },
+        "memoryPeak": {
+          "heapUsed": 27041292,
+          "backingStorage": 10270986,
+          "rssBytes": 718282752
+        },
+        "memoryAfter": {
+          "heapUsed": 23310948,
+          "backingStorage": 6220618,
+          "rssBytes": 665071616
+        }
+      }
+    ],
+    "errors": [],
+    "scope": "Native browser continuous graph and streamed files; not physical Android or listening approval",
+    "status": "PASS"
+  },
+  "independentDecode": {
+    "scope": "Independent PCM decode; not producer listening or live capture parity",
+    "cases": [
+      {
+        "name": "short-blob",
+        "sha256": "492eb50598d30722ace6f043a461403773254b87291f39923f59e272d130c07e",
+        "frames": 1205135,
+        "sampleRate": 44100,
+        "durationSeconds": 27.32732426303855,
+        "declaredTailSeconds": 20.660651177693566,
+        "samplePeak": 0.8679637908935547,
+        "rms": 0.13808583442420658,
+        "dc": -1.6708395577623707e-05,
+        "nonzeroSamples": 1689152,
+        "lastMusicalQuarterPeak": 0.8529903888702393,
+        "peakBeyondOldEightSecondTail": 7.009506225585938e-05,
+        "finalSecondPeak": 0.0
+      },
+      {
+        "name": "short-stream",
+        "sha256": "492eb50598d30722ace6f043a461403773254b87291f39923f59e272d130c07e",
+        "frames": 1205135,
+        "sampleRate": 44100,
+        "durationSeconds": 27.32732426303855,
+        "declaredTailSeconds": 20.660651177693566,
+        "samplePeak": 0.8679637908935547,
+        "rms": 0.13808583442420658,
+        "dc": -1.6708395577623707e-05,
+        "nonzeroSamples": 1689152,
+        "lastMusicalQuarterPeak": 0.8529903888702393,
+        "peakBeyondOldEightSecondTail": 7.009506225585938e-05,
+        "finalSecondPeak": 0.0
+      },
+      {
+        "name": "retry",
+        "sha256": "492eb50598d30722ace6f043a461403773254b87291f39923f59e272d130c07e",
+        "frames": 1205135,
+        "sampleRate": 44100,
+        "durationSeconds": 27.32732426303855,
+        "declaredTailSeconds": 20.660651177693566,
+        "samplePeak": 0.8679637908935547,
+        "rms": 0.13808583442420658,
+        "dc": -1.6708395577623707e-05,
+        "nonzeroSamples": 1689152,
+        "lastMusicalQuarterPeak": 0.8529903888702393,
+        "peakBeyondOldEightSecondTail": 7.009506225585938e-05,
+        "finalSecondPeak": 0.0
+      },
+      {
+        "name": "high-feedback-tail",
+        "sha256": "0190000e857f841454ef863e7857823d9e4e8891c99ef7aee64428d07de7c224",
+        "frames": 2191709,
+        "sampleRate": 44100,
+        "durationSeconds": 49.69861678004535,
+        "declaredTailSeconds": 43.03194523181172,
+        "samplePeak": 0.869064450263977,
+        "rms": 0.1045058798968192,
+        "dc": -1.3604512140129717e-05,
+        "nonzeroSamples": 4304495,
+        "lastMusicalQuarterPeak": 0.8158252239227295,
+        "peakBeyondOldEightSecondTail": 0.060662150382995605,
+        "finalSecondPeak": 1.0728836059570312e-06
+      },
+      {
+        "name": "five-min-48k",
+        "sha256": "3f3e69b4377a33a87ddeb60e3dfa467e06ba9301ce354016cefbacdc52024fa9",
+        "frames": 15391712,
+        "sampleRate": 48000,
+        "durationSeconds": 320.66066666666666,
+        "declaredTailSeconds": 20.660651177693566,
+        "samplePeak": 0.4538991451263428,
+        "rms": 0.14529026312109716,
+        "dc": -2.617388827386792e-06,
+        "nonzeroSamples": 29482320,
+        "lastMusicalQuarterPeak": 0.21642673015594482,
+        "peakBeyondOldEightSecondTail": 2.384185791015625e-07,
+        "finalSecondPeak": 0.0
+      },
+      {
+        "name": "ten-min-48k",
+        "sha256": "84c4a948702ada78d34bb443a22e03a0b71c6241aa060a7e1230004807f2b3a3",
+        "frames": 29791712,
+        "sampleRate": 48000,
+        "durationSeconds": 620.6606666666667,
+        "declaredTailSeconds": 20.660651177693566,
+        "samplePeak": 0.4590507745742798,
+        "rms": 0.15164704141756224,
+        "dc": -2.906067968395685e-06,
+        "nonzeroSamples": 58281045,
+        "lastMusicalQuarterPeak": 0.21507751941680908,
+        "peakBeyondOldEightSecondTail": 2.384185791015625e-07,
+        "finalSecondPeak": 0.0
+      }
+    ]
+  },
+  "beforeAfterTail": {
+    "baseline": "984b87cdc6ffaee5bc15c8ca05d05ed59203dfe2",
+    "size": 3880844,
+    "durationSeconds": 14.666666666666666,
+    "sha256": "26d919510511adc56fa007d7d5963b242394234c6efc36ea8f3897f9cad21ac8",
+    "prefixPcmIdentical": true,
+    "afterTailSource": ".evidence/reference-core/final-stream/high-feedback-tail.wav"
+  },
+  "loudness": {
+    "five-min": {
+      "integratedLufs": -16.4,
+      "lraLu": 0.4,
+      "truePeakDbfs": -6.9,
+      "method": "FFmpeg EBU R128 peak=true; original WAV identities match frozen-source rerender"
+    },
+    "ten-min": {
+      "integratedLufs": -16.4,
+      "lraLu": 0.4,
+      "truePeakDbfs": -6.8,
+      "method": "FFmpeg EBU R128 peak=true; original WAV identities match frozen-source rerender"
+    }
+  },
+  "review": {
+    "type": "direct source review; external Qodo review unavailable",
+    "fixedFindings": [
+      "late writer callbacks could append into a later session",
+      "fixed tail could cut high feedback",
+      "rounded mastering duration violated existing one-sample tolerance",
+      "phone menu stacking hid the file actions"
+    ],
+    "runtimeScope": "Chromium, not Android WebView/device",
+    "newAppDependencies": false
+  },
+  "gates": {
+    "G1": "FAIL",
+    "G2": "FAIL",
+    "G3": "FAIL",
+    "G4": "FAIL",
+    "G5": "BLOCKED",
+    "G6": "BLOCKED",
+    "G7": "BLOCKED",
+    "G8": "FAIL"
+  },
+  "listening": {
+    "status": "NOT_PERFORMED",
+    "producerRatings": null,
+    "twoHundredProjectSweep": false,
+    "liveCapturedParity": false,
+    "physicalAndroid": false,
+    "licensedLiveReopen": false
+  }
+}

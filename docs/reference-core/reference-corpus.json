@@ -1,0 +1,198 @@
+{
+  "scope": "Read-only structural aggregates; no source notes/presets/paths/audio; source permissions do not grant redistribution rights",
+  "references": [
+    {
+      "source": {
+        "fileName": "chlar 3.als",
+        "sha256": "88397e1b5c1e6f9b1209afb68c8bd0e61b85425b97d36b123b68d7d9bc22299f",
+        "compressedBytes": 741693,
+        "xmlBytes": 11153664,
+        "creator": "Ableton Live 12.1.1",
+        "schema": {
+          "MajorVersion": "5",
+          "MinorVersion": "12.0_12120",
+          "Creator": "Ableton Live 12.1.1",
+          "Revision": "084dbee3652f97baf4161adb0c48ef5ea8580618"
+        }
+      },
+      "trackCounts": {
+        "MidiTrack": 10,
+        "AudioTrack": 3,
+        "GroupTrack": 0,
+        "ReturnTrack": 2
+      },
+      "arrangementClips": 39,
+      "sessionClips": 20,
+      "takeClips": 7,
+      "documentClipEnvelopes": 0,
+      "clipEnvelopes": 0,
+      "latestRepresentedEndBeat": 743.9149387071262,
+      "savedTempo": 143.0,
+      "nominalSecondsAtSavedTempo": 312.13214211487815,
+      "audibleDurationSeconds": null,
+      "mediaDependencyCount": 836,
+      "unavailableMediaDependencyCount": 836
+    },
+    {
+      "source": {
+        "fileName": "hard techno 1.als",
+        "sha256": "bd893bf3493f4713c81e57bfb9957a5fabeb6105108feed9debd3037a9dbce32",
+        "compressedBytes": 924032,
+        "xmlBytes": 4398545,
+        "creator": "Ableton Live 12.1.1",
+        "schema": {
+          "MajorVersion": "5",
+          "MinorVersion": "12.0_12120",
+          "Creator": "Ableton Live 12.1.1",
+          "Revision": "084dbee3652f97baf4161adb0c48ef5ea8580618"
+        }
+      },
+      "trackCounts": {
+        "MidiTrack": 8,
+        "AudioTrack": 5,
+        "GroupTrack": 0,
+        "ReturnTrack": 2
+      },
+      "arrangementClips": 13,
+      "sessionClips": 8,
+      "takeClips": 0,
+      "documentClipEnvelopes": 0,
+      "clipEnvelopes": 0,
+      "latestRepresentedEndBeat": 236.0,
+      "savedTempo": 150.0,
+      "nominalSecondsAtSavedTempo": 94.4,
+      "audibleDurationSeconds": null,
+      "mediaDependencyCount": 144,
+      "unavailableMediaDependencyCount": 144
+    },
+    {
+      "source": {
+        "fileName": "hypno 1.als",
+        "sha256": "d642685f5b418240ec0d7ffc722dcf4f66f220cdbcf5bc1833a46b9b94baccd4",
+        "compressedBytes": 422706,
+        "xmlBytes": 3583291,
+        "creator": "Ableton Live 12.1.1",
+        "schema": {
+          "MajorVersion": "5",
+          "MinorVersion": "12.0_12120",
+          "Creator": "Ableton Live 12.1.1",
+          "Revision": "084dbee3652f97baf4161adb0c48ef5ea8580618"
+        }
+      },
+      "trackCounts": {
+        "MidiTrack": 14,
+        "AudioTrack": 0,
+        "GroupTrack": 1,
+        "ReturnTrack": 2
+      },
+      "arrangementClips": 21,
+      "sessionClips": 24,
+      "takeClips": 0,
+      "documentClipEnvelopes": 0,
+      "clipEnvelopes": 0,
+      "latestRepresentedEndBeat": 736.0,
+      "savedTempo": 145.0,
+      "nominalSecondsAtSavedTempo": 304.55172413793105,
+      "audibleDurationSeconds": null,
+      "mediaDependencyCount": 145,
+      "unavailableMediaDependencyCount": 145
+    },
+    {
+      "source": {
+        "fileName": "hypno 2.als",
+        "sha256": "c256e4302a447e1245a832c270adac1135a9e07ed466b2feed49cf478d4a7af2",
+        "compressedBytes": 358868,
+        "xmlBytes": 3928240,
+        "creator": "Ableton Live 12.1.1",
+        "schema": {
+          "MajorVersion": "5",
+          "MinorVersion": "12.0_12120",
+          "Creator": "Ableton Live 12.1.1",
+          "Revision": "084dbee3652f97baf4161adb0c48ef5ea8580618"
+        }
+      },
+      "trackCounts": {
+        "MidiTrack": 13,
+        "AudioTrack": 0,
+        "GroupTrack": 1,
+        "ReturnTrack": 2
+      },
+      "arrangementClips": 21,
+      "sessionClips": 0,
+      "takeClips": 0,
+      "documentClipEnvelopes": 1,
+      "clipEnvelopes": 1,
+      "latestRepresentedEndBeat": 725.0,
+      "savedTempo": 145.0,
+      "nominalSecondsAtSavedTempo": 300.0,
+      "audibleDurationSeconds": null,
+      "mediaDependencyCount": 75,
+      "unavailableMediaDependencyCount": 75
+    },
+    {
+      "source": {
+        "fileName": "raw 3.als",
+        "sha256": "501d1809ce0652d1c263825cda3f5cf33036ca39da6505614e2074121e1e97bc",
+        "compressedBytes": 1503685,
+        "xmlBytes": 24105032,
+        "creator": "Ableton Live 12.3.2",
+        "schema": {
+          "MajorVersion": "5",
+          "MinorVersion": "12.0_12300",
+          "SchemaChangeCount": "1",
+          "Creator": "Ableton Live 12.3.2",
+          "Revision": "bba1e05a8769233839bfbad067d72440d966db31"
+        }
+      },
+      "trackCounts": {
+        "MidiTrack": 18,
+        "AudioTrack": 0,
+        "GroupTrack": 1,
+        "ReturnTrack": 2
+      },
+      "arrangementClips": 109,
+      "sessionClips": 56,
+      "takeClips": 37,
+      "documentClipEnvelopes": 79,
+      "clipEnvelopes": 76,
+      "latestRepresentedEndBeat": 768.0,
+      "savedTempo": 140.0,
+      "nominalSecondsAtSavedTempo": 329.14285714285717,
+      "audibleDurationSeconds": null,
+      "mediaDependencyCount": 1718,
+      "unavailableMediaDependencyCount": 1718
+    },
+    {
+      "source": {
+        "fileName": "yanamste.als",
+        "sha256": "33564df1862b60cd8dce18e8030a0d2ca5946377c9bb8e82821cecb9edd73149",
+        "compressedBytes": 682248,
+        "xmlBytes": 7277642,
+        "creator": "Ableton Live 12.1.1",
+        "schema": {
+          "MajorVersion": "5",
+          "MinorVersion": "12.0_12120",
+          "Creator": "Ableton Live 12.1.1",
+          "Revision": "084dbee3652f97baf4161adb0c48ef5ea8580618"
+        }
+      },
+      "trackCounts": {
+        "MidiTrack": 19,
+        "AudioTrack": 0,
+        "GroupTrack": 1,
+        "ReturnTrack": 2
+      },
+      "arrangementClips": 46,
+      "sessionClips": 146,
+      "takeClips": 30,
+      "documentClipEnvelopes": 18,
+      "clipEnvelopes": 0,
+      "latestRepresentedEndBeat": 720.0,
+      "savedTempo": 140.0,
+      "nominalSecondsAtSavedTempo": 308.57142857142856,
+      "audibleDurationSeconds": null,
+      "mediaDependencyCount": 247,
+      "unavailableMediaDependencyCount": 247
+    }
+  ]
+}
