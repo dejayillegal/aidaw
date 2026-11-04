@@ -1807,6 +1807,27 @@ function projectTempoTarget(doc: Document): Element | null {
     || doc.querySelector('LiveSet > Tempo > Manual');
 }
 
+export function getTopLevelDeviceElements(trackEl: Element): Element[] {
+  const deviceChain = Array.from(trackEl.children).find((c) => c.tagName === 'DeviceChain');
+  if (!deviceChain) return [];
+  const candidateContainers: Element[] = [];
+  for (const child of Array.from(deviceChain.children)) {
+    if (child.tagName === 'Devices') {
+      candidateContainers.push(child);
+    } else if (['DeviceChain', 'MidiToAudioDeviceChain', 'AudioToAudioDeviceChain'].includes(child.tagName)) {
+      const devContainer = Array.from(child.children).find((c) => c.tagName === 'Devices');
+      if (devContainer) candidateContainers.push(devContainer);
+    }
+  }
+  const result: Element[] = [];
+  for (const container of candidateContainers) {
+    for (const devEl of Array.from(container.children)) {
+      result.push(devEl);
+    }
+  }
+  return result;
+}
+
 export function parseAbletonXmlDom(
   xmlString: string,
   fileName: string,
@@ -1833,7 +1854,7 @@ export function parseAbletonXmlDom(
   const rootNoteAttr = xmlDoc.querySelector('ScaleInformation > RootNote')?.getAttribute('Value');
   const scaleNameAttr = xmlDoc.querySelector('ScaleInformation > Name')?.getAttribute('Value');
 
-  const trackNodes = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
+  const trackNodes = Array.from(xmlDoc.querySelectorAll('Tracks > GroupTrack, Tracks > MidiTrack, Tracks > AudioTrack'));
   const tracks: AbletonTrack[] = [];
   const compatibilityWarnings: string[] = [];
   let totalNotesCount = 0;
@@ -1841,8 +1862,11 @@ export function parseAbletonXmlDom(
   const pitchCounts: Record<number, number> = {};
 
   trackNodes.forEach((trackEl, idx) => {
+    const isGroupTrack = trackEl.tagName === 'GroupTrack';
     const isMidi = trackEl.tagName === 'MidiTrack';
     const trackId = readAlsIdentity(trackEl) || `${idx + 1}`;
+    const groupId = trackEl.querySelector('TrackGroupId')?.getAttribute('Value') || undefined;
+    const isFolded = trackEl.querySelector('IsFolded')?.getAttribute('Value') === 'true';
     const effectiveName =
       trackEl.querySelector('Name > EffectiveName')?.getAttribute('Value') ||
       trackEl.querySelector('Name > UserName')?.getAttribute('Value') ||
@@ -1881,11 +1905,7 @@ export function parseAbletonXmlDom(
       existing: '#94A3B8',
     };
 
-    const deviceElements = Array.from(
-      trackEl.querySelectorAll(
-        'DeviceChain > MidiToAudioDeviceChain > Devices > *, DeviceChain > AudioToAudioDeviceChain > Devices > *, DeviceChain > Devices > *'
-      )
-    );
+    const deviceElements = getTopLevelDeviceElements(trackEl);
     const devices: AbletonDevice[] = deviceElements.map((devEl, dIdx) => {
       const tag = devEl.tagName;
       const devId = devEl.getAttribute('Id') || `${trackId}_dev_${dIdx}`;
@@ -2389,6 +2409,9 @@ export function parseAbletonXmlDom(
       name: effectiveName,
       type: isMidi ? 'midi' : 'audio',
       archetype,
+      ...(groupId ? { groupId } : {}),
+      ...(isGroupTrack ? { isGroupTrack: true } : {}),
+      ...(isFolded ? { isFolded: true } : {}),
       isGenerated,
       colorIndex: parseInt(trackEl.querySelector('Color')?.getAttribute('Value') || '14', 10),
       hexColor: colorMap[archetype],

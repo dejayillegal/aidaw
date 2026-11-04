@@ -1,106 +1,36 @@
-# PARAMETRIC ALS DAW — ARCHITECTURE RECOVERY AND COMMERCIAL RELEASE CONTRACT
+# AIDAW Implementation Plan — Reference-Grounded Core, Arrangement & G0–G8 Completion
 
-**Repository**: `dejayillegal/aidaw`  
-**Status**: Authoritative Architecture Contract & Implementation Guide  
+## 1. Root-Cause Repair for Real-World Ableton `.als` Import (`PROJECT_STATE: invalid device on <id>`)
+- **Top-Level vs. Nested Rack Device Resolution (`src/engine/alsXmlEngine.ts`)**:
+  - Replace the recursive `querySelectorAll('DeviceChain > ... > Devices > *')` selector in `parseAbletonXmlDom` with a direct top-level device chain extractor scoped strictly to the track's own `<DeviceChain>`.
+  - Prevent inner devices nested inside `<AudioEffectGroupDevice>`, `<InstrumentGroupDevice>`, and `<DrumGroupDevice>` branch chains from colliding with top-level device IDs (`Id="0"`, `Id="1"`, etc.) or falsely inflating the track's top-level insert slot count.
+  - Extract and preserve nested rack macro controls and branch metadata while maintaining unique device identities.
+- **Broad Native & Third-Party Device Compatibility (`src/engine/abletonCapabilityMatrix.ts`, `src/engine/alsXmlEngine.ts`)**:
+  - Register Live 12 tags found across the reference corpus (`DrumCell`, `Eq8`, `StereoGain`, `AudioEffectGroupDevice`, `InstrumentGroupDevice`, `PluginDevice`, `AuPluginDevice`, `MxDeviceAudioEffect`, `MxDeviceInstrument`, `MxDeviceMidiEffect`) with truthful 4-dimension capability classification (state preservation, executable DSP/approximation, sonic equivalence, export/reopen fidelity) and valid conversion records so imported sets play and edit cleanly without blocking playback.
+- **Reference Corpus Analyzer (`src/engine/alsReferenceAnalyzer.ts`)**:
+  - Provide a deterministic read-only analyzer for the reference `.als` corpus (`yanamste.als`, `chlar 3.als`, `raw 3.als`, `hypno 1.als`, `hard techno 1.als`, `hypno 2.als`) that extracts BPM, meter maps, track/group topologies, arrangement clip spans, fractional offsets, loop states, and automation targets without mutating raw XML.
 
----
+## 2. Ableton Live 12 Group Tracks & Collapsible Arrangement Hierarchy
+- **GroupTrack Parsing & Domain Model (`src/types/ableton.ts`, `src/engine/alsXmlEngine.ts`)**:
+  - Parse `<GroupTrack>` elements and `<TrackGroupId Value="..." />` routing references from `.als` projects and generated templates.
+  - Represent group tracks and child track membership (`groupId`, `isGroupTrack`, `isFolded`) in `AbletonTrack` while keeping full backward compatibility with existing contracts.
+- **Collapsible Group Headers & Timeline Editing (`src/components/TimelineCanvas.tsx`, `src/App.tsx`)**:
+  - Render collapsible group track headers with fold/unfold chevron toggles, group color coding, summary clip spans when folded, and indented child tracks when unfolded.
+  - Add accessible toolbar and lane controls for **Zoom In / Zoom Out** (horizontal time scale & vertical track height), **Insert Clip** at playhead/selection, **Duplicate / Split / Delete Clip**, and layer editing across desktop and mobile viewports.
 
-## 1. Product Charter
-Deliver a reliable, editable, offline-capable Android/web music-production application that preserves Ableton ALS fidelity, composes complete evolving tracks, plays without recurring audio faults, and exports valid WAV files. The app is a workstation, not a loop demonstrator. Existing functionality is an asset to preserve, not an excuse to build competing engines.
+## 3. Reference-Conditioned Dynamic Project Templates & Multi-Layer Generator
+- **Interactive New Project Template Modal (`src/components/NewProjectModal.tsx`, `src/App.tsx`)**:
+  - Prompt the producer when creating a new project or full track to choose:
+    - **Form Family**: *Full Underground Techno (Dynamic Plateaus & Drops — Default)*, *Subtractive Raw Groove (Staggered Dropouts)*, *Hypnotic Rolling Foundation*, *Dub-Space Evolution*, or *Acid Modular Development*.
+    - **Target Duration**: *64 Bars (~3:00)*, *128 Bars (~5:30 Full Track — Default)*, *180 Bars (~5:10 Reference Span)*, or *16–32 Bars Performance Sketch*.
+    - **Layer Density & Role Pack**: Multi-layer configuration (~12–19 layers modeled on the reference sets: Dual 909 Kick layers, Sub/Rumble, 3x Synth/Lead Stabs, Tom/Conga/Bongo percussion windows, Clap, Shaker, Granular/Texture layers, Open/Closed Hats, Ride windows, and Return buses).
+- **Dynamic Macro Forms & Staggered Layer Windows (`src/engine/songPlanEngine.ts`, `src/engine/alsXmlEngine.ts`)**:
+  - Replace the single fixed 6-section weight array with form-family macro profiles featuring staggered kick/bass withdrawals, independent percussion/conga/ride entry windows, unequal/polymetric lead clip phrases, and executable transitions (drum substitutions, filter/drive movement, reverb/delay throws).
 
----
+## 4. Reference-Length Offline Audio Render & Export (`src/engine/webAudioSynth.ts`)
+- **Chunked / Bounded-Memory Long-Track Synthesis**:
+  - Support rendering and exporting 5-to-10-minute arrangements (128–180+ bars at 44.1/48 kHz) without hitting the single-buffer 256 MiB `OfflineAudioContext` allocation rejection, preserving stateful tail continuity across render windows and verifying sample finiteness and frame counts.
 
-## 2. Observed Evidence versus Open Questions
-
-### Inspected Repository Baseline
-- `src/App.tsx` imports and orchestrates `compositionIntelligenceEngine.ts`, `alsXmlEngine.ts`, and `webAudioSynth.ts`.
-- Audio engine evaluated automation envelopes via `evaluateAutomationAtBeat(..., maxBeats=512)`. Now updated to `maxBeats=2048` (up to 256 bars).
-- Gradle build orchestrator and metadata versioning synced to `versionCode 2`, `versionName "7.2.0"`, package `com.parametricals.technodaw`.
-- Build verification suite at `scripts/verify-apk.py` validates APK zip structure, binary XML manifest, compiled `classes.dex`, `resources.arsc`, offline web assets, and v1/v2 signature blocks.
-
-### Reported Symptoms & Technical Targets
-- **Android WAV Export**: Eliminate any potential stall during offline rendering of long tracks (>32 bars or >120 seconds of audio) by combining chunked PCM synthesis (`synthesizeDeterministicStereoPcm`) with real frame-based progress tracking (`renderedFrames / totalFrames`) and watchdog timeouts on Web Audio rendering.
-- **Audio Playback**: Crackle-free Web Audio voice allocation, exponential decay envelopes on voice eviction, and smooth `.setTargetAtTime()` parameter de-zippering.
-- **Composition Intelligence**: Dynamically generated, evolving multi-section arrangements across variable track lengths (16, 32, 64, 96, 128, 192, 256 bars) using Bjorklund Euclidean distribution and musical profile analysis, avoiding hardcoded static song structures.
-- **Responsive UI**: Adaptive layout supporting compact mobile viewports (<768px), portrait/landscape orientations, and unfolded dual-screen devices with reachable transport and master dock controls.
-
----
-
-## 3. Architectural Invariants
-
-1. **Single Canonical Project State**:
-   Tracks, clips, MIDI, automation, routing, devices, markers, and generation identity share one typed model (`AbletonProjectState`). No silent conversions or shadow states.
-2. **Single Composition Authority**:
-   Extend `compositionIntelligenceEngine.ts` after audit; never add a second unrelated arrangement engine.
-3. **Shared Playback/Export Semantics**:
-   Both live playback and offline rendering consume the same timeline, synthesis configuration, and automation contract.
-4. **ALS Losslessness**:
-   Preserve unknown XML subtrees and unsupported data; validate round-trip semantic invariants and ensure invalid exports cannot replace originals.
-5. **Deterministic Creative Variation**:
-   Seeded generation is reproducible; different seeds are evaluated for structural and harmonic diversity, not mere random parameter changes.
-6. **No Fake Progress**:
-   Every reported export stage corresponds to measurable completed work.
-7. **Release Provenance**:
-   APKs originate only from Gradle, with a known signing lineage, reproducible version identity, verified checksums, and no stale fallback.
-8. **No Silent Success**:
-   Failed builds, exports, verification, or writes propagate typed errors and leave observable diagnostics.
-
----
-
-## 4. P0 — Baseline, Root Cause, and Recovery
-
-### Gate A — Establish a Baseline
-- Record commit ID, toolchain, Android devices/OS, sample rate, song duration, project fixture, memory footprint, and observed reproduction steps.
-- Inventory all relevant modules and call paths: generation → project state → transport/audio graph → offline render → encoder → Android storage; separately ALS import/edit/export and Android signing/build.
-- Preserve known-good behavior as regression fixtures.
-
-### Gate B — Repair Android Export End-to-End
-- Eliminate unbounded memory allocation, deadlocks, and stalled promises during offline WAV export.
-- Report real completed frames/segments and encode 16-bit PCM, 24-bit PCM, and 32-bit Float WAV files with valid RIFF headers.
-- Utilize Capacitor Filesystem / Android Storage Access Framework with user-selected destinations, write/close/read-back verification, and actionable error reporting.
-
-### Gate C — Fix Playback Integrity
-- Instrument buffer underruns, scheduler lateness, dropped events, graph allocations, garbage collection, clipping, and sample-rate behavior.
-- Keep audio scheduling independent from React rendering. Smooth automation and avoid clicks at voice eviction, clip boundaries, and seek/play transitions.
-
----
-
-## 5. P1 — Complete Musical Composition & UI Reachability
-
-### Dynamic Composition Intelligence
-- Generate musical form plans from genre, target duration, tempo, key/mode, energy profile, musical constraints, and seed.
-- Support variable intro, groove, development, build, drop, breakdown, second build, climax, and outro sections across variable bar lengths.
-- Derive chords, bass movement, motifs, rhythmic variation, and orchestration from shared harmonic/phrase context.
-- Create section-aware automation and transition assets: risers, fills, noise, sweeps, impacts, silence, re-entry, reverb tails, and filter movement.
-- Maintain user editability: generated sections become ordinary tracks/clips/automation, not opaque audio blobs.
-
-### UI & Android Release Engineering
-- Test compact portrait, landscape, folded/unfolded, keyboard visible, and system gesture insets.
-- Keep transport, settings, save, and export reachable with responsive workspace layouts and touch-friendly 44px targets.
-- Verify Gradle version against `public/apk-metadata.json` and approved release ledger.
-- Preserve separate debug and production signing policies, pinning certificate fingerprints against trusted baseline (`debug.keystore`).
-
----
-
-## 6. Release Gates & Verification Matrix
-
-- **G0 Baseline**: Reproduction, logs, test suite validation (`npm test`), module inventory.
-- **G1 Export**: Valid full-length WAV export on physical Android / Web; verified RIFF headers, non-silence, finite samples, real frame progress.
-- **G2 Audio**: Continuous playback and transitions with 0 buffer underruns, click-free voice eviction, and smooth `.setTargetAtTime` automation.
-- **G3 Composition**: Full editable arrangements, reproducible seeds, demonstrated diverse openings and section plans, transitions, and chord development.
-- **G4 Compatibility**: ALS round-trip regression fixtures; no destructive edits or missing unknown subtrees.
-- **G5 UX**: Folded/unfolded/settings/export reachability verified on device with responsive split-dock controls.
-- **G6 Release**: Clean Gradle build, pinned signing certificate (`com.parametricals.technodaw`, `versionCode 2`), metadata agreement, and passing `verify-apk.py`.
-
----
-
-## 7. Delivery Order & Change Discipline
-
-1. Fix Android export and playback defects with regression coverage.
-2. Stabilize canonical project/audio/ALS contracts.
-3. Extend existing composition intelligence to full arrangements across dynamic bar lengths.
-4. Repair foldable UI and branding without changing core semantics.
-5. Verify signing, release metadata, install/upgrade, and publish only proven artifacts.
-
-Every change follows:  
-`requirement → existing code → observed defect → root cause → minimal change → automated regression → real-device validation → release evidence.`
+## 5. End-to-End Verification (G0–G8)
+- Verify all reference `.als` files import, validate via `assertProjectState`, play back, edit, and round-trip export without error.
+- Run the full unit and integration suite (`npx vitest run`), Python APK verifier (`python3 scripts/test_verify_apk.py`), TypeScript compiler (`tsc --noEmit`), and production build (`npm run build`).

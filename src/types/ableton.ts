@@ -383,6 +383,9 @@ export interface AbletonTrack {
   name: string;
   type: 'midi' | 'audio';
   archetype: TechnoArchetype;
+  groupId?: string;
+  isGroupTrack?: boolean;
+  isFolded?: boolean;
   roleCode?: string;
   groupCode?: InstrumentGroupCode;
   isGenerated: boolean;
