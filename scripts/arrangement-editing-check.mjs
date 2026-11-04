@@ -461,6 +461,45 @@ try {
   await stage(
     "Exported selected later MIDI, reimported edited ALS and rendered complete WAV",
   );
+  const beforeChain = await read();
+  await page.getByTestId("bar-range-start-input").fill("4");
+  await page.getByTestId("bar-range-end-input").fill("7");
+  await page.getByTestId("range-consolidate-clip-btn").click();
+  let chain = await read();
+  const merged = chain.project.tracks[0].clips.find(
+    (c) => c.startTime === 12 && c.length === 12,
+  );
+  assert(merged, "Consolidated selection missing");
+  await page
+    .getByLabel("Selected arrangement clip", { exact: true })
+    .selectOption(merged.id);
+  await page
+    .getByRole("button", { name: "Duplicate selected clip", exact: true })
+    .click();
+  chain = await read();
+  assert(
+    chain.project.tracks[0].clips.some(
+      (c) => c.startTime === 24 && c.length === 12,
+    ),
+    "Consolidated clip could not be duplicated",
+  );
+  await page.getByLabel("Split clip beat", { exact: true }).fill("30");
+  await page
+    .getByRole("button", { name: "Split selected clip", exact: true })
+    .click();
+  chain = await read();
+  assert(
+    chain.project.tracks[0].clips.some(
+      (c) => c.startTime === 30 && c.length === 6,
+    ),
+    "Consolidated copy could not be split",
+  );
+  assert.deepEqual(chain.project.tracks[1], beforeChain.project.tracks[1]);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Control+z");
+  assert.deepEqual((await read()).project.tracks, beforeChain.project.tracks);
+  await stage(
+    "Consolidated a range, duplicated and split its result, then undid all three operations",
+  );
   for (const viewport of [
     { width: 360, height: 640 },
     { width: 900, height: 720 },

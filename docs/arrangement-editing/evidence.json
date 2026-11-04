@@ -1,23 +1,24 @@
 {
-  "date": "2026-11-04",
+  "date": "2026-11-05",
   "baseMain": "1ff8a718f9dd4d11343503a9311d70ae9b46ee42",
-  "implementationRemoteCommit": "1a42ffb60626a4d24f21973df6f843dd61437312",
-  "implementationLocalCommit": "be5f7b5270b25dacaaf7dff8461bdcfb4c05dc46",
-  "implementationTree": "8f670ec37317940699f0b583c4dd83a874c4bcc0",
+  "implementationRemoteCommit": "b659c770518c6924f8116c391c27277aca76ef80",
+  "implementationLocalCommit": "1f323c5",
+  "implementationTree": "153f77c1679b1d07068ba29b511d33739c1bd138",
   "deployedPreview": "No candidate deployment identified or changed; local native-browser verification only",
   "node": "v24.22.1",
   "checks": {
     "vitest": {
       "status": "PASS",
-      "tests": 260,
+      "tests": 261,
       "files": 28,
-      "seconds": 87.28,
+      "seconds": 71.65,
       "command": "npm test -- --maxWorkers=2"
     },
     "focusedFinal": {
       "status": "PASS",
-      "tests": 26,
-      "files": 2
+      "tests": 21,
+      "files": 2,
+      "scope": "Arrangement editing and Session regression after consuming consolidation templates"
     },
     "typescript": "PASS",
     "productionBuild": "PASS, existing large-bundle warning retained",
@@ -28,23 +29,23 @@
     "qodo": "Unavailable; no managed review claimed"
   },
   "artifacts": {
-    "dist/assets/index-CBSGey3j.js": {
-      "bytes": 1091506,
-      "sha256": "a0575a5b9d84cbda7aa2f08e05c70d98aefbe1c1e718d454317d2d531d1673ad"
+    "dist/assets/index-lhFuFBKW.js": {
+      "bytes": 1091614,
+      "sha256": "2126be992f888bed4cb0bc7500a83a2b66dd90481d04150002f27317050ccbf3"
     },
-    ".evidence/editing-core/editor-qualified/edited.aidaw.json": {
+    ".evidence/editing-core/editor-ready/edited.aidaw.json": {
       "bytes": 106947,
-      "sha256": "2c1601c68ad211cd41522046a1b032b3398f2599dcc6bd1ba75eb45e91805593"
+      "sha256": "f0a19181b175bc5ef08b52b8003775e4759733ecf75efc50144d805af7e0417d"
     },
-    ".evidence/editing-core/editor-qualified/edited.als": {
+    ".evidence/editing-core/editor-ready/edited.als": {
       "bytes": 2445,
       "sha256": "3339c9bdca6ec48ec393075d5a38426b6d58babb18ec4051ee27b2358a112ecb"
     },
-    ".evidence/editing-core/editor-qualified/edited.wav": {
+    ".evidence/editing-core/editor-ready/edited.wav": {
       "bytes": 6350444,
       "sha256": "8f796405b15d5fa3a5a973383dc304ca079b99b02450adcc6ef6dfe7e362548f"
     },
-    ".evidence/editing-core/editor-qualified/selected-later.mid": {
+    ".evidence/editing-core/editor-ready/selected-later.mid": {
       "bytes": 90,
       "sha256": "75c3f9b6edd55b8506f85cf8602b79f40d3a5a0fc3b0c34d721e171d788dc564"
     }
@@ -84,13 +85,14 @@
       "Saved and reopened exact edited layer state",
       "Regenerated a selected phrase without overwriting protected edits or the other layer, then undid it",
       "Exported selected later MIDI, reimported edited ALS and rendered complete WAV",
+      "Consolidated a range, duplicated and split its result, then undid all three operations",
       "Live edit retired the edited layer while the other sustained and master level stayed constant"
     ],
     "errors": [],
     "live": {
       "before": {
         "playing": true,
-        "beat": 0.5985487528344671,
+        "beat": 1.1616326530612247,
         "master": 1,
         "voices": [
           1,
@@ -99,14 +101,14 @@
         "meters": [
           {
             "peakDb": -24.1,
-            "rmsDb": -31.3,
+            "rmsDb": -34.2,
             "faderLinear": 1,
             "gateLinear": 1,
             "pan": 0
           },
           {
-            "peakDb": -24.1,
-            "rmsDb": -29.6,
+            "peakDb": -28.2,
+            "rmsDb": -32.4,
             "faderLinear": 0.8413951416451951,
             "gateLinear": 1,
             "pan": 0
@@ -115,7 +117,7 @@
       },
       "after": {
         "playing": true,
-        "beat": 2.299410430839002,
+        "beat": 2.380680272108844,
         "master": 1,
         "voices": [
           0,
@@ -131,7 +133,7 @@
           },
           {
             "peakDb": -36.1,
-            "rmsDb": -40.3,
+            "rmsDb": -42.1,
             "faderLinear": 0.8413951416451951,
             "gateLinear": 1,
             "pan": 0
@@ -403,5 +405,13 @@
     "G6": "BLOCKED",
     "G7": "BLOCKED",
     "G8": "FAIL"
+  },
+  "initialImplementationRemoteCommit": "1a42ffb60626a4d24f21973df6f843dd61437312",
+  "initialMainIntegration": {
+    "pr": 13,
+    "mergeCommit": "35ed9c86a042966087ddd013f8797de614349bde",
+    "ciRun": 41882302005,
+    "ciConclusion": "success",
+    "scope": "Earlier 260-test candidate, before the consolidation follow-up; not the final APK identity"
   }
 }
