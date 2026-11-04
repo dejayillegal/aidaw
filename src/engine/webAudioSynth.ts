@@ -1680,8 +1680,13 @@ export function resolveTrackInstrumentSynthesis(track: AbletonTrack): ResolvedTr
   );
 
   if (instrumentDevices.length === 0) {
-    // A MIDI track whose instrument device has been deleted produces no synthesized audio.
-    if (track.type === 'midi') {
+    // A MIDI track whose instrument device has been explicitly deleted (either instrumentDeleted
+    // or non-instrument devices remain after removing the instrument) produces no synthesized audio.
+    // An unconfigured empty device chain (devices: []) falls back to archetype synthesis.
+    if (
+      track.type === 'midi' &&
+      (Boolean(track.instrumentDeleted) || (track.devices && track.devices.length > 0))
+    ) {
       return {
         active: false,
         instrumentTag: 'none',
@@ -1695,7 +1700,7 @@ export function resolveTrackInstrumentSynthesis(track: AbletonTrack): ResolvedTr
     }
     return {
       active: true,
-      instrumentTag: 'AudioTrack',
+      instrumentTag: track.type === 'midi' ? defaultRole : 'AudioTrack',
       synthesisRole: defaultRole,
       pitchOffsetSemitones: 0,
       decayScale: 1,
@@ -2030,7 +2035,7 @@ function scheduleTrackVoiceAtTime(
     clickGain.gain.setValueAtTime(0.36 * velGain, time);
     clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.016);
 
-    const kickEnd = 0.31 * instSpec.decayScale;
+    const kickEnd = Math.max(0.31, Math.min(durSec, 0.85)) * instSpec.decayScale;
     bodyGain.gain.setValueAtTime(0.001, time);
     bodyGain.gain.linearRampToValueAtTime(0.92 * velGain, time + 0.003);
     bodyGain.gain.exponentialRampToValueAtTime(0.001, time + kickEnd);
@@ -4569,19 +4574,25 @@ export class ParametricWebAudioEngine {
       this.bus &&
       project.audioSettings?.transport.arrangementMode === 'session'
     ) {
-      for (const trackId of invalidatedTracks) {
-        for (const retire of this.bus.trackVoices?.get(trackId) || []) retire();
-        for (const [key, metadata] of this.sessionScheduledKeys)
-          if (metadata.trackId === trackId) {
-            this.scheduledNoteKeys.delete(key);
-            this.sessionScheduledKeys.delete(key);
+      if ((project.session?.events.length ?? 0) === 0) {
+        for (const retire of [...this.bus.activeVoices]) retire();
+        this.scheduledNoteKeys.clear();
+        this.sessionScheduledKeys.clear();
+      } else {
+        for (const trackId of invalidatedTracks) {
+          for (const retire of this.bus.trackVoices?.get(trackId) || []) retire();
+          for (const [key, metadata] of this.sessionScheduledKeys)
+            if (metadata.trackId === trackId) {
+              this.scheduledNoteKeys.delete(key);
+              this.sessionScheduledKeys.delete(key);
+            }
+        }
+        for (const event of project.session?.events || [])
+          if (!previousSessionIds.has(event.id)) {
+            const at = this.anchorAudioTime + (event.atBeat - this.anchorBeat) / (project.tempo / 60);
+            for (const retire of this.bus.trackVoices?.get(event.trackId) || []) retire(at);
           }
       }
-      for (const event of project.session?.events || [])
-        if (!previousSessionIds.has(event.id)) {
-          const at = this.anchorAudioTime + (event.atBeat - this.anchorBeat) / (project.tempo / 60);
-          for (const retire of this.bus.trackVoices?.get(event.trackId) || []) retire(at);
-        }
     }
 
     if (this.ctx && this.bus) {
@@ -4692,8 +4703,11 @@ export class ParametricWebAudioEngine {
 
     if (!this.isPlaying) {
       this.isPlaying = true;
+      this.runLookaheadScheduler();
       this.schedulerTimerId = window.setInterval(this.runLookaheadScheduler, 20);
       this.rafId = requestAnimationFrame(this.runVisualPlayheadLoop);
+    } else {
+      this.runLookaheadScheduler();
     }
   }
 
@@ -4761,6 +4775,9 @@ export class ParametricWebAudioEngine {
       );
       this.compiledSchedule.cursorBeat = clamped;
       this.compiledSchedule.cursorLoopGeneration = this.loopGeneration;
+    }
+    if (this.isPlaying) {
+      this.runLookaheadScheduler();
     }
   }
 

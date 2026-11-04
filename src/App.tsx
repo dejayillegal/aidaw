@@ -104,7 +104,12 @@ import {
 import { StudioStatusBar } from './components/StudioStatusBar';
 import { SelectedTrackAnalysisStrip } from './components/SelectedTrackAnalysisStrip';
 import { TrackVelocityRandomizerConfig } from './components/AiComposerIntelligencePanel';
-import { projectQueueService } from './services/projectQueueService';
+import {
+  projectQueueService,
+  StorageStatus,
+  RecoveryMigrationStatus,
+  BlockedRecoveryRecordInfo,
+} from './services/projectQueueService';
 import {
   applyNoteEditWithMode,
   createTrackTakeSnapshot,
@@ -373,17 +378,33 @@ export default function App() {
     }
   };
 
+  // Recovery workflow state
+  const [storageStatus, setStorageStatus] = useState<StorageStatus>(() => projectQueueService.getStorageStatus());
+  const [migrationStatus, setMigrationStatus] = useState<RecoveryMigrationStatus>(() => projectQueueService.getMigrationStatus());
+  const [blockedRecoveryRecords, setBlockedRecoveryRecords] = useState<BlockedRecoveryRecordInfo[]>(() => projectQueueService.getBlockedRecoveryRecords());
+  const [recoveryBannerActive, setRecoveryBannerActive] = useState<boolean>(() => projectQueueService.isRecoveryBannerActive());
+
   const projectSnapshotInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const syncRecoveryServiceState = useCallback(() => {
+    setStorageStatus(projectQueueService.getStorageStatus());
+    setMigrationStatus(projectQueueService.getMigrationStatus());
+    setBlockedRecoveryRecords(projectQueueService.getBlockedRecoveryRecords());
+    setRecoveryBannerActive(projectQueueService.isRecoveryBannerActive());
+  }, []);
 
   // Subscribe to ProjectQueueService & StudioCommandBus
   useEffect(() => {
     const unsubQueue = projectQueueService.subscribe(() => {
       const persistence = projectQueueService.getPersistenceStatus();
-      if (persistence.status === 'error') setStatusMessage(`Recovery storage warning: ${persistence.error}. Save a native project file.`);
+      if (persistence.status === 'error') {
+        setStatusMessage(`Recovery storage warning: ${persistence.error}. Save a native project file.`);
+      }
       setQueueItems(projectQueueService.getAllItems());
       commandTargetRef.current = projectQueueService.getActiveQueueId() || 'default_workstation_project';
       setActiveQueueId(projectQueueService.getActiveQueueId());
+      syncRecoveryServiceState();
     });
     const unsubCmd = studioCommandBus.subscribe(() => {
       setCommandBusTick((t) => t + 1);
@@ -393,14 +414,18 @@ export default function App() {
       const initial = projectRef.current;
       void projectQueueService.restorePersistedProjects().then(async restored => {
         if (cancelled) return;
+        syncRecoveryServiceState();
         if (restored && projectRef.current === initial) {
-          projectRef.current = restored; setProject(restored);
+          projectRef.current = restored;
+          setProject(restored);
           setSelectedTrackId(restored.tracks[0]?.id || '1');
           if (restored.lastGenerationIdentity) {
             setActiveStrategyId(restored.lastGenerationIdentity.strategyId);
             setActiveFormId(restored.lastGenerationIdentity.macroFormId);
           }
-          setStatusMessage(`Recovered ${restored.fileName}. ${projectQueueService.getPersistenceStatus().error || ''}`);
+          const migStatus = projectQueueService.getMigrationStatus();
+          const migNote = migStatus === 'migrated' ? ' (Migrated legacy conversion records)' : '';
+          setStatusMessage(`Recovered ${restored.fileName}.${migNote} ${projectQueueService.getPersistenceStatus().error || ''}`.trim());
         } else if (!restored && projectQueueService.getAllItems().length === 0) {
           const recovery = projectQueueService.getPersistenceStatus();
           if (recovery.status === 'error') {
@@ -409,14 +434,92 @@ export default function App() {
             await projectQueueService.enqueueProjectFromXml(initial.fileName, initial.rawXmlModified || initial.rawXml || '');
           }
         }
-      }).catch(error => { if (!cancelled) setStatusMessage(`Recovery failed: ${String(error)}. Open a saved project file.`); });
+      }).catch(error => {
+        if (!cancelled) {
+          syncRecoveryServiceState();
+          setStatusMessage(`Recovery failed: ${String(error)}. Open a saved project file.`);
+        }
+      });
     }
     return () => {
       cancelled = true;
       unsubQueue();
       unsubCmd();
     };
+  }, [syncRecoveryServiceState]);
+
+  const handleRetryRecovery = useCallback(async () => {
+    try {
+      setStatusMessage('Retrying project recovery from local storage...');
+      const restored = await projectQueueService.retryRecovery();
+      syncRecoveryServiceState();
+      if (restored) {
+        projectRef.current = restored;
+        setProject(restored);
+        setSelectedTrackId(restored.tracks[0]?.id || '1');
+        if (restored.lastGenerationIdentity) {
+          setActiveStrategyId(restored.lastGenerationIdentity.strategyId);
+          setActiveFormId(restored.lastGenerationIdentity.macroFormId);
+        }
+        setStatusMessage(`Recovered ${restored.fileName}.`);
+      } else {
+        const recovery = projectQueueService.getPersistenceStatus();
+        if (recovery.status === 'error') {
+          setStatusMessage(`Recovery blocked: ${recovery.error}. Open a compatible saved project; stored records are unchanged.`);
+        } else {
+          setStatusMessage('Recovery completed: no pending projects found in local storage.');
+        }
+      }
+    } catch (error) {
+      syncRecoveryServiceState();
+      setStatusMessage(`Retry recovery failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [syncRecoveryServiceState]);
+
+  const handleRepairLegacyRecovery = useCallback(async (queueId?: string) => {
+    try {
+      setStatusMessage('Repairing legacy conversion metadata and validating project...');
+      const repaired = await projectQueueService.repairLegacyRecoveryRecord(queueId);
+      syncRecoveryServiceState();
+      if (repaired) {
+        projectRef.current = repaired;
+        setProject(repaired);
+        setSelectedTrackId(repaired.tracks[0]?.id || '1');
+        if (repaired.lastGenerationIdentity) {
+          setActiveStrategyId(repaired.lastGenerationIdentity.strategyId);
+          setActiveFormId(repaired.lastGenerationIdentity.macroFormId);
+        }
+        setStatusMessage(`Repaired legacy project ${repaired.fileName}. A valid recovery revision was persisted.`);
+      }
+    } catch (error) {
+      syncRecoveryServiceState();
+      setStatusMessage(`Repair blocked: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [syncRecoveryServiceState]);
+
+  const handleExportOriginalRecoveryData = useCallback(async (queueId?: string) => {
+    try {
+      const exported = await projectQueueService.exportOriginalRecoveryData(queueId);
+      if (!exported) {
+        setStatusMessage('No original recovery data available to export.');
+        return;
+      }
+      const saved = await saveExportBlob(exported.blob, exported.filename);
+      setStatusMessage(`${saved.verified ? 'Exported and verified' : 'Download requested'}: ${exported.filename}`);
+    } catch (error) {
+      setStatusMessage(`Export original recovery data failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }, []);
+
+  const handleStartSeparateProject = useCallback(async () => {
+    try {
+      projectQueueService.acknowledgeWorkspaceTransitionAfterBlockedRecovery();
+      syncRecoveryServiceState();
+      await handleLoadStarterTemplate(selectedTemplateId, 16, 'sketch');
+    } catch (error) {
+      setStatusMessage(`Start separate project failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [selectedTemplateId, syncRecoveryServiceState]);
 
   const currentProjectQueueKey = activeQueueId || 'default_workstation_project';
   const commandTargetRef = useRef(currentProjectQueueKey);
@@ -643,12 +746,7 @@ export default function App() {
     creationMode: 'sketch' | 'full-track' = requestedBars > 16 ? 'full-track' : 'sketch'
   ) => {
     const loadRevision = ++projectLoadRevision.current;
-    synthEngine.stop();
-    synthEngine.seek(0);
-    setIsPlaying(false);
-    setPlayheadBeat(0);
     const freshSeed = Math.floor(Math.random() * 10000000) + 1;
-    setSelectedTemplateId(templateId);
 
     const nextForm: MacroArrangementFormId =
       templateId === 'tresor-138'
@@ -662,9 +760,6 @@ export default function App() {
         : templateId === 'ostgut-128'
         ? 'dub_space'
         : 'hypnotic_evolving';
-
-    setActiveFormId(nextForm);
-    setActiveStrategyId(nextStrategy);
 
     const { xml: initialXml, meta } = buildStarterAbletonXml(
       templateId,
@@ -725,8 +820,20 @@ export default function App() {
     const record = await projectQueueService.enqueueProjectFromXml(meta.name, workingXml);
     if (loadRevision !== projectLoadRevision.current) return;
     if (!record.workingProjectState || record.state === 'failed' || record.state === 'unsupported') {
-      setStatusMessage(`Project open failed: ${record.errorDetails || 'starter initialization failed'}`); return;
+      setStatusMessage(`Project open failed: ${record.errorDetails || 'starter initialization failed'}`);
+      return;
     }
+    // Validation passed: now safe to transition active workspace
+    synthEngine.stop();
+    synthEngine.seek(0);
+    setIsPlaying(false);
+    setPlayheadBeat(0);
+    setSelectedTemplateId(templateId);
+    setActiveFormId(nextForm);
+    setActiveStrategyId(nextStrategy);
+
+    projectQueueService.acknowledgeWorkspaceTransitionAfterBlockedRecovery();
+    syncRecoveryServiceState();
     projectQueueService.switchActiveProject(record.queueId, projectRef.current);
     projectQueueService.updateWorkingProjectState(record.queueId, enriched);
     const baseSettings = projectAudioSettings(enriched);
@@ -769,6 +876,8 @@ export default function App() {
       const enriched = enrichProjectWithAnalysis(first.workingProjectState, activeFormId);
       synthEngine.stop(); synthEngine.seek(0);
       setIsPlaying(false); setPlayheadBeat(0);
+      projectQueueService.acknowledgeWorkspaceTransitionAfterBlockedRecovery();
+      syncRecoveryServiceState();
       projectQueueService.switchActiveProject(first.queueId, projectRef.current);
       projectQueueService.updateWorkingProjectState(first.queueId, enriched);
       projectRef.current = enriched; setProject(enriched);
@@ -1867,6 +1976,8 @@ export default function App() {
       if (record.state === 'failed' || record.state === 'unsupported') throw new Error(record.errorDetails || 'Project initialization failed');
       synthEngine.stop(); synthEngine.seek(0);
       setIsPlaying(false); setPlayheadBeat(0);
+      projectQueueService.acknowledgeWorkspaceTransitionAfterBlockedRecovery();
+      syncRecoveryServiceState();
       projectQueueService.updateWorkingProjectState(record.queueId, snapshot.project);
       projectQueueService.switchActiveProject(record.queueId, projectRef.current);
       projectRef.current = snapshot.project;
@@ -2414,6 +2525,15 @@ export default function App() {
         alsValid={!!project.alsValidation?.isValid}
         canUndo={studioCommandBus.canUndo(currentProjectQueueKey)}
         canRedo={studioCommandBus.canRedo(currentProjectQueueKey)}
+        storageStatus={storageStatus}
+        migrationStatus={migrationStatus}
+        blockedRecoveryRecords={blockedRecoveryRecords}
+        recoveryBannerActive={recoveryBannerActive}
+        onRetryRecovery={handleRetryRecovery}
+        onRepairLegacyProject={handleRepairLegacyRecovery}
+        onExportOriginalRecoveryData={handleExportOriginalRecoveryData}
+        onOpenSavedProject={() => projectSnapshotInputRef.current?.click()}
+        onStartSeparateProject={handleStartSeparateProject}
       />
 
       {/* Multi-Project Bulk Smart Leveling 2.0 Queue & Master Export 2.0 Modal */}

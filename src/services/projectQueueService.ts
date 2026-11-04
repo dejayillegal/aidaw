@@ -1,4 +1,4 @@
-import { assertProjectState } from '../engine/projectStateContracts';
+import { assertProjectState, assertStructuralProjectState } from '../engine/projectStateContracts';
 import {
   AbletonProjectState,
   BatchWavExportItemResult,
@@ -18,6 +18,7 @@ import {
   synchronizeProjectStateToXml,
   validateAlsStructuralIntegrity,
 } from '../engine/alsXmlEngine';
+import { validateAlsProjectCadence } from '../engine/compositionIntelligenceEngine';
 import {
   applyAndVerifyStageECalibration,
   buildStageCCalibrationProposal,
@@ -28,8 +29,34 @@ import {
 } from '../engine/masteringEngine';
 import {
   auditProjectCapabilities,
+  CURRENT_DEVICE_CONVERSION_VERSION,
+  determineLegacyConversionMigrationEligibility,
   ensureProjectDeviceConversions,
+  migrateMissingLegacyProjectConversions,
 } from '../engine/abletonCapabilityMatrix';
+
+export type StorageStatus = 'saved' | 'pending' | 'blocked' | 'error' | 'unavailable';
+
+export interface BlockedRecoveryRecordInfo {
+  queueId: string;
+  originalFilename: string;
+  error: string;
+  rawEnvelopeJson: string;
+  canRepairLegacyConversions: boolean;
+  eligibilityCode: string;
+  backupAvailable: boolean;
+}
+
+export type RecoveryMigrationStatus =
+  | 'idle'
+  | 'current'
+  | 'migrated'
+  | 'repaired'
+  | 'repair_required'
+  | 'blocked';
+
+export const RECOVERY_IDB_NAME = 'aidaw_project_queue_db_v1';
+export const RECOVERY_IDB_STORE = 'queued_projects';
 
 const ALLOWED_STATE_TRANSITIONS: Record<QueueItemState, QueueItemState[]> = {
   queued: ['importing', 'cancelled', 'failed', 'unsupported'],
@@ -79,6 +106,10 @@ export class ProjectQueueService {
   private artifactMeasurements = new Map<string, Promise<void>>();
   private removedQueueIds = new Set<string>();
   private recoveryPromise: Promise<AbletonProjectState | null> | null = null;
+  private blockedRecoveryRecords = new Map<string, BlockedRecoveryRecordInfo>();
+  private migrationStatus: RecoveryMigrationStatus = 'idle';
+  private recoveryBannerDismissed = false;
+  private failNextMigrationWrite = false;
 
   public subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -113,6 +144,27 @@ export class ProjectQueueService {
     });
   }
 
+  public setSimulateMigrationWriteFailureForTest(failNext: boolean): void {
+    this.failNextMigrationWrite = failNext;
+  }
+
+  public getBlockedRecoveryRecords(): BlockedRecoveryRecordInfo[] {
+    return Array.from(this.blockedRecoveryRecords.values()).map((r) => ({ ...r }));
+  }
+
+  public getMigrationStatus(): RecoveryMigrationStatus {
+    return this.migrationStatus;
+  }
+
+  public isRecoveryBannerActive(): boolean {
+    return this.blockedRecoveryRecords.size > 0 && !this.recoveryBannerDismissed;
+  }
+
+  public acknowledgeWorkspaceTransitionAfterBlockedRecovery(): void {
+    this.recoveryBannerDismissed = true;
+    this.notify();
+  }
+
   private persistRecordToIdb(record: QueuedProjectRecord): Promise<void> {
     if (this.removedQueueIds.has(record.queueId)) return Promise.resolve();
     if (typeof indexedDB === 'undefined') { this.persistenceStatus = 'unavailable'; return Promise.resolve(); }
@@ -140,7 +192,14 @@ export class ProjectQueueService {
             try {
               if (prior.result) store.put({ ...prior.result, queueId: `backup:${snapshot.queueId}`, originalQueueId: snapshot.queueId });
               const recoveryVersion=snapshot.workingProjectState.session || snapshot.workingProjectState.audioSettings?.transport.arrangementMode==='session' ? 2 : 1;
-              store.put({ queueId: snapshot.queueId, recoveryVersion, record: snapshot, checksum, active });
+              store.put({
+                queueId: snapshot.queueId,
+                recoveryVersion,
+                conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
+                record: snapshot,
+                checksum,
+                active,
+              });
             } catch { tx.abort(); }
           };
         });
@@ -153,6 +212,74 @@ export class ProjectQueueService {
       } finally { this.pendingRecoveryWrites--; db?.close(); }
     });
     return this.persistenceTail;
+  }
+
+  /**
+   * Step 9 of the versioned recovery pipeline:
+   * Atomically persists a migrated or explicitly repaired recovery record while preserving
+   * the previous valid revision in `backup:<queueId>`.
+   */
+  private async persistMigratedEnvelopeAtomically(
+    queueId: string,
+    preservedPreviousEnvelope: Record<string, unknown>,
+    migratedRecord: QueuedProjectRecord,
+    active: boolean
+  ): Promise<void> {
+    if (typeof indexedDB === 'undefined') {
+      throw new Error('RECOVERY_UNAVAILABLE: IndexedDB is unavailable');
+    }
+    const snapshot = JSON.parse(JSON.stringify(migratedRecord)) as QueuedProjectRecord;
+    assertProjectState(snapshot.workingProjectState);
+    const checksum = await computeSha256Hex(JSON.stringify(snapshot));
+    const recoveryVersion =
+      snapshot.workingProjectState.session ||
+      snapshot.workingProjectState.audioSettings?.transport.arrangementMode === 'session'
+        ? 2
+        : 1;
+    const shouldSimulateAbort = this.failNextMigrationWrite;
+    this.failNextMigrationWrite = false;
+
+    const db = await this.openRecoveryDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => {};
+        tx.onabort = () =>
+          reject(tx.error || new Error('RECOVERY_MIGRATION_ABORT: atomic migration write aborted'));
+        const store = tx.objectStore(IDB_STORE);
+        try {
+          store.put({
+            ...preservedPreviousEnvelope,
+            queueId: `backup:${queueId}`,
+            originalQueueId: queueId,
+          });
+          store.put({
+            queueId,
+            recoveryVersion,
+            conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
+            record: snapshot,
+            checksum,
+            active,
+          });
+          if (shouldSimulateAbort) {
+            tx.abort();
+          }
+        } catch {
+          tx.abort();
+        }
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  public getStorageStatus(): StorageStatus {
+    const p = this.getPersistenceStatus();
+    if (p.status === 'error') return 'error';
+    if (p.status === 'pending') return 'pending';
+    if (p.status === 'unavailable') return 'unavailable';
+    return 'saved';
   }
 
   public getPersistenceStatus(): { status: string; error?: string } {
@@ -171,6 +298,189 @@ export class ProjectQueueService {
     return this.recoveryPromise;
   }
 
+  /**
+   * Forces a fresh read from IndexedDB and re-runs the 9-step versioned recovery pipeline.
+   */
+  public retryRecovery(): Promise<AbletonProjectState | null> {
+    this.recoveryPromise = null;
+    return this.restorePersistedProjects();
+  }
+
+  /**
+   * Explicitly repairs a blocked legacy recovery record whose supported converted devices
+   * are missing conversion metadata (`canRepairLegacyConversions === true`), creating a new
+   * recovery revision while retaining the original envelope in `backup:<queueId>`.
+   */
+  public async repairLegacyRecoveryRecord(queueId?: string): Promise<AbletonProjectState | null> {
+    if (typeof indexedDB === 'undefined') {
+      throw new Error('RECOVERY_UNAVAILABLE: IndexedDB is unavailable');
+    }
+    const targetInfo = queueId
+      ? this.blockedRecoveryRecords.get(queueId)
+      : Array.from(this.blockedRecoveryRecords.values()).find((r) => r.canRepairLegacyConversions) ||
+        this.blockedRecoveryRecords.values().next().value;
+    if (!targetInfo) {
+      throw new Error('REPAIR_TARGET_NOT_FOUND: No blocked recovery project available to repair');
+    }
+    if (!targetInfo.canRepairLegacyConversions) {
+      throw new Error(`REPAIR_REJECTED: ${targetInfo.error}`);
+    }
+
+    const id = targetInfo.queueId;
+    const db = await this.openRecoveryDb();
+    let row: any;
+    try {
+      row = await new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+    if (!row) {
+      throw new Error(`REPAIR_TARGET_NOT_FOUND: Stored record ${id} no longer exists in IndexedDB`);
+    }
+
+    // 1. Read original envelope and preserve its bytes
+    const preservedOriginalEnvelope = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+    // 2. Verify supported envelope versions, identity, and original checksum
+    if (row.recoveryVersion !== undefined && ![1, 2].includes(row.recoveryVersion)) {
+      throw new Error('RECOVERY_VERSION: unsupported journal; preserved without downgrade');
+    }
+    const rawRecord: QueuedProjectRecord =
+      row.recoveryVersion !== undefined
+        ? row.record
+        : { ...row, queueId: row.originalQueueId || row.queueId };
+    if (
+      row.recoveryVersion !== undefined &&
+      row.checksum !== (await computeSha256Hex(JSON.stringify(rawRecord)))
+    ) {
+      throw new Error('RECOVERY_CHECKSUM: damaged record');
+    }
+    if (!rawRecord || rawRecord.queueId !== id) {
+      throw new Error('RECOVERY_ID: wrong project identity');
+    }
+    // 3. Validate structural project shape and source device parameters
+    assertStructuralProjectState(rawRecord.workingProjectState);
+    // 4. Verify repair eligibility
+    const eligibility = determineLegacyConversionMigrationEligibility(
+      rawRecord.workingProjectState,
+      { envelopeConversionSchemaVersion: row.conversionSchemaVersion }
+    );
+    if (!eligibility.canRepairLegacyConversions && !eligibility.eligible) {
+      throw new Error(`REPAIR_REJECTED: ${eligibility.reason}`);
+    }
+    // 5. Clone the eligible project
+    const copy = JSON.parse(JSON.stringify(rawRecord)) as QueuedProjectRecord;
+    const clonedCandidate = cloneProjectState(copy.workingProjectState);
+    // 6. Migrate genuinely missing conversion metadata for known supported devices
+    const migrated = migrateMissingLegacyProjectConversions(clonedCandidate);
+    const nextRevision =
+      (copy.workingProjectRevision ||
+        migrated.project.projectRevision ||
+        migrated.project.revision ||
+        1) + 1;
+    const candidateProject: AbletonProjectState = {
+      ...migrated.project,
+      revision: nextRevision,
+      projectRevision: nextRevision,
+      conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
+    };
+    // 7. Run strict project, conversion, capability, and XML validation
+    assertProjectState(candidateProject);
+    const syncedXml = synchronizeProjectStateToXml(candidateProject, candidateProject);
+    const xmlReport = validateAlsStructuralIntegrity(syncedXml);
+    if (!xmlReport.valid) {
+      throw new Error(
+        `RECOVERY_XML: ${xmlReport.details || 'structural XML validation failed'}`
+      );
+    }
+    auditProjectCapabilities(candidateProject);
+    candidateProject.rawXmlModified = syncedXml;
+    candidateProject.rawXml = syncedXml;
+    candidateProject.alsValidation = validateAlsProjectCadence(syncedXml);
+    copy.workingProjectState = candidateProject;
+    copy.workingProjectRevision = nextRevision;
+    copy.updatedAt = new Date().toISOString();
+    delete copy.exportedWavBlob;
+    delete copy.exportedMidiBlob;
+
+    // 8 & 9. Persist atomically while preserving original in backup:<queueId>, then install
+    await this.persistMigratedEnvelopeAtomically(
+      id,
+      preservedOriginalEnvelope,
+      copy,
+      true
+    );
+
+    this.items.set(id, copy);
+    this.activeQueueId = id;
+    this.blockedRecoveryRecords.delete(id);
+    if (this.blockedRecoveryRecords.size === 0) {
+      this.persistenceStatus = 'saved';
+      this.persistenceError = undefined;
+      this.migrationStatus = 'repaired';
+      this.recoveryBannerDismissed = false;
+    } else {
+      const nextBlocked = this.blockedRecoveryRecords.values().next().value;
+      this.persistenceStatus = 'error';
+      this.persistenceError = nextBlocked?.error;
+      this.migrationStatus = Array.from(this.blockedRecoveryRecords.values()).some(
+        (r) => r.canRepairLegacyConversions
+      )
+        ? 'repair_required'
+        : 'blocked';
+    }
+    this.notify();
+    return cloneProjectState(copy.workingProjectState);
+  }
+
+  /**
+   * Exports the preserved raw recovery envelope JSON for a blocked or queued recovery record.
+   */
+  public exportOriginalRecoveryData(queueId?: string): {
+    queueId: string;
+    filename: string;
+    rawJson: string;
+    blob: Blob;
+  } | null {
+    const blocked = queueId
+      ? this.blockedRecoveryRecords.get(queueId)
+      : this.blockedRecoveryRecords.values().next().value;
+    if (blocked) {
+      const base = (blocked.originalFilename || blocked.queueId).replace(
+        /\.(als|xml|aidaw\.json)$/i,
+        ''
+      );
+      const filename = `${base}.${blocked.queueId}.recovery.json`;
+      return {
+        queueId: blocked.queueId,
+        filename,
+        rawJson: blocked.rawEnvelopeJson,
+        blob: new Blob([blocked.rawEnvelopeJson], { type: 'application/json' }),
+      };
+    }
+    const targetId = queueId || this.activeQueueId;
+    if (targetId && this.items.has(targetId)) {
+      const item = this.items.get(targetId)!;
+      const rawJson = JSON.stringify(item, null, 2);
+      const base = (item.originalFilename || item.queueId).replace(
+        /\.(als|xml|aidaw\.json)$/i,
+        ''
+      );
+      const filename = `${base}.${item.queueId}.recovery.json`;
+      return {
+        queueId: item.queueId,
+        filename,
+        rawJson,
+        blob: new Blob([rawJson], { type: 'application/json' }),
+      };
+    }
+    return null;
+  }
+
   private async restoreRecoveryRecords(): Promise<AbletonProjectState | null> {
     if (typeof indexedDB === 'undefined') { this.persistenceStatus = 'unavailable'; return null; }
     const db = await this.openRecoveryDb();
@@ -181,36 +491,211 @@ export class ProjectQueueService {
         request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
       });
     } finally { db.close(); }
+
+    this.blockedRecoveryRecords.clear();
+    this.recoveryBannerDismissed = false;
+    let anyMigrated = false;
+
     const ids = new Set(rows.map(row => row.originalQueueId || row.queueId).filter(id => typeof id === 'string' && !id.startsWith('backup:')));
     const restored: { record: QueuedProjectRecord; active: boolean }[] = [];
+
     for (const id of ids) {
       const candidates = [rows.find(row => row.queueId === id), rows.find(row => row.queueId === `backup:${id}`)];
       if (candidates[0]?.recoveryVersion !== undefined && ![1,2].includes(candidates[0].recoveryVersion)) {
-        this.persistenceStatus = 'error'; this.persistenceError = 'RECOVERY_VERSION: unsupported journal; preserved without downgrade'; continue;
+        const errMsg = 'RECOVERY_VERSION: unsupported journal; preserved without downgrade';
+        this.persistenceStatus = 'error';
+        this.persistenceError = errMsg;
+        this.blockedRecoveryRecords.set(id, {
+          queueId: id,
+          originalFilename: candidates[0]?.record?.originalFilename || candidates[0]?.originalFilename || id,
+          error: errMsg,
+          rawEnvelopeJson: JSON.stringify(candidates[0], null, 2),
+          canRepairLegacyConversions: false,
+          eligibilityCode: 'RECOVERY_VERSION',
+          backupAvailable: Boolean(candidates[1]),
+        });
+        continue;
       }
+
       let recovered = false;
+      let lastCanRepair = false;
+      let lastEligibilityCode = 'RECOVERY_ERROR';
+      const primaryRawJson = JSON.stringify(candidates[0] ?? candidates[1] ?? {}, null, 2);
+      const primaryFilename =
+        candidates[0]?.record?.originalFilename ||
+        candidates[0]?.originalFilename ||
+        candidates[1]?.record?.originalFilename ||
+        id;
+
       for (const row of candidates) {
         if (!row) continue;
+        let stopFallbackToBackup = false;
         try {
-          if (row.recoveryVersion !== undefined && ![1,2].includes(row.recoveryVersion)) throw new Error('RECOVERY_VERSION: unsupported journal');
-          const record: QueuedProjectRecord = row.recoveryVersion !== undefined ? row.record : { ...row, queueId: row.originalQueueId || row.queueId };
-          if (row.recoveryVersion !== undefined && row.checksum !== await computeSha256Hex(JSON.stringify(record))) throw new Error('RECOVERY_CHECKSUM: damaged record');
-          assertProjectState(record.workingProjectState);
-          if (record.queueId !== id) throw new Error('RECOVERY_ID: wrong project identity');
-          const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
-          copy.workingProjectState.rawXmlModified = synchronizeProjectStateToXml(copy.workingProjectState);
-          copy.workingProjectState.rawXml = copy.workingProjectState.rawXmlModified;
-          delete copy.exportedWavBlob; delete copy.exportedMidiBlob;
-          if (['importing', 'analyzing', 'calibrating', 'compiling', 'validating', 'exported'].includes(copy.state)) {
-            copy.state = 'ready'; copy.errorDetails = 'Recovered interrupted operation; run it again explicitly.';
+          // 1. Read original envelope and preserve its bytes
+          const preservedEnvelope = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+
+          // 2. Verify supported envelope versions, identity, and original checksum
+          if (row.recoveryVersion !== undefined && ![1, 2].includes(row.recoveryVersion)) {
+            throw new Error('RECOVERY_VERSION: unsupported journal');
           }
-          if (row === candidates[1]) copy.errorDetails = 'Recovered previous valid revision after journal corruption.';
-          if (!this.items.has(id)) this.items.set(id, copy);
-          restored.push({ record: copy, active: !!row.active }); recovered = true; break;
-        } catch (error) { this.persistenceError = error instanceof Error ? error.message : String(error); }
+          const record: QueuedProjectRecord =
+            row.recoveryVersion !== undefined
+              ? row.record
+              : row.record?.workingProjectState
+              ? row.record
+              : { ...row, queueId: row.originalQueueId || row.queueId };
+          if (
+            row.recoveryVersion !== undefined &&
+            row.checksum !== (await computeSha256Hex(JSON.stringify(record)))
+          ) {
+            throw new Error('RECOVERY_CHECKSUM: damaged record');
+          }
+          if (!record || typeof record !== 'object' || record.queueId !== id) {
+            throw new Error('RECOVERY_ID: wrong project identity');
+          }
+
+          // 3. Validate the structural project shape and source device parameters
+          assertStructuralProjectState(record.workingProjectState);
+
+          // Once the primary envelope's version, identity, checksum, and structural shape are valid,
+          // any subsequent conversion/capability/migration rejection is a policy block on the intact
+          // primary record and must not be silently bypassed by loading an older backup.
+          if (row === candidates[0]) {
+            stopFallbackToBackup = true;
+          }
+
+          // 4. Determine migration eligibility from explicit schema/build provenance or compatibility rule
+          const eligibility = determineLegacyConversionMigrationEligibility(
+            record.workingProjectState,
+            { envelopeConversionSchemaVersion: row.conversionSchemaVersion }
+          );
+          lastCanRepair = eligibility.canRepairLegacyConversions && !eligibility.eligible;
+          lastEligibilityCode = eligibility.code;
+
+          // 5. Clone the eligible project
+          const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
+          let candidateProject = cloneProjectState(copy.workingProjectState);
+
+          // 6. Migrate genuinely missing conversion metadata for known supported devices
+          let wasMigrated = false;
+          if (eligibility.eligible) {
+            const mig = migrateMissingLegacyProjectConversions(candidateProject);
+            candidateProject = mig.project;
+            wasMigrated = mig.migrated;
+          }
+
+          // 7. Run strict project, conversion, capability, and XML validation
+          assertProjectState(candidateProject);
+          const syncedXml = synchronizeProjectStateToXml(candidateProject, candidateProject);
+          const xmlReport = validateAlsStructuralIntegrity(syncedXml);
+          if (!xmlReport.valid) {
+            throw new Error(
+              `RECOVERY_XML: ${xmlReport.details || 'structural XML validation failed'}`
+            );
+          }
+          auditProjectCapabilities(candidateProject);
+
+          const nextRevision = wasMigrated
+            ? (copy.workingProjectRevision ||
+                candidateProject.projectRevision ||
+                candidateProject.revision ||
+                1) + 1
+            : copy.workingProjectRevision ||
+              candidateProject.projectRevision ||
+              candidateProject.revision ||
+              1;
+          candidateProject.revision = nextRevision;
+          candidateProject.projectRevision = nextRevision;
+          candidateProject.conversionSchemaVersion = CURRENT_DEVICE_CONVERSION_VERSION;
+          candidateProject.rawXmlModified = syncedXml;
+          candidateProject.rawXml = syncedXml;
+          candidateProject.alsValidation = validateAlsProjectCadence(syncedXml);
+          copy.workingProjectState = candidateProject;
+          copy.workingProjectRevision = nextRevision;
+          delete copy.exportedWavBlob;
+          delete copy.exportedMidiBlob;
+          if (
+            ['importing', 'analyzing', 'calibrating', 'compiling', 'validating', 'exported'].includes(
+              copy.state
+            )
+          ) {
+            copy.state = 'ready';
+            copy.errorDetails = 'Recovered interrupted operation; run it again explicitly.';
+          }
+          if (row === candidates[1]) {
+            copy.errorDetails = 'Recovered previous valid revision after journal corruption.';
+          }
+
+          // 8. Install the validated candidate
+          const hadExisting = this.items.has(id);
+          const previousItem = this.items.get(id);
+          if (!hadExisting) {
+            this.items.set(id, copy);
+          }
+
+          // 9. Persist migration atomically while preserving the previous valid revision in backup:<queueId>
+          if (wasMigrated) {
+            try {
+              await this.persistMigratedEnvelopeAtomically(
+                id,
+                preservedEnvelope,
+                copy,
+                !!row.active
+              );
+              anyMigrated = true;
+            } catch (writeErr) {
+              if (!hadExisting) {
+                this.items.delete(id);
+              } else if (previousItem) {
+                this.items.set(id, previousItem);
+              }
+              lastCanRepair = true;
+              lastEligibilityCode = 'MIGRATION_WRITE_FAILED';
+              throw new Error(
+                `RECOVERY_MIGRATION_WRITE_FAILED: ${
+                  writeErr instanceof Error ? writeErr.message : String(writeErr)
+                }`
+              );
+            }
+          }
+
+          restored.push({ record: copy, active: !!row.active });
+          recovered = true;
+          break;
+        } catch (error) {
+          this.persistenceError = error instanceof Error ? error.message : String(error);
+          if (stopFallbackToBackup) {
+            break;
+          }
+        }
       }
-      if (!recovered) this.persistenceStatus = 'error';
+
+      if (!recovered) {
+        this.persistenceStatus = 'error';
+        this.blockedRecoveryRecords.set(id, {
+          queueId: id,
+          originalFilename: primaryFilename,
+          error: this.persistenceError || 'RECOVERY_ERROR: unknown recovery failure',
+          rawEnvelopeJson: primaryRawJson,
+          canRepairLegacyConversions: lastCanRepair,
+          eligibilityCode: lastEligibilityCode,
+          backupAvailable: Boolean(candidates[1]),
+        });
+      }
     }
+
+    if (this.blockedRecoveryRecords.size > 0) {
+      this.persistenceStatus = 'error';
+      const anyRepairable = Array.from(this.blockedRecoveryRecords.values()).some(
+        (r) => r.canRepairLegacyConversions
+      );
+      this.migrationStatus = anyRepairable ? 'repair_required' : 'blocked';
+    } else {
+      this.persistenceStatus = 'saved';
+      this.persistenceError = undefined;
+      this.migrationStatus = anyMigrated ? 'migrated' : restored.length > 0 ? 'current' : 'idle';
+    }
+
     restored.sort((a,b) => Number(b.active) - Number(a.active) || b.record.updatedAt.localeCompare(a.record.updatedAt));
     if (!this.activeQueueId && restored[0]) this.activeQueueId = restored[0].record.queueId;
     this.notify();

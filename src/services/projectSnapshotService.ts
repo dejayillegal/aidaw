@@ -1,12 +1,16 @@
 import type { AbletonProjectState, HumanizationConfig, MasterBusConfig, TransportConfig } from '../types/ableton';
-import { ensureProjectDeviceConversions } from '../engine/abletonCapabilityMatrix';
+import {
+  determineLegacyConversionMigrationEligibility,
+  migrateMissingLegacyProjectConversions,
+} from '../engine/abletonCapabilityMatrix';
 import { synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
 import { assertAudioSettings } from '../engine/audioSettingsContracts';
-import { assertProjectState } from '../engine/projectStateContracts';
+import { assertProjectState, assertStructuralProjectState } from '../engine/projectStateContracts';
 
 export interface ProjectSnapshot {
   format: 'parametric-als-daw';
   version: 2 | 3;
+  conversionSchemaVersion?: number;
   project: AbletonProjectState;
   audioSettings: { humanization: HumanizationConfig; masterBus: MasterBusConfig; transport: TransportConfig };
 }
@@ -46,7 +50,13 @@ export function encodeProjectSnapshot(
 }
 
 export function decodeProjectSnapshot(text: string): ProjectSnapshot {
-  let input: { format: string; version: number; project: AbletonProjectState; audioSettings?: ProjectSnapshot['audioSettings'] };
+  let input: {
+    format: string;
+    version: number;
+    conversionSchemaVersion?: number;
+    project: AbletonProjectState;
+    audioSettings?: ProjectSnapshot['audioSettings'];
+  };
   try { input = JSON.parse(text); } catch { throw new Error('PROJECT_SNAPSHOT: invalid JSON'); }
   if (!input || input.format !== 'parametric-als-daw') throw new Error('PROJECT_SNAPSHOT: unrecognized project format');
   if (![1,2,3].includes(input.version)) throw new Error('PROJECT_SNAPSHOT_VERSION: unsupported version; original file is unchanged');
@@ -55,8 +65,23 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
     if (input.project?.audioSettings && JSON.stringify(input.project.audioSettings) !== JSON.stringify(input.audioSettings)) {
       throw new Error('PROJECT_SNAPSHOT: ambiguous settings owners');
     }
-    input.project = ensureProjectDeviceConversions({ ...input.project, audioSettings: input.audioSettings });
+    input.project = { ...input.project, audioSettings: input.audioSettings };
   } else if (input.audioSettings !== undefined) throw new Error('PROJECT_SNAPSHOT: duplicate settings owner');
+
+  assertFiniteJson(input);
+  assertStructuralProjectState(input.project);
+  assertAudioSettings(input.project.audioSettings!);
+
+  // Older v1, v2, and v3 snapshots may predate mandatory conversion records.
+  // Check legacy migration eligibility before running strict conversion validation.
+  const eligibility = determineLegacyConversionMigrationEligibility(input.project, {
+    envelopeConversionSchemaVersion: input.conversionSchemaVersion,
+  });
+  if (eligibility.eligible) {
+    const clonedCandidate = JSON.parse(JSON.stringify(input.project)) as AbletonProjectState;
+    input.project = migrateMissingLegacyProjectConversions(clonedCandidate).project;
+  }
+
   const snapshot = exposedSnapshot(input.project);
   validate(snapshot);
   delete snapshot.project.audioSettings!.transport.arrangementLengthBars;
@@ -64,3 +89,4 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
   snapshot.project.rawXml = snapshot.project.rawXmlModified;
   return snapshot;
 }
+

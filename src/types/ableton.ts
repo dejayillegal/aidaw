@@ -406,6 +406,7 @@ export interface AbletonTrack {
   generationId?: string;
   compositionStrategy?: CompositionStrategyId;
   dspConfigRevision?: number;
+  instrumentDeleted?: boolean;
 }
 
 export interface MasterBusConfig {
@@ -886,6 +887,7 @@ export interface AbletonProjectState {
   subgenreId?: TechnoSubgenreId;
   revision?: number;
   projectRevision?: number;
+  conversionSchemaVersion?: number;
   tracks: AbletonTrack[];
   memoryLocations?: MemoryLocationMarker[];
   vcaGroups?: VcaGroupState[];

@@ -487,6 +487,9 @@ export function insertDeviceIntoChannelStrip(
   const updatedTrack: AbletonTrack = {
     ...targetTrack,
     devices: nextDevices,
+    instrumentDeleted: isInstrumentDeviceTag(template.xmlTag)
+      ? false
+      : targetTrack.instrumentDeleted,
     dspConfigRevision: (targetTrack.dspConfigRevision || 1) + 1,
   };
 
@@ -826,6 +829,9 @@ export function removeChannelInsertDevice(
         ? {
             ...t,
             devices: t.devices.filter((d) => d.id !== deviceId),
+            instrumentDeleted: isInstrumentDeviceTag(removed.xmlTag || removed.type || '')
+              ? true
+              : t.instrumentDeleted,
             dspConfigRevision: (t.dspConfigRevision || 1) + 1,
           }
         : t

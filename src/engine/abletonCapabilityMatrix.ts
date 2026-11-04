@@ -1370,6 +1370,174 @@ export function verifyDeviceRegistryIntegrity(): {
   };
 }
 
+export interface LegacyConversionMigrationEligibility {
+  eligible: boolean;
+  alreadyValid: boolean;
+  canRepairLegacyConversions: boolean;
+  missingDeviceIds: string[];
+  existingConvertedDeviceIds: string[];
+  reason: string;
+  code:
+    | 'ALREADY_VALID'
+    | 'ELIGIBLE_PRE_CONVERSION_LEGACY'
+    | 'INSUFFICIENT_LEGACY_PROVENANCE'
+    | 'INVALIDATED_RECORD'
+    | 'STALE_PARAMETER_HASH'
+    | 'ALTERED_DESCRIPTOR'
+    | 'FUTURE_CONVERSION_VERSION'
+    | 'UNEXPECTED_CONVERSION_RECORD'
+    | 'UNSUPPORTED_DEVICE'
+    | 'DEVICE_CHAIN_VIOLATION';
+}
+
+/**
+ * Determines whether a project state is eligible for automatic legacy conversion metadata migration
+ * or explicit supported-device repair.
+ *
+ * Rules:
+ * - Automatic migration (`eligible: true`) is permitted ONLY when:
+ *   1. All tracks and devices pass structural/parameter/ordering validation.
+ *   2. Every convertible device in the project has `conversionRecord === undefined` (`existingConvertedDeviceIds.length === 0` and `missingDeviceIds.length > 0`).
+ *   3. Neither the outer recovery/snapshot envelope nor the project declares `conversionSchemaVersion >= CURRENT_DEVICE_CONVERSION_VERSION`.
+ *   4. No device has an invalidated record, stale parameter hash, altered descriptor/kind, future conversion version, unexpected conversion record, or active unsupported tag.
+ * - Explicit supported-device repair (`canRepairLegacyConversions: true`) is permitted when all existing conversion records are valid and at least one supported converted device has `conversionRecord === undefined`, even if legacy provenance is partial/insufficient for silent automatic migration.
+ */
+export function determineLegacyConversionMigrationEligibility(
+  project: AbletonProjectState,
+  options?: { envelopeConversionSchemaVersion?: number }
+): LegacyConversionMigrationEligibility {
+  const missingDeviceIds: string[] = [];
+  const existingConvertedDeviceIds: string[] = [];
+
+  for (const track of project.tracks || []) {
+    const orderingViolations = validateTrackDeviceChainOrderingAndCounts(track);
+    if (orderingViolations.length > 0) {
+      return {
+        eligible: false,
+        alreadyValid: false,
+        canRepairLegacyConversions: false,
+        missingDeviceIds,
+        existingConvertedDeviceIds,
+        code: 'DEVICE_CHAIN_VIOLATION',
+        reason: orderingViolations[0].reason,
+      };
+    }
+
+    for (const dev of track.devices || []) {
+      const xmlTag = dev.xmlTag || dev.type || '';
+      if (
+        dev.conversionRecord &&
+        typeof dev.conversionRecord.conversionVersion === 'number' &&
+        dev.conversionRecord.conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION
+      ) {
+        return {
+          eligible: false,
+          alreadyValid: false,
+          canRepairLegacyConversions: false,
+          missingDeviceIds,
+          existingConvertedDeviceIds,
+          code: 'FUTURE_CONVERSION_VERSION',
+          reason: `Unsupported future conversionVersion ${dev.conversionRecord.conversionVersion} on <${xmlTag}> (${dev.id})`,
+        };
+      }
+
+      const supportClass = classifyAbletonDeviceTag(xmlTag);
+      if (!dev.bypassed && (supportClass === 'unsupported' || dev.browserDspSupported === false) && !dev.isUserCreated) {
+        return {
+          eligible: false,
+          alreadyValid: false,
+          canRepairLegacyConversions: false,
+          missingDeviceIds,
+          existingConvertedDeviceIds,
+          code: 'UNSUPPORTED_DEVICE',
+          reason: `${track.name} contains unsupported device <${xmlTag}> (${dev.id})`,
+        };
+      }
+
+      if (supportClass !== 'converted') {
+        if (dev.conversionRecord !== undefined) {
+          return {
+            eligible: false,
+            alreadyValid: false,
+            canRepairLegacyConversions: false,
+            missingDeviceIds,
+            existingConvertedDeviceIds,
+            code: 'UNEXPECTED_CONVERSION_RECORD',
+            reason: `Non-converted device <${xmlTag}> (${dev.id}) unexpectedly carries conversionRecord`,
+          };
+        }
+        continue;
+      }
+
+      // Converted device:
+      if (dev.conversionRecord === undefined) {
+        missingDeviceIds.push(dev.id);
+      } else {
+        existingConvertedDeviceIds.push(dev.id);
+        const verification = verifyDeviceConversionRecord(dev);
+        if (!verification.isValid) {
+          const code: LegacyConversionMigrationEligibility['code'] =
+            dev.conversionRecord.status === 'invalidated'
+              ? 'INVALIDATED_RECORD'
+              : verification.reason.includes('hash mismatch')
+              ? 'STALE_PARAMETER_HASH'
+              : 'ALTERED_DESCRIPTOR';
+          return {
+            eligible: false,
+            alreadyValid: false,
+            canRepairLegacyConversions: false,
+            missingDeviceIds,
+            existingConvertedDeviceIds,
+            code,
+            reason: verification.reason,
+          };
+        }
+      }
+    }
+  }
+
+  if (missingDeviceIds.length === 0) {
+    return {
+      eligible: false,
+      alreadyValid: true,
+      canRepairLegacyConversions: false,
+      missingDeviceIds,
+      existingConvertedDeviceIds,
+      code: 'ALREADY_VALID',
+      reason: 'All converted devices already have valid conversion records.',
+    };
+  }
+
+  const effectiveSchemaVersion =
+    options?.envelopeConversionSchemaVersion ?? project.conversionSchemaVersion;
+  const hasPostConversionSchemaStamp =
+    typeof effectiveSchemaVersion === 'number' &&
+    effectiveSchemaVersion >= CURRENT_DEVICE_CONVERSION_VERSION;
+  const isPartialMixedConversionState = existingConvertedDeviceIds.length > 0;
+
+  if (!hasPostConversionSchemaStamp && !isPartialMixedConversionState) {
+    return {
+      eligible: true,
+      alreadyValid: false,
+      canRepairLegacyConversions: true,
+      missingDeviceIds,
+      existingConvertedDeviceIds,
+      code: 'ELIGIBLE_PRE_CONVERSION_LEGACY',
+      reason: `Pre-conversion legacy project is eligible for automatic migration of ${missingDeviceIds.length} device(s): ${missingDeviceIds.join(', ')}.`,
+    };
+  }
+
+  return {
+    eligible: false,
+    alreadyValid: false,
+    canRepairLegacyConversions: true,
+    missingDeviceIds,
+    existingConvertedDeviceIds,
+    code: 'INSUFFICIENT_LEGACY_PROVENANCE',
+    reason: `Missing conversion record on ${missingDeviceIds.join(', ')} with insufficient pre-conversion provenance; explicit supported-device repair is required.`,
+  };
+}
+
 /**
  * Named, versioned migration for genuinely missing legacy conversion metadata (`conversionRecord === undefined`).
  * Never overwrites, repairs, or downgrades an existing `conversionRecord` (whether valid, stale, invalidated, altered, or future version).
@@ -1435,6 +1603,7 @@ export function migrateMissingLegacyProjectConversions(project: AbletonProjectSt
   return {
     project: {
       ...project,
+      conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
       tracks: nextTracks,
     },
     migrated: true,
