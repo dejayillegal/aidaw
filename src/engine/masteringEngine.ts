@@ -597,7 +597,7 @@ export function inspectWavBinaryHeader(
   }
 
   const numFrames = blockAlign > 0 ? Math.floor(dataSize / blockAlign) : 0;
-  const durationSeconds = sampleRate > 0 ? Number((numFrames / sampleRate).toFixed(4)) : 0;
+  const durationSeconds = sampleRate > 0 ? numFrames / sampleRate : 0;
   const isValid = diagnostics.length === 0;
 
   return {
@@ -776,12 +776,6 @@ export async function executeMasterExport20(
   verification: MasterExportVerificationReport;
 }> {
   const totalBars = project.arrangementLengthBars || 16;
-  const totalBeats = totalBars * 4;
-  const beatsPerSecond = Math.max(60, project.tempo) / 60;
-  const tailSeconds = 2.0;
-  const totalDurationSeconds = totalBeats / beatsPerSecond + tailSeconds;
-  const totalFrames = Math.ceil(totalDurationSeconds * preset.sampleRate);
-
   // One continuous shared graph; scheduling windows preserve DSP state, not independent renders.
   const segmentedRenderUsed = false;
   const segmentCount = 1;

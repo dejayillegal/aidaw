@@ -80,3 +80,7 @@ No acceptance thresholds were weakened, tests disabled, native DSP tolerances re
 2026-11-02, Asia/Kolkata: `npm test -- --maxWorkers=2 --reporter=dot` **92/92 passing**, 7 files; `npm run lint` **PASS**; final `npm run build` **PASS**. This is the code committed as `38c72e7` (subsequent evidence-only commits do not change implementation). The existing large-bundle warning remains. No existing assertions or test timeouts were relaxed. jsdom emits its existing unsupported-document-navigation notices during download UI tests; those tests are not filesystem-save verification.
 
 The initial baseline suite did not complete until its stalled javac probes were terminated; it then reported the prerequisite test timeout. An intermediate suite also exposed the missing starter Mixer destinations. Those failures were corrected and the final full suite above includes their unchanged assertions.
+
+## Reference-grounded export continuation (2026-11-05)
+
+[Implementation and evidence](reference-core/REPORT.md), [requirement register](reference-core/REQUIREMENTS.md), and [ADR010](reference-core/ADR-010.md) record the continuous direct-WAV path, tail/telemetry corrections and private-reference analysis. This closes tested browser export subsets only. Original G1–G4/G8 remain FAIL and G5–G7 BLOCKED; no physical Android, licensed Live, captured parity or 200-project producer qualification is inferred.
