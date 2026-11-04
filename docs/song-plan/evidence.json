@@ -1,0 +1,473 @@
+{
+  "implementationSha": "8164a4eab7b309dcec0aae3b2ec45e8f57d80f7e",
+  "baselineSha": "1b889a524427a6eadc80d683d4507c68311f614e",
+  "browser": "153.0.8010.0",
+  "calibration": {
+    "reference": {
+      "peak": 0.00044509710278362036,
+      "rms": 0.00031473125115181463,
+      "dc": 6.804363184549254e-12
+    },
+    "boost": {
+      "peak": 0.0008880854002200067,
+      "rms": 0.0006279713890354209,
+      "dc": 1.4035772738426725e-11
+    },
+    "utilityDb": 5.999999782416845,
+    "bypass": {
+      "peak": 0.00044509710278362036,
+      "rms": 0.00031473125115181463,
+      "dc": 6.804363184549254e-12
+    },
+    "oppositeGains": {
+      "peak": 0.00044509704457595944,
+      "rms": 0.00031473122540601406,
+      "dc": 6.914574215003338e-12
+    },
+    "makeupDb": 5.999999788068418,
+    "nonlinearOrder": {
+      "orderA": {
+        "peak": 0.1195811852812767,
+        "rms": 0.09810785628201352,
+        "dc": 2.2949806076409362e-09
+      },
+      "orderB": {
+        "peak": 0.15291178226470947,
+        "rms": 0.11915379523774156,
+        "dc": 3.0077891253913132e-09
+      }
+    },
+    "live": {
+      "reference": {
+        "peak": 0.0004450970736797899,
+        "rms": 0.0003146978619937753,
+        "dc": -6.324037822531867e-07
+      },
+      "boost": {
+        "peak": 0.0008880853420123458,
+        "rms": 0.0006279047685437338,
+        "dc": -1.2618107225454412e-06
+      },
+      "bypass": {
+        "peak": 0.0004450970736797899,
+        "rms": 0.0003146978619937753,
+        "dc": -6.324037822531867e-07
+      },
+      "utilityDb": 5.999999777373403
+    },
+    "scope": "Native production channel calibration and captured live signal; full-song captured PCM parity remains open"
+  },
+  "pitchContract": {
+    "executedVia": "native production synthesis PCM spectrum",
+    "results": [
+      {
+        "pitches": [
+          60
+        ],
+        "fundamentals": [
+          {
+            "pitch": 60,
+            "amplitude": 0.0017682807046829191
+          }
+        ],
+        "unintendedThirdRatio": 0.0012109531084678721
+      },
+      {
+        "pitches": [
+          60,
+          63,
+          67
+        ],
+        "fundamentals": [
+          {
+            "pitch": 60,
+            "amplitude": 0.0017667124363039027
+          },
+          {
+            "pitch": 63,
+            "amplitude": 0.0016308552838510003
+          },
+          {
+            "pitch": 67,
+            "amplitude": 0.0013881466860830468
+          }
+        ],
+        "unintendedThirdRatio": null
+      },
+      {
+        "pitches": [
+          60,
+          63,
+          67,
+          70
+        ],
+        "fundamentals": [
+          {
+            "pitch": 60,
+            "amplitude": 0.0017666288844365057
+          },
+          {
+            "pitch": 63,
+            "amplitude": 0.0016308083553440303
+          },
+          {
+            "pitch": 67,
+            "amplitude": 0.0013877610998437272
+          },
+          {
+            "pitch": 70,
+            "amplitude": 0.0011526922524196812
+          }
+        ],
+        "unintendedThirdRatio": null
+      },
+      {
+        "pitches": [
+          60,
+          63,
+          67,
+          70,
+          74
+        ],
+        "fundamentals": [
+          {
+            "pitch": 60,
+            "amplitude": 0.0017665892406932798
+          },
+          {
+            "pitch": 63,
+            "amplitude": 0.0016308128283577929
+          },
+          {
+            "pitch": 67,
+            "amplitude": 0.0013876309781065972
+          },
+          {
+            "pitch": 70,
+            "amplitude": 0.0011529893556201853
+          },
+          {
+            "pitch": 74,
+            "amplitude": 0.0007893131832197587
+          }
+        ],
+        "unintendedThirdRatio": null
+      },
+      {
+        "pitches": [
+          63,
+          66,
+          70
+        ],
+        "fundamentals": [
+          {
+            "pitch": 63,
+            "amplitude": 0.0016311343464729445
+          },
+          {
+            "pitch": 66,
+            "amplitude": 0.0014558803974068237
+          },
+          {
+            "pitch": 70,
+            "amplitude": 0.00115270377738288
+          }
+        ],
+        "unintendedThirdRatio": null
+      }
+    ]
+  },
+  "renders": [
+    {
+      "seed": 777,
+      "bars": 64,
+      "style": "hypnotic_evolving",
+      "stem": null,
+      "before": true,
+      "duration": 120.11680272108843,
+      "frames": 5297151,
+      "full": {
+        "peak": 0.88250732421875,
+        "rms": 0.2417762843969684,
+        "dc": 7.132400109451494e-05
+      },
+      "last": {
+        "peak": 0.784820556640625,
+        "rms": 0.26902348396856846,
+        "dc": 0.00011250752985547656
+      },
+      "file": "before.wav",
+      "sha256": "d3be486b6fe94ade63db7d1bd191329642a36fabf2a68f60ffaf874a483fb78f"
+    },
+    {
+      "seed": 777,
+      "bars": 64,
+      "style": "hypnotic_evolving",
+      "stem": null,
+      "before": false,
+      "duration": 120.11680272108843,
+      "frames": 5297151,
+      "full": {
+        "peak": 0.45220947265625,
+        "rms": 0.1420123586066504,
+        "dc": 1.1100275925439497e-05
+      },
+      "last": {
+        "peak": 0.448822021484375,
+        "rms": 0.15791880411450257,
+        "dc": 1.882051821693713e-05
+      },
+      "file": "after.wav",
+      "sha256": "ade0517b759343a1b0fa10326f04551b9444440f1ee5f96da8f4cf82a585916f"
+    },
+    {
+      "seed": 777,
+      "bars": 64,
+      "style": "hypnotic_evolving",
+      "stem": "acid",
+      "before": false,
+      "duration": 120.11680272108843,
+      "frames": 5297151,
+      "full": {
+        "peak": 0.08014160394668579,
+        "rms": 0.004741812647900874,
+        "dc": 7.474806600713679e-10
+      },
+      "last": {
+        "peak": 0,
+        "rms": 0,
+        "dc": 0
+      },
+      "file": "stem-acid.wav",
+      "sha256": "85db53a79de4513420cbabd1d5405f523375da8c0bc902f3c25b4808678867ed"
+    },
+    {
+      "seed": 777,
+      "bars": 64,
+      "style": "hypnotic_evolving",
+      "stem": "rumble",
+      "before": false,
+      "duration": 120.11680272108843,
+      "frames": 5297151,
+      "full": {
+        "peak": 0.096649169921875,
+        "rms": 0.014361896737584874,
+        "dc": -1.1999043927856165e-08
+      },
+      "last": {
+        "peak": 0.07721182703971863,
+        "rms": 0.017610970086980298,
+        "dc": 1.9946972011415397e-06
+      },
+      "file": "stem-rumble.wav",
+      "sha256": "6f8932f7ff4741f73707a80da5ea43e398a368b6d60204b52f32f18f8c1566c8"
+    },
+    {
+      "seed": 913,
+      "bars": 64,
+      "style": "dub_space",
+      "stem": null,
+      "before": false,
+      "duration": 119.46589569160997,
+      "frames": 5268446,
+      "full": {
+        "peak": 0.44853052496910095,
+        "rms": 0.141273786907745,
+        "dc": -9.995370799269958e-06
+      },
+      "last": {
+        "peak": 0.44853052496910095,
+        "rms": 0.15735035222058968,
+        "dc": -1.8302964407258082e-05
+      },
+      "file": "dub_space.wav",
+      "sha256": "06711e0b0c53e41068e60f437a8407761c284ce4bac589fc9fa294e7d4f77bb7"
+    },
+    {
+      "seed": 1234,
+      "bars": 64,
+      "style": "detroit_funk",
+      "stem": null,
+      "before": false,
+      "duration": 126.42714285714285,
+      "frames": 5575437,
+      "full": {
+        "peak": 0.48158207535743713,
+        "rms": 0.1407837884942935,
+        "dc": -2.686409523938703e-06
+      },
+      "last": {
+        "peak": 0.45599365234375,
+        "rms": 0.15595270342567868,
+        "dc": -4.42959467987999e-06
+      },
+      "file": "detroit_funk.wav",
+      "sha256": "1f2856ee574867e5d997f2153dbe0cafdb91efc5783bfedceb7c8dec1a502def"
+    }
+  ],
+  "independentAudio": [
+    {
+      "file": "before.wav",
+      "sha256": "d3be486b6fe94ade63db7d1bd191329642a36fabf2a68f60ffaf874a483fb78f",
+      "integratedLufs": -11.8,
+      "truePeakDbfs": -1.0,
+      "loudnessRangeLu": 4.3,
+      "scope": "complete mix"
+    },
+    {
+      "file": "after.wav",
+      "sha256": "ade0517b759343a1b0fa10326f04551b9444440f1ee5f96da8f4cf82a585916f",
+      "integratedLufs": -16.6,
+      "truePeakDbfs": -6.7,
+      "loudnessRangeLu": 0.4,
+      "scope": "complete mix"
+    },
+    {
+      "file": "stem-acid.wav",
+      "sha256": "85db53a79de4513420cbabd1d5405f523375da8c0bc902f3c25b4808678867ed",
+      "integratedLufs": -39.7,
+      "truePeakDbfs": -21.9,
+      "loudnessRangeLu": 10.3,
+      "scope": "isolated muted-source render"
+    },
+    {
+      "file": "stem-rumble.wav",
+      "sha256": "6f8932f7ff4741f73707a80da5ea43e398a368b6d60204b52f32f18f8c1566c8",
+      "integratedLufs": -36.7,
+      "truePeakDbfs": -20.3,
+      "loudnessRangeLu": 3.1,
+      "scope": "isolated muted-source render"
+    },
+    {
+      "file": "dub_space.wav",
+      "sha256": "06711e0b0c53e41068e60f437a8407761c284ce4bac589fc9fa294e7d4f77bb7",
+      "integratedLufs": -16.6,
+      "truePeakDbfs": -6.8,
+      "loudnessRangeLu": 0.3,
+      "scope": "complete mix"
+    },
+    {
+      "file": "detroit_funk.wav",
+      "sha256": "1f2856ee574867e5d997f2153dbe0cafdb91efc5783bfedceb7c8dec1a502def",
+      "integratedLufs": -16.7,
+      "truePeakDbfs": -6.3,
+      "loudnessRangeLu": 0.8,
+      "scope": "complete mix"
+    }
+  ],
+  "nativeChecks": {
+    "status": "PASS",
+    "projectRecovery": {
+      "scope": "Real Chromium IndexedDB, not Android lifecycle qualification",
+      "status": "PASS",
+      "projectBars": 1024,
+      "stressTrackNotes": 4096,
+      "repeatedCycles": 20,
+      "removedRecordNotResurrected": true,
+      "abortedWritePreserved": true,
+      "corruptPrimaryFallback": true,
+      "futureVersionRejected": true,
+      "wallTimeMs": 6991.200000000186
+    },
+    "fullTrackWorkflow": {
+      "creation": "visible File \u2192 New Full Track 64",
+      "seed": 3230925,
+      "planVersion": 2,
+      "tracks": 8,
+      "saveReopen": "exact score/plan match",
+      "fullJourneyQualified": false
+    },
+    "trackWorkflows": {
+      "status": "PASS",
+      "scope": "track velocity/quantize, undo/redo, native save/reload, action reachability",
+      "transactions": 2,
+      "arrangementClips": 2,
+      "restoredTracks": 2,
+      "viewports": [
+        {
+          "width": 360,
+          "height": 640
+        },
+        {
+          "width": 900,
+          "height": 720
+        },
+        {
+          "width": 800,
+          "height": 360
+        },
+        {
+          "width": 1440,
+          "height": 900
+        }
+      ],
+      "deviceQualification": false,
+      "fullUiCoverage": false
+    },
+    "sessionWorkflows": {
+      "status": "PASS",
+      "scope": "Visible Session slots/launch/capture/stop/return, native track meters, undo/redo, save/reopen and insert-limit error",
+      "audibleTracks": [
+        true,
+        true
+      ],
+      "stoppedPeak": -60,
+      "otherPeak": -17.5,
+      "stopAt": 6,
+      "capturedCyclesPerTrack": 4,
+      "nativeProjectVersion": 3,
+      "realJournalRecovery": true,
+      "deviceQualification": false,
+      "liveOfflineCaptureParity": false
+    },
+    "timeoutGuard": {
+      "timedOut": true,
+      "retryBlocked": true,
+      "allocations": 1
+    },
+    "pageErrors": [],
+    "consoleErrors": []
+  },
+  "repeatability": {
+    "renders": 20,
+    "maxAbsoluteError": 0,
+    "maxRmsError": 0,
+    "unchangedLimits": {
+      "max": 0.001,
+      "rms": 0.0001
+    }
+  },
+  "fullMixCapturedParity": "NOT TESTED",
+  "producerListening": "NOT PERFORMED",
+  "twoHundredProjectCorpus": "NOT EXECUTED",
+  "physicalAndroid": "BLOCKED \u2014 no adb or physical target",
+  "licensedAbleton": "BLOCKED \u2014 unavailable",
+  "originalReverb202Record": "NOT PROVIDED \u2014 ID 202 regression is synthetic, not the original saved record",
+  "deployedPreview": "UNVERIFIED \u2014 repository embedded Cloud Run URL returned HTTP404",
+  "webCandidate": {
+    "file": "dist/assets/index-evtrQN20.js",
+    "sha256": "19502731dec2f422a7fad0eeee510e364cdd701f228ee29c4deb03ce16dd15c6"
+  },
+  "localRuntimeCommit": "8164a4eab7b309dcec0aae3b2ec45e8f57d80f7e",
+  "remoteRuntimeCommit": "b72871c55c4a88ec5d27522d8dd3b900ad89376e",
+  "tests": {
+    "files": 27,
+    "passed": 243,
+    "failed": 0
+  },
+  "nativeCheckStatus": "PASS",
+  "sourceMainReverified": "1b889a524427a6eadc80d683d4507c68311f614e",
+  "audioRenderSourceSha": "aa696cbfc33b383b57d89842ccba90ddccea8609",
+  "runtimeTree": "a379cc0b327364a6b076dea2069e3c4a87a56711",
+  "uiInventory": {
+    "controls": 353,
+    "componentEdges": 26,
+    "status": "NOT TESTED per-control"
+  },
+  "ci": {
+    "runId": 41873242608,
+    "url": "https://github.com/dejayillegal/aidaw/actions/runs/41873242608",
+    "headSha": "b72871c55c4a88ec5d27522d8dd3b900ad89376e",
+    "lastObservedStatus": "in_progress"
+  }
+}

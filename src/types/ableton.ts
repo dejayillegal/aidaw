@@ -1,3 +1,4 @@
+import type { SongPlan } from '../engine/songPlanEngine';
 export type TechnoArchetype =
   | 'kick'
   | 'rumble'
@@ -138,6 +139,7 @@ export type MidiToolTransformationId =
   | 'quantize';
 
 export interface MidiNoteEvent {
+  harmonicOwner?: 'voiced-midi'; // Explicit chord ownership: MIDI pitches bypass further Chord expansion.
   id: string;
   sourceNoteId?: string; // Native note template for preservation during duplication.
   time: number; // In beats (e.g., 1.012 with micro-timing shift)
@@ -865,6 +867,7 @@ export interface MeterChangeEvent {
 export type ProjectCreationMode = 'sketch' | 'full-track';
 
 export interface AbletonProjectState {
+  songPlan?: SongPlan;
   session?: SessionPerformanceState;
   audioSettings?: ProjectAudioSettings;
   compatibilityWarnings?: string[];

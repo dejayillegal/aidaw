@@ -1,3 +1,4 @@
+import { assertSongPlan } from './songPlanEngine';
 import { assertAudioSettings } from './audioSettingsContracts';
 import {
   classifyAbletonDeviceTag,
@@ -47,6 +48,7 @@ export function assertStructuralProjectState(project: AbletonProjectState): void
   ) {
     fail('invalid requested duration bars');
   }
+  if (project.songPlan) assertSongPlan(project.songPlan);
   if (project.ppq !== undefined) {
     try {
       assertValidPpq(project.ppq);
@@ -175,6 +177,7 @@ export function assertStructuralProjectState(project: AbletonProjectState): void
             fail('duplicate or missing note identity');
           }
           noteIds.add(note.id);
+          if(note.harmonicOwner!==undefined&&note.harmonicOwner!=='voiced-midi')fail('invalid harmonic owner');
           if (
             ![note.time, note.quantizedTime, note.duration, note.pitch, note.velocity].every(
               Number.isFinite

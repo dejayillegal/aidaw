@@ -1,3 +1,4 @@
+import {createSongPlan,composeSongPlan,materializeSongPlanTrack,songPlanAutomation} from './engine/songPlanEngine';
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
 import { CANONICAL_PPQ, MAX_SUPPORTED_TIMELINE_BARS } from './engine/timelineCoordinates';
 import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
@@ -55,6 +56,7 @@ import {
   COMPOSITION_STRATEGIES,
   consolidateTrackClipsInRange,
   createUserTrackFromRole,
+  INSTRUMENT_ROLE_TAXONOMY,
   decomposeNotesIntoSectionClips,
   duplicateTrackClip,
   generateClipForBarRange,
@@ -223,7 +225,8 @@ export function enrichProjectWithAnalysis(
   const totalBars = rawState.arrangementLengthBars || 16;
   const musicalProfile = analyzeProjectMusicalProfile(rawState);
   const effectiveForm = rawState.lastGenerationIdentity?.macroFormId || formId;
-  const arrangementSections = rawState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
+  const plannedSections = rawState.songPlan?.sections.map(section => ({id:section.id,name:section.name,startBar:section.fromBeat/4+1,endBar:section.toBeat/4,role:({Intro:'Intro',Groove:'Groove_Establish',Development:'Hypnotic_Lock',Breakdown:'Breakdown',Peak:'Peak_Drop',Outro:'Outro'} as const)[section.name as 'Intro'] || 'Hypnotic_Lock',targetEnergy:section.energy,sectionEvent:rawState.songPlan!.transitions.find(t=>t.destinationSection===section.id)?.kind || 'Independent phrase development',activeArchetypes:rawState.songPlan!.roles.filter(role=>role.spans.some(span=>span.fromBeat<section.toBeat&&span.toBeat>section.fromBeat)).map(role=>role.role)}));
+  const arrangementSections = plannedSections || rawState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
   const alsValidation = validateAlsProjectCadence(rawState.rawXmlModified);
   return {
     ...rawState,
@@ -764,56 +767,16 @@ export default function App() {
     const { xml: initialXml, meta } = buildStarterAbletonXml(
       templateId,
       freshSeed,
-      requestedBars,
+      creationMode === 'full-track' ? 4 : requestedBars,
       creationMode
     );
     let workingXml = initialXml;
     let parsed = parseAbletonXmlDom(workingXml, meta.name, workingXml);
-    if (creationMode === 'full-track' && requestedBars > 16) {
-      const sections = generateSectionArrangementPlan(nextForm, requestedBars, freshSeed);
-      const sectionedTracks = parsed.tracks.map((track, idx) => {
-        if (track.type !== 'midi') return track;
-        const clips = decomposeNotesIntoSectionClips(
-          track.name,
-          track.archetype,
-          track.clips.flatMap((c) => c.notes),
-          requestedBars,
-          sections
-        );
-        return {
-          ...track,
-          clips,
-          automationPoints: generateContextualAutomationPoints(
-            track.archetype,
-            nextForm,
-            freshSeed + idx * 53,
-            requestedBars,
-            sections
-          ),
-        };
-      });
-      for (const track of sectionedTracks) {
-        if (track.type === 'midi') {
-          workingXml = syncTrackClipsToXml(workingXml, track.id, track.clips);
-        }
-      }
-      parsed = {
-        ...parsed,
-        creationMode: 'full-track',
-        requestedDurationBars: requestedBars,
-        arrangementLengthBars: requestedBars,
-        tracks: sectionedTracks,
-        rawXmlOriginal: workingXml,
-        rawXmlModified: workingXml,
-        rawXml: workingXml,
-      };
-    } else {
-      parsed = {
-        ...parsed,
-        creationMode,
-        requestedDurationBars: requestedBars,
-        arrangementLengthBars: requestedBars,
-      };
+    parsed = {...parsed, creationMode, requestedDurationBars: requestedBars, arrangementLengthBars: requestedBars};
+    if (creationMode === 'full-track') {
+      parsed = composeSongPlan(parsed, createSongPlan(parsed, freshSeed, nextStrategy));
+      workingXml = synchronizeProjectStateToXml(parsed);
+      parsed = {...parsed, rawXmlModified:workingXml, rawXml:workingXml};
     }
     const enriched = enrichProjectWithAnalysis(parsed, nextForm);
     // Persist outgoing work before giving the new project a separate queue/history identity.
@@ -943,6 +906,17 @@ export default function App() {
         return;
       }
 
+      if(!customOneBarPattern?.length) {
+        handleExecuteProjectCommand('Generate planned layer', 'clip_edit', draft => {
+          let track=draft.tracks.find(t=>t.archetype===archetype);
+          if(!track) {const role=INSTRUMENT_ROLE_TAXONOMY.find(r=>r.archetype===archetype);if(!role)return draft;track=createUserTrackFromRole(role.roleCode,draft.tracks.length);}
+          const plan=draft.songPlan??createSongPlan(draft,draft.generationSeed??explicitSeed??1,activeStrategyId);
+          const next={...track,clips:materializeSongPlanTrack(plan,track),automationPoints:songPlanAutomation(plan,archetype)};
+          return {...draft,songPlan:plan,tracks:draft.tracks.some(t=>t.id===next.id)?draft.tracks.map(t=>t.id===next.id?next:t):[...draft.tracks,next]};
+        });
+        return;
+      }
+
       const totalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
       const totalBeats = totalBars * 4;
 
@@ -1068,139 +1042,19 @@ export default function App() {
   );
 
   const handleInjectAllMissingLayers = () => {
-    let workingXml = project.rawXmlModified;
-    const totalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-    const totalBeats = totalBars * 4;
-    const archetypesToEnsure: TechnoArchetype[] = [
-      'rumble',
-      'acid',
-      'percussion',
-      'synth',
-      'pad',
-      'hats',
-      'ride',
-    ];
-    const baseCompSeed = Math.floor(Math.random() * 10000000) + 1;
-    const baseHumSeed = Math.floor(Math.random() * 1000000) + 1;
-
-
-    const sharedSections = generateSectionArrangementPlan(activeFormId, totalBars, baseCompSeed);
-    // Full-arrangement composition also withdraws the existing unlocked kick during
-    // builds/breakdowns. Preserve its rhythm and every locked track.
-    for (const track of project.tracks.filter(track => track.type === 'midi' && track.archetype === 'kick' && !track.locked)) {
-      const arranged = decomposeNotesIntoSectionClips(track.name, track.archetype,
-        track.clips.flatMap(clip => clip.notes), totalBars, sharedSections);
-      workingXml = syncTrackClipsToXml(workingXml, track.id, arranged);
-    }
-
-    const composedMap = new Map<
-      TechnoArchetype,
-      ReturnType<typeof composeProjectConditionedLayerNotes>
-    >();
-
-    archetypesToEnsure.forEach((arch, idx) => {
-      const existing = project.tracks.find((t) => t.archetype === arch);
-      if (existing?.locked) return;
-
-      const cSeed = baseCompSeed + idx * 193;
-      const hSeed = baseHumSeed + idx * 71;
-
-      workingXml = TechnoHeuristicEngine.injectTechnoLayerIntoXml(
-        workingXml,
-        arch,
-        project.rootKey,
-        humanization,
-        undefined,
-        undefined,
-        cSeed,
-        totalBars
-      );
-
-      const comp = composeProjectConditionedLayerNotes(
-        project,
-        arch,
-        activeStrategyId,
-        activeFormId,
-        humanization,
-        cSeed,
-        hSeed,
-        totalBars,
-        sharedSections
-      );
-      composedMap.set(arch, comp);
-
-      const clipLabel = `${arch.toUpperCase()}_${activeStrategyId}_v${cSeed % 100}`;
-      workingXml = syncTrackNotesToXml(
-        workingXml,
-        '',
-        arch,
-        clipLabel,
-        comp.notes,
-        totalBeats
-      );
-    });
-
-    const rawNextState = parseAbletonXmlDom(workingXml, project.fileName, project.rawXmlOriginal);
-    const preserved = preserveTrackStates(rawNextState, project);
-
-    const finalTracks = preserved.tracks.map((t) => {
-      const comp = composedMap.get(t.archetype);
-      if (t.locked || t.type !== 'midi') return project.tracks.find(track => track.id === t.id) || t;
-      if (!comp) return t;
-      return {
-        ...t,
-        clips: decomposeNotesIntoSectionClips(t.name, t.archetype, comp.notes, totalBars, sharedSections),
-        sessionClips: comp.sessionClips,
-        activeSessionSlot: 0,
-        compositionStrategy: activeStrategyId,
-        automationPoints: generateContextualAutomationPoints(
-          t.archetype,
-          activeFormId,
-          baseCompSeed,
-          totalBars,
-          sharedSections
-        ),
-      };
-    });
-
-    for (const track of finalTracks) {
-      if (track.type === 'midi' && !track.locked) workingXml = syncTrackClipsToXml(workingXml, track.id, track.clips);
-    }
-
-    const sampleComp = composedMap.get('rumble') || composedMap.values().next().value;
-    const identityRecord: GenerationIdentityRecord | undefined = sampleComp
-      ? {
-          generationId: `gen_all_${Date.now()}`,
-          timestampIso: new Date().toISOString(),
-          projectFingerprint:
-            project.musicalProfile?.projectFingerprint || `${project.fileName}_${project.tempo}`,
-          compositionSeed: baseCompSeed,
-          humanizationSeed: baseHumSeed,
-          strategyId: activeStrategyId,
-          macroFormId: activeFormId,
-          targetArchetype: 'all',
-          noveltyMetrics: sampleComp.novelty,
-          musicalReasoning: sampleComp.reasoning,
+    const bars = project.arrangementLengthBars || 64;
+    handleExecuteProjectCommand('Compose complete SongPlan', 'clip_edit', draft => {
+      const tracks=[...draft.tracks];
+      for(const archetype of ['kick','rumble','hats','percussion','synth','acid','pad','ride'] as TechnoArchetype[]) {
+        if(!tracks.some(t=>t.archetype===archetype)) {
+          const role=INSTRUMENT_ROLE_TAXONOMY.find(r=>r.archetype===archetype);
+          if(role) tracks.push(createUserTrackFromRole(role.roleCode,tracks.length));
         }
-      : project.lastGenerationIdentity;
-
-    const enriched = enrichProjectWithAnalysis(
-      {
-        ...preserved,
-        arrangementLengthBars: totalBars,
-        tracks: finalTracks,
-        rawXmlModified: workingXml,
-        lastGenerationIdentity: identityRecord,
-      },
-      activeFormId
-    );
-
-    handleExecuteProjectCommand('Compose section arrangement', 'clip_edit', () => enriched);
-    const rumbleTrack = enriched.tracks.find((t) => t.archetype === 'rumble');
-    if (rumbleTrack) setSelectedTrackId(rumbleTrack.id);
-    setStatusMessage(
-      `Composed full 8-track techno suite (${totalBars} Bars) using "${activeStrategyId}" (${activeFormId}) · Section clips applied; listening review required.`
-    );
+      }
+      const base={...draft,tracks,arrangementLengthBars:bars};
+      const plan=draft.songPlan?.durationBars===bars&&draft.songPlan.style===activeStrategyId?draft.songPlan:createSongPlan(base,draft.generationSeed??Math.floor(Math.random()*10000000),activeStrategyId);
+      return composeSongPlan(base,plan);
+    });
   };
 
   // Handler: Spectral Auto-Ducking (Dynamic EQEight notch + Compressor2 sidechain into XML & DSP)
@@ -1477,6 +1331,7 @@ export default function App() {
     handleExecuteProjectCommand('Change Arrangement Extent', 'transport', prev => ({
       ...prev, arrangementLengthBars: safeBars,
     }));
+    if(project.songPlan) setStatusMessage(`Timeline extent: ${safeBars} bars. Composed score: ${project.songPlan.durationBars} bars. Compose creates material for a changed duration.`);
   };
 
   const handleApplyMidiTool = (trackId: string, toolId: MidiToolTransformationId) => {
@@ -1774,11 +1629,24 @@ export default function App() {
   const handleGenerateClipInRange = useCallback(
     (trackId: string, startBar: number, endBar: number, mode: RangeClipGeneratorMode) => {
       handleExecuteProjectCommand(
-        `Generate ${mode.toUpperCase()} Clip (Bars ${startBar}–${endBar - 1})`,
+        mode==='voiced-midi'||mode==='chord-device' ? `Set ${mode} harmonic ownership (Bars ${startBar}–${endBar-1})` : `Generate ${mode.toUpperCase()} Clip (Bars ${startBar}–${endBar - 1})`,
         'clip_edit',
         (draft) => {
           const targetTrack = draft.tracks.find((t) => t.id === trackId);
           if (!targetTrack) return draft;
+          if(targetTrack.locked) throw new Error('SONG_PLAN_TARGET: track is locked');
+          if(mode==='voiced-midi'||mode==='chord-device') {
+            if(mode==='chord-device'&&!targetTrack.devices.some(d=>d.xmlTag==='MidiChord'&&!d.bypassed))throw new Error('HARMONIC_OWNER: enable a Chord MIDI device first');
+            return transformTrackArrangementNotes(draft,trackId,notes=>notes.map(note=>{
+              if(note.time<(startBar-1)*4||note.time>=(endBar-1)*4)return note;
+              const next={...note};if(mode==='voiced-midi')next.harmonicOwner='voiced-midi';else delete next.harmonicOwner;return next;
+            }));
+          }
+
+          if(mode !== 'empty') {
+            const plan=draft.songPlan??createSongPlan(draft,draft.generationSeed??1,activeStrategyId);
+            return composeSongPlan(draft,plan,{fromBeat:(startBar-1)*4,toBeat:(endBar-1)*4,trackId,roleOverride:mode==='chord'?'synth':mode==='bass'?'rumble':mode==='drum'?'kick':'percussion'});
+          }
           const { updatedClips, summary } = generateClipForBarRange({
             track: targetTrack,
             startBar,
@@ -1949,7 +1817,7 @@ export default function App() {
 
   const handleUpdateTempo = (newBpm: number) => {
     const clamped = Math.max(90, Math.min(180, newBpm));
-    handleExecuteProjectCommand('Change Tempo', 'transport', prev => ({ ...prev, tempo: clamped }));
+    handleExecuteProjectCommand('Change Tempo', 'transport', prev => ({ ...prev, tempo: clamped, ...(prev.songPlan?{songPlan:{...prev.songPlan,tempo:clamped}}:{}) }));
   };
 
   const handleSaveProjectSnapshot = async () => {

@@ -279,7 +279,20 @@ export function flushRetiringTrackChains(channel: TrackChannelRuntime): number {
   return flushedCount;
 }
 
+interface AcidMonoVoiceState {start:number;end:number;startHz:number;targetHz:number;glideEnd:number;retire:(at?:number)=>void}
+export function resolveAcidSlideStart(slide:boolean,time:number,targetHz:number,previous?:Omit<AcidMonoVoiceState,'retire'>):number {
+  if(!slide||!previous||time<previous.start||time>previous.end)return targetHz;
+  const fraction=Math.max(0,Math.min(1,(time-previous.start)/Math.max(.000001,previous.glideEnd-previous.start)));
+  return previous.startHz*Math.pow(previous.targetHz/previous.startHz,fraction);
+}
+/** Sidechain control follows the actual routed source score and effective audibility. */
+export function routedKickBeats(project:AbletonProjectState,receiver:AbletonTrack,fromBeat:number,toBeat:number):number[] {
+  const sources=project.tracks.filter(t=>(receiver.spectralDucking?.sourceTrackId?t.id===receiver.spectralDucking.sourceTrackId:t.archetype==='kick')&&t.id!==receiver.id&&resolveEffectiveAudibility(t,project.tracks,project.vcaGroups||[]).isAudible);
+  return sources.flatMap(t=>evaluatePlayableProjectEvents(project,Math.max(0,fromBeat),toBeat,{singleTrackId:t.id}).map(e=>e.note.time)).sort((a,b)=>a-b);
+}
+
 interface AudioBusGraph {
+  acidMonoVoices?:Map<string,AcidMonoVoiceState>;
   dryBus: GainNode;
   drySum: OrderedAudioSum;
   reverbSum: OrderedAudioSum;
@@ -985,7 +998,7 @@ export function buildDeviceInsertProcessor(
       setAudioParamSmooth(preGain.gain, dbToGain(gainDb), now);
       setAudioParamSmooth(comp.threshold, Math.max(-24, Math.min(-0.1, ceilingDb)), now);
       setAudioParamSmooth(comp.release, Math.max(0.01, Math.min(0.5, releaseMs / 1000)), now);
-      setAudioParamSmooth(ceilingGain.gain, dbToGain(Math.min(0, ceilingDb)), now);
+      setAudioParamSmooth(ceilingGain.gain, 1, now);
     };
     applyLimiter(device, 0);
 
@@ -1113,7 +1126,7 @@ export function buildDeviceInsertProcessor(
     let tailDecaySeconds = 2.4;
     const applyReverb = (dev: AbletonDevice, now: number) => {
       const rawDecay = readDeviceParamNumber(dev, 'DecayTime', rawTag === 'HybridReverb' ? 3.2 : 2.4);
-      const decaySec = Math.max(0.2, Math.min(15, rawDecay > 25 ? rawDecay / 1000 : rawDecay));
+      const decaySec = Math.max(0.2, Math.min(15, rawDecay));
       const preDelayMs = readDeviceParamNumber(dev, 'PreDelay', rawTag === 'HybridReverb' ? 24 : 18);
       const dampHz = readDeviceParamNumber(dev, 'HighCut', rawTag === 'HybridReverb' ? 5400 : 4800);
       const rawMix = readDeviceParamNumber(dev, 'DryWet', rawTag === 'HybridReverb' ? 40 : 35);
@@ -1384,11 +1397,8 @@ export function getOrCreateTrackChannelRuntime(
     project?.tracks || [track],
     project?.vcaGroups || []
   );
-  const insertMods = computeInsertChainGainMultiplier(track);
-  const targetFaderLinear = Math.min(
-    insertMods.limiterCeilingLinear,
-    audibility.effectiveGainLinear * insertMods.gainMultiplier
-  );
+  // Inserts own their DSP gain in order. The channel owns only mixer/VCA gain.
+  const targetFaderLinear = audibility.effectiveGainLinear;
   const targetGateLinear = audibility.isAudible ? 1.0 : 0.0;
   const targetPan = Math.max(-1, Math.min(1, mixer.pan || 0));
   const targetRev = Math.max(0, Math.min(1, mixer.reverbSend || 0));
@@ -1816,7 +1826,8 @@ export function resolveTrackInstrumentSynthesis(track: AbletonTrack): ResolvedTr
   };
 }
 
-function computeInsertChainGainMultiplier(track: AbletonTrack): {
+// Analysis approximation only; never apply to the native production graph.
+function estimateInsertChainGainMultiplier(track: AbletonTrack): {
   gainMultiplier: number;
   saturationBoost: number;
   limiterCeilingLinear: number;
@@ -1936,37 +1947,22 @@ function scheduleTrackVoiceAtTime(
   const lfoPhase = Math.sin(2 * Math.PI * effLfoRate * time);
   const lfoModFactor = 1 + lfoPhase * effLfoDepth * 0.45;
 
-  // Quarter-note Kick Sidechain Ducking envelope calculation
-  const beatPhase = ((note.time % 1) + 1) % 1;
   const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
-  const isNearKick = beatPhase < 0.22 || beatPhase > 0.94;
-  const initialDuckGain =
-    instSpec.synthesisRole === 'kick'
-      ? 1.0
-      : isNearKick
-      ? 1.0 - scDepth * 0.88
-      : 1.0 - scDepth * 0.12;
-
+  const kickBeats = project && instSpec.synthesisRole !== 'kick'
+    ? routedKickBeats(project,track,Math.max(0,note.time-.5),note.time+durSec*beatsPerSecond) : [];
+  const recent=kickBeats.filter(beat=>beat<=note.time).at(-1);
+  const elapsed=recent===undefined?Infinity:(note.time-recent)/beatsPerSecond;
+  const isNearKick=elapsed<.18;
   const trackChannel = getOrCreateTrackChannelRuntime(ctx, bus, track, project);
-  const insertMods = computeInsertChainGainMultiplier(track);
   const voiceEnvelopeGain = own(ctx.createGain());
-
-  // Micro-timing variance intensity for the current bar
-  const noteBar = Math.floor(note.time / 4) + 1;
-  const barIntensity = humanization.barVarianceIntensity?.[noteBar] ?? 1.0;
-  const velocityMod = 1 + (barIntensity - 1.0) * 0.15;
-  const modulatedVelGain = Math.min(1.0, velGain * velocityMod);
-  void modulatedVelGain;
-
-  // Per-voice sidechain ducking envelope (while persistent fader/mute/solo/pan live on trackChannel!)
-  const targetDuckGain = Math.max(0.0001, initialDuckGain);
-  voiceEnvelopeGain.gain.setValueAtTime(0.0001, time);
-  voiceEnvelopeGain.gain.linearRampToValueAtTime(targetDuckGain, time + 0.006);
-  if (instSpec.synthesisRole !== 'kick' && scDepth > 0.05 && isNearKick) {
-    voiceEnvelopeGain.gain.linearRampToValueAtTime(
-      1.0,
-      time + Math.min(durSec * 0.85, 0.42 / beatsPerSecond)
-    );
+  const reduction=scDepth*.72;
+  const startDuck=1-reduction*Math.max(0,1-elapsed/.18);
+  voiceEnvelopeGain.gain.setValueAtTime(startDuck,time);
+  if(isNearKick)voiceEnvelopeGain.gain.linearRampToValueAtTime(1,time+.18-elapsed);
+  for(const beat of kickBeats){if(beat<note.time)continue;const at=time+(beat-note.time)/beatsPerSecond;
+    voiceEnvelopeGain.gain.setValueAtTime(1,Math.max(time,at-.004));
+    voiceEnvelopeGain.gain.linearRampToValueAtTime(1-reduction,at+.004);
+    voiceEnvelopeGain.gain.linearRampToValueAtTime(1,at+.18);
   }
 
   // Optional Spectral Auto-Ducking EQEight Fundamental Notch node
@@ -1988,13 +1984,6 @@ function scheduleTrackVoiceAtTime(
     }
     eqNotch.connect(voiceEnvelopeGain);
     voiceDestination = eqNotch;
-  }
-
-  if (insertMods.saturationBoost > 0.01) {
-    const insertShaper = own(ctx.createWaveShaper());
-    insertShaper.curve = createSaturationCurve(1.2 + insertMods.saturationBoost);
-    insertShaper.connect(voiceDestination);
-    voiceDestination = insertShaper;
   }
 
   // Route voice through persistent per-track channel strip so live fader/pan/mute/solo/send changes
@@ -2113,7 +2102,11 @@ function scheduleTrackVoiceAtTime(
     // =========================================================================
     const freq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
     const isAccent = Boolean(note.isAccent || note.velocity >= 108);
-    const isSlide = Boolean(note.isSlide || note.duration > 0.3);
+    bus.acidMonoVoices ??= new Map();
+    const previousMono = bus.acidMonoVoices.get(track.id);
+    const startFreq = resolveAcidSlideStart(Boolean(note.isSlide),time,freq,previousMono);
+    const isSlide = Boolean(note.isSlide) && startFreq !== freq;
+    previousMono?.retire(time);
 
     const oscSaw = source(ctx.createOscillator());
     const oscSq = source(ctx.createOscillator());
@@ -2128,8 +2121,7 @@ function scheduleTrackVoiceAtTime(
     sqBlend.gain.setValueAtTime(0.32, time);
 
     if (isSlide) {
-      // Authentic 60ms TB-303 RC portamento glide from -5 or +7 semitones
-      const startFreq = freq * Math.pow(2, -5 / 12);
+      // Explicit articulation starts at the preceding sounding oscillator pitch.
       oscSaw.frequency.setValueAtTime(startFreq, time);
       oscSaw.frequency.exponentialRampToValueAtTime(freq, time + 0.062);
       oscSq.frequency.setValueAtTime(startFreq, time);
@@ -2166,7 +2158,9 @@ function scheduleTrackVoiceAtTime(
     shaper.curve = createSaturationCurve((isAccent ? 2.4 : 1.75) * instSpec.driveScale);
 
     const releaseSec = isSlide ? durSec + 0.09 : durSec + 0.03;
-    const peakGain = (isAccent ? 0.46 : 0.34) * velGain;
+    // Resonance adds substantial filter energy: compensate continuously, retain accent contrast.
+    const resonanceCompensation = 1 / Math.sqrt(1 + mixer.filterResonance * 3);
+    const peakGain = (isAccent ? 0.38 : 0.32) * velGain * resonanceCompensation;
     voiceGain.gain.setValueAtTime(0.001, time);
     voiceGain.gain.linearRampToValueAtTime(peakGain, time + 0.004);
     voiceGain.gain.exponentialRampToValueAtTime(0.001, time + releaseSec);
@@ -2379,7 +2373,7 @@ function scheduleTrackVoiceAtTime(
     osc2.stop(time + releaseTime + 0.03);
   } else {
     // =========================================================================
-    // 8. HYPNOTIC WAVETABLE MINOR CHORD STAB (3 Detuned Oscillators + Filter Env)
+    // 8. PITCH-FAITHFUL WAVETABLE STAB (3 Detuned Oscillators + Filter Env)
     // =========================================================================
     const rootFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
     const oscRoot = source(ctx.createOscillator());
@@ -2397,7 +2391,7 @@ function scheduleTrackVoiceAtTime(
     oscDetune.detune.setValueAtTime(stabDetune, time);
 
     oscChord.type = 'triangle';
-    oscChord.frequency.setValueAtTime(rootFreq * Math.pow(2, 3 / 12), time);
+    oscChord.frequency.setValueAtTime(rootFreq, time);
     oscChord.detune.setValueAtTime(-Math.round(stabDetune * 0.65), time);
 
     const chordSubGain = own(ctx.createGain());
@@ -2439,10 +2433,19 @@ function scheduleTrackVoiceAtTime(
   let remaining = sources.length;
   const retire = (at=ctx.currentTime) => {
     at=Math.max(ctx.currentTime,at);
+    const mono=bus.acidMonoVoices?.get(track.id);
+    if(mono?.start===time) mono.end=Math.min(mono.end,at);
     voiceEnvelopeGain.gain.cancelScheduledValues?.(at);
     voiceEnvelopeGain.gain.setTargetAtTime(0.0001, at, 0.004);
     for (const node of sources) { try { node.stop(Math.min(stopTimes.get(node) ?? Infinity,at + 0.025)); } catch { /* already stopped */ } }
   };
+  if(instSpec.synthesisRole==='acid') {
+    const targetHz=midiToFreq(note.pitch,mixer.transposeSemitones,mixer.fineTuneCents);
+    const previous=bus.acidMonoVoices?.get(track.id);
+    const startHz=resolveAcidSlideStart(Boolean(note.isSlide),time,targetHz,previous);
+    const state:AcidMonoVoiceState={start:time,end:time+note.duration/beatsPerSecond,startHz,targetHz,glideEnd:time+.062,retire:(at=ctx.currentTime)=>{retire(at);state.end=Math.min(state.end,at);}};
+    bus.acidMonoVoices?.set(track.id,state);
+  }
   bus.activeVoices.add(retire);
   bus.trackVoices ??= new Map();
   const voices=bus.trackVoices.get(track.id) || new Set<(when?:number)=>void>();
@@ -2545,8 +2548,8 @@ export async function encodeAudioBufferToWavBlob(
 
 /**
  * Deterministic sample-accurate stereo PCM synthesizer used for:
- * - Segmented 96 kHz renders exceeding single-allocation browser memory budgets
- * - Headless / Offline verification and Vitest automated test suites
+ * - Analysis previews and lightweight Vitest fixtures only
+ * This approximation is never production WAV export or live/offline parity evidence.
  * - Track-level waveform rendering for SelectedTrackAnalysisStrip
  */
 export function computeStableCombFeedbackGain(delaySeconds: number, t60Seconds: number): number {
@@ -2576,7 +2579,7 @@ function applyDiscreteDeviceTailEffectsInPlace(
     const tag = dev.xmlTag;
     if (tag === 'Reverb' || tag === 'HybridReverb') {
       const rawDecay = readDeviceParamNumber(dev, 'DecayTime', tag === 'HybridReverb' ? 3.2 : 2.4);
-      const decaySec = Math.max(0.2, Math.min(15, rawDecay > 25 ? rawDecay / 1000 : rawDecay));
+      const decaySec = Math.max(0.2, Math.min(15, rawDecay));
       const preDelayMs = readDeviceParamNumber(dev, 'PreDelay', tag === 'HybridReverb' ? 24 : 18);
       const dampHz = Math.max(400, Math.min(16000, readDeviceParamNumber(dev, 'HighCut', tag === 'HybridReverb' ? 5400 : 4800)));
       const rawMix = readDeviceParamNumber(dev, 'DryWet', tag === 'HybridReverb' ? 40 : 35);
@@ -3035,6 +3038,9 @@ export function computeTrackScheduleSignature(track: AbletonTrack): string {
             Math.round(n.duration * 960) ^
             (n.pitch << 8) ^
             n.velocity ^
+            (n.harmonicOwner==='voiced-midi'?1<<20:0) ^
+            (n.isSlide?1<<21:0) ^
+            (n.isAccent?1<<22:0) ^
             Math.round((n.probability ?? 1) * 1000)) >>>
           0;
       }
@@ -3242,8 +3248,8 @@ export function queryCompiledArrangementWindow(
 
 /**
  * Deterministic sample-accurate stereo PCM synthesizer used for:
- * - Segmented 96 kHz renders exceeding single-allocation browser memory budgets
- * - Headless / Offline verification and Vitest automated test suites
+ * - Analysis previews and lightweight Vitest fixtures only
+ * This approximation is never production WAV export or live/offline parity evidence.
  * - Track-level waveform rendering for SelectedTrackAnalysisStrip
  */
 export function synthesizeDeterministicStereoPcm(
@@ -3310,7 +3316,7 @@ export function synthesizeDeterministicStereoPcm(
       transposeSemitones: (rawMixer.transposeSemitones || 0) + instSpec.pitchOffsetSemitones,
     };
 
-    const insertMods = computeInsertChainGainMultiplier(track);
+    const insertMods = estimateInsertChainGainMultiplier(track);
     const trackBaseLinear = Math.min(
       insertMods.limiterCeilingLinear,
       vcaComp.effectiveLinearGain * insertMods.gainMultiplier

@@ -1884,6 +1884,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
           {selectedTrack && onGenerateClipInRange && (
             <>
+              <button type="button" className="min-h-11 px-2 border border-slate-700 rounded text-[10px] text-amber-200" title="Selected range: supplied MIDI pitches own harmony; skip further Chord expansion" onClick={()=>onGenerateClipInRange(selectedTrack.id,effectiveRangeStartBar,effectiveRangeEndBar,'voiced-midi')}>MIDI owns harmony</button>
+              {selectedTrack.devices.some(d=>d.xmlTag==='MidiChord'&&!d.bypassed)&&<button type="button" className="min-h-11 px-2 border border-slate-700 rounded text-[10px] text-amber-200" title="Selected range: explicitly allow Chord device pitch expansion, including existing chords" onClick={()=>onGenerateClipInRange(selectedTrack.id,effectiveRangeStartBar,effectiveRangeEndBar,'chord-device')}>Chord device owns harmony</button>}
+
               <button
                 type="button"
                 data-testid="range-create-empty-clip-btn"

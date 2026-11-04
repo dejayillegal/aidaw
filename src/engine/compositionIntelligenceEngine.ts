@@ -1979,6 +1979,8 @@ export function generateSectionArrangementProposal(
 export const GenerateSectionArrangementProposal = generateSectionArrangementProposal;
 
 export type RangeClipGeneratorMode =
+  | 'voiced-midi'
+  | 'chord-device'
   | 'empty'
   | 'chord'
   | 'bass'
@@ -2008,6 +2010,7 @@ export function generateClipForBarRange(options: GenerateClipForRangeOptions): {
   updatedClips: AbletonMidiClip[];
   summary: string;
 } {
+  if(options.mode==='voiced-midi'||options.mode==='chord-device')throw new Error('HARMONIC_OWNER: ownership changes use the project command boundary');
   const {
     track,
     startBar,
@@ -2190,6 +2193,7 @@ export function generateClipForBarRange(options: GenerateClipForRangeOptions): {
   }
 
   const labelMap: Record<RangeClipGeneratorMode, string> = {
+    'voiced-midi': 'Voiced_MIDI', 'chord-device': 'Chord_Device',
     empty: 'MIDI_Clip',
     chord: `Chord_${rootKey}_${scale}`,
     bass: `Bass_${rootKey}_Groove`,

@@ -33,6 +33,7 @@ import {
   determineLegacyConversionMigrationEligibility,
   ensureProjectDeviceConversions,
   migrateMissingLegacyProjectConversions,
+  migrateCompatibleProjectUnitConversions,
 } from '../engine/abletonCapabilityMatrix';
 
 export type StorageStatus = 'saved' | 'pending' | 'blocked' | 'error' | 'unavailable';
@@ -390,7 +391,7 @@ export class ProjectQueueService {
     };
     // 7. Run strict project, conversion, capability, and XML validation
     assertProjectState(candidateProject);
-    const syncedXml = synchronizeProjectStateToXml(candidateProject, candidateProject);
+    const syncedXml = synchronizeProjectStateToXml(candidateProject);
     const xmlReport = validateAlsStructuralIntegrity(syncedXml);
     if (!xmlReport.valid) {
       throw new Error(
@@ -564,9 +565,10 @@ export class ProjectQueueService {
             stopFallbackToBackup = true;
           }
 
+          const unitMigration = migrateCompatibleProjectUnitConversions(record.workingProjectState);
           // 4. Determine migration eligibility from explicit schema/build provenance or compatibility rule
           const eligibility = determineLegacyConversionMigrationEligibility(
-            record.workingProjectState,
+            unitMigration.project,
             { envelopeConversionSchemaVersion: row.conversionSchemaVersion }
           );
           lastCanRepair = eligibility.canRepairLegacyConversions && !eligibility.eligible;
@@ -574,19 +576,19 @@ export class ProjectQueueService {
 
           // 5. Clone the eligible project
           const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
-          let candidateProject = cloneProjectState(copy.workingProjectState);
+          let candidateProject = cloneProjectState(unitMigration.project);
 
           // 6. Migrate genuinely missing conversion metadata for known supported devices
-          let wasMigrated = false;
+          let wasMigrated = unitMigration.migrated;
           if (eligibility.eligible) {
             const mig = migrateMissingLegacyProjectConversions(candidateProject);
             candidateProject = mig.project;
-            wasMigrated = mig.migrated;
+            wasMigrated ||= mig.migrated;
           }
 
           // 7. Run strict project, conversion, capability, and XML validation
           assertProjectState(candidateProject);
-          const syncedXml = synchronizeProjectStateToXml(candidateProject, candidateProject);
+          const syncedXml = synchronizeProjectStateToXml(candidateProject);
           const xmlReport = validateAlsStructuralIntegrity(syncedXml);
           if (!xmlReport.valid) {
             throw new Error(

@@ -1,6 +1,7 @@
 import type { AbletonProjectState, HumanizationConfig, MasterBusConfig, TransportConfig } from '../types/ableton';
 import {
   determineLegacyConversionMigrationEligibility,
+  migrateCompatibleProjectUnitConversions,
   migrateMissingLegacyProjectConversions,
 } from '../engine/abletonCapabilityMatrix';
 import { synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
@@ -74,6 +75,7 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
 
   // Older v1, v2, and v3 snapshots may predate mandatory conversion records.
   // Check legacy migration eligibility before running strict conversion validation.
+  input.project = migrateCompatibleProjectUnitConversions(input.project).project;
   const eligibility = determineLegacyConversionMigrationEligibility(input.project, {
     envelopeConversionSchemaVersion: input.conversionSchemaVersion,
   });

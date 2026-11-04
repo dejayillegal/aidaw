@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { runTrackWorkflows, runSessionWorkflows } from './track-workflows-check.mjs';
+import {runFullTrackWorkflow} from './full-track-workflow-check.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,7 +22,7 @@ catch (error) {
 }
 const output = process.env.RECOVERY_BROWSER_OUTPUT || await fs.mkdtemp(path.join(os.tmpdir(), 'aidaw-browser-'));
 await fs.mkdir(output, { recursive: true });
-const server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false } });
+const server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false, watch: null, hmr: false } });
 let browser;
 const report = { engine: 'Chromium real Web Audio', scope: 'Browser; Android device qualification remains separate',
   audio: [], responsive: [], pageErrors: [], consoleErrors: [], warnings: [] };
@@ -71,6 +72,8 @@ try {
   for (const repeat of report.audio.slice(1, 20)) assert(repeat.repeatMaxAbsoluteError < 0.001 && repeat.repeatRmsError < 0.0001, 'Repeated native DSP output exceeded numeric tolerance');
   report.probabilityOffline = await page.evaluate(() => window.recovery.runProbabilityCase());
   console.log(JSON.stringify({ probabilityOffline: report.probabilityOffline }));
+  report.fullTrackWorkflow = await runFullTrackWorkflow(page,origin,output);
+  console.log(JSON.stringify({fullTrackWorkflow:report.fullTrackWorkflow}));
   report.trackWorkflows = await runTrackWorkflows(page, origin, output);
   console.log(JSON.stringify({ trackWorkflows: report.trackWorkflows }));
   report.sessionWorkflows = await runSessionWorkflows(page,origin,output);
