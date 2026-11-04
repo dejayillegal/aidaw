@@ -10,9 +10,14 @@ import {
   beatToBarBeatTick,
   beatToSecondsWithTempoMap,
   beatsToTicks,
+  evaluatePlayableArrangementEvents,
+  evaluatePlayableProjectEvents,
+  evaluatePlayableSessionEvents,
+  maxSupportedBeatsForMeterMap,
   playbackRegion,
   quantizeBeatToCanonicalTick,
   secondsToBeatWithTempoMap,
+  sessionEventsInWindow,
   snapBeatsToGridTicks,
   ticksToBeats,
 } from '../engine/timelineCoordinates';
@@ -45,7 +50,9 @@ import {
   evaluateTrackMidiDeviceChain,
   getAbletonDeviceContract,
   syncDeviceConversionRecord,
+  validateTrackDeviceChainOrderingAndCounts,
   verifyDeviceConversionRecord,
+  verifyDeviceRegistryIntegrity,
 } from '../engine/abletonCapabilityMatrix';
 import {
   MAX_CHANNEL_INSERT_SLOTS,
@@ -62,10 +69,18 @@ import {
   ParametricWebAudioEngine,
   buildAudioBusGraph,
   buildDeviceInsertProcessor,
+  computeStableCombFeedbackGain,
   getOrCreateTrackChannelRuntime,
+  pruneRetiringTrackChains,
+  renderDeviceImpulseResponse,
   resolveTrackInstrumentSynthesis,
   synthesizeDeterministicStereoPcm,
 } from '../engine/webAudioSynth';
+import {
+  captureSessionPerformance,
+  queueSessionLaunch,
+  storeArrangementClipInSession,
+} from '../services/commandBus';
 
 const DEFAULT_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.012,
@@ -1166,6 +1181,373 @@ describe('G1–G8 Strengthening Contracts', () => {
         ],
       };
       expect(() => assertExecutableInsertLimits(dynamicTempoProject)).toThrow(/TIMING_MAP_UNSUPPORTED/);
+    });
+
+    it('verifies Section 1: Reverb/HybridReverb/Delay/Echo independent comb & feedback loop stability across parameter extremes', () => {
+      const configs: {
+        xmlTag: 'Reverb' | 'HybridReverb' | 'Delay' | 'Echo';
+        params: { name: string; value: number }[];
+      }[] = [
+        // Minimum decay / damping / pre-delay / wet mix
+        {
+          xmlTag: 'Reverb',
+          params: [
+            { name: 'DecayTime', value: 0.2 },
+            { name: 'PreDelay', value: 1 },
+            { name: 'HighCut', value: 400 },
+            { name: 'DryWet', value: 10 },
+          ],
+        },
+        // Default Reverb
+        {
+          xmlTag: 'Reverb',
+          params: [
+            { name: 'DecayTime', value: 2.4 },
+            { name: 'PreDelay', value: 18 },
+            { name: 'HighCut', value: 4800 },
+            { name: 'DryWet', value: 35 },
+          ],
+        },
+        // Maximum decay / high damping / max pre-delay / 100% wet on HybridReverb
+        {
+          xmlTag: 'HybridReverb',
+          params: [
+            { name: 'DecayTime', value: 15.0 },
+            { name: 'PreDelay', value: 250 },
+            { name: 'HighCut', value: 16000 },
+            { name: 'DryWet', value: 100 },
+          ],
+        },
+        // High feedback Delay and Echo
+        {
+          xmlTag: 'Delay',
+          params: [
+            { name: 'DelayTime', value: 120 },
+            { name: 'Feedback', value: 0.88 },
+            { name: 'FilterCutoff', value: 8500 },
+            { name: 'DryWet', value: 65 },
+          ],
+        },
+        {
+          xmlTag: 'Echo',
+          params: [
+            { name: 'DelayTime', value: 180 },
+            { name: 'Feedback', value: 0.85 },
+            { name: 'FilterCutoff', value: 4200 },
+            { name: 'DryWet', value: 50 },
+          ],
+        },
+      ];
+
+      for (const cfg of configs) {
+        const dev: AbletonDevice = syncDeviceConversionRecord({
+          id: `impulse_${cfg.xmlTag}`,
+          xmlTag: cfg.xmlTag,
+          displayName: cfg.xmlTag,
+          category: 'audio_effect',
+          parameters: cfg.params,
+          bypassed: false,
+        });
+        const ir = renderDeviceImpulseResponse(dev, 4.0, 24000);
+        expect(ir.allFinite).toBe(true);
+        expect(ir.firstNonFiniteFrame).toBe(-1);
+        expect(ir.peak).toBeGreaterThan(0.05);
+        expect(ir.peak).toBeLessThanOrEqual(1.05);
+        expect(ir.tailDecaysMonotonically).toBe(true);
+        expect(ir.windowRms[3]).toBeLessThanOrEqual(ir.windowRms[0] + 1e-6);
+      }
+
+      // Verify g = 10^(-3 * delaySeconds / T60Seconds) formula bounds
+      expect(computeStableCombFeedbackGain(0.043, 1.2)).toBeCloseTo(
+        Math.pow(10, (-3 * 0.043) / 1.2),
+        5
+      );
+      expect(computeStableCombFeedbackGain(0.043, 100)).toBeLessThanOrEqual(0.88);
+    });
+
+    it('verifies Section 2: unified event-evaluation boundary across Session, captured Arrangement, and rendered PCM with MidiChord + MidiArpeggiator', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 404, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+      const chordTrack = project.tracks.find((t) => t.archetype === 'pad') || project.tracks[1];
+
+      // Replace clip notes with a clean 2-note phrase so we can inspect exact transformations
+      const baseClip = {
+        ...chordTrack.clips[0],
+        id: 'clip_session_src',
+        startTime: 0,
+        endTime: 4,
+        length: 4,
+        notes: [
+          {
+            id: 'n_root_0',
+            time: 0,
+            quantizedTime: 0,
+            duration: 1.0,
+            pitch: 60,
+            velocity: 100,
+            probability: 1,
+            isGhost: false,
+          },
+          {
+            id: 'n_root_2',
+            time: 2,
+            quantizedTime: 2,
+            duration: 1.0,
+            pitch: 62,
+            velocity: 96,
+            probability: 1,
+            isGhost: false,
+          },
+        ],
+      };
+
+      project = {
+        ...project,
+        arrangementLengthBars: 4,
+        tracks: project.tracks.map((t) =>
+          t.id === chordTrack.id
+            ? {
+                ...t,
+                clips: [baseClip],
+                devices: t.devices.filter(
+                  (d) => d.xmlTag !== 'MidiChord' && d.xmlTag !== 'MidiArpeggiator'
+                ),
+              }
+            : { ...t, clips: [] }
+        ),
+      };
+
+      // Insert MidiChord then MidiArpeggiator on chordTrack
+      project = insertDeviceIntoChannelStrip(project, chordTrack.id, 'MidiChord').project;
+      project = insertDeviceIntoChannelStrip(project, chordTrack.id, 'MidiArpeggiator').project;
+
+      // Store in Session slot 0 and launch at beat 0
+      project = storeArrangementClipInSession(project, chordTrack.id, 0, baseClip.id);
+      project = queueSessionLaunch(project, chordTrack.id, 0, 0, 4);
+
+      // 1. Session window events evaluate MidiChord -> MidiArpeggiator
+      const sessionEvts = evaluatePlayableSessionEvents(project, 0, 4, {
+        singleTrackId: chordTrack.id,
+      });
+      expect(sessionEvts.length).toBeGreaterThan(4);
+
+      // Source clip in sessionClips[0] remains untouched (2 editable source notes)
+      const storedSessionClip = project.tracks.find((t) => t.id === chordTrack.id)!.sessionClips![0];
+      expect(storedSessionClip.notes).toHaveLength(2);
+
+      // 2. Capture Session performance [0, 4) into Arrangement at beat 4 (Bar 2)
+      const captured = captureSessionPerformance(project, 0, 4, 4);
+      const capturedTrack = captured.tracks.find((t) => t.id === chordTrack.id)!;
+      const capturedClip = capturedTrack.clips.find((c) => c.startTime === 4)!;
+      expect(capturedClip).toBeDefined();
+      // Captured clip stores the 2 source performance notes (not pre-expanded arp notes!)
+      expect(capturedClip.notes).toHaveLength(2);
+
+      // 3. Evaluating Arrangement events on the captured clip [4, 8) produces identical pitch & duration sequence as Session [0, 4)
+      const arrangementEvts = evaluatePlayableArrangementEvents(captured, 4, 8, {
+        singleTrackId: chordTrack.id,
+      });
+      expect(arrangementEvts.length).toBe(sessionEvts.length);
+      expect(arrangementEvts.map((e) => e.note.pitch)).toEqual(
+        sessionEvts.map((e) => e.note.pitch)
+      );
+      expect(arrangementEvts.map((e) => Number((e.beat - 4).toFixed(4)))).toEqual(
+        sessionEvts.map((e) => Number(e.beat.toFixed(4)))
+      );
+
+      // 4. Bypassing MidiArpeggiator updates both Session and Arrangement evaluation identically
+      const arpDev = capturedTrack.devices.find((d) => d.xmlTag === 'MidiArpeggiator')!;
+      const bypassed = toggleChannelInsertBypass(captured, chordTrack.id, arpDev.id);
+      const sessionChordOnly = evaluatePlayableSessionEvents(bypassed, 0, 4, {
+        singleTrackId: chordTrack.id,
+      });
+      const arrChordOnly = evaluatePlayableArrangementEvents(bypassed, 4, 8, {
+        singleTrackId: chordTrack.id,
+      });
+      expect(sessionChordOnly.length).toBe(8); // 2 notes * 4 chord voices
+      expect(arrChordOnly.map((e) => e.note.pitch)).toEqual(
+        sessionChordOnly.map((e) => e.note.pitch)
+      );
+    });
+
+    it('verifies Section 3: audio-clock retiring chains keep stateful reverb/delay tails alive until retireAtAudioTime and bound queue size', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 505, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+      const trackId = project.tracks[0].id;
+      project = insertDeviceIntoChannelStrip(project, trackId, 'Reverb').project;
+
+      let simulatedNow = 1.0;
+      const fakeCtx: Record<string, unknown> = {
+        get currentTime() {
+          return simulatedNow;
+        },
+        sampleRate: 44100,
+        destination: {},
+      };
+      const makeGain = () => ({
+        context: fakeCtx,
+        gain: {
+          value: 1,
+          setValueAtTime: vi.fn(),
+          linearRampToValueAtTime: vi.fn(),
+          setTargetAtTime: vi.fn(),
+        },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      });
+      fakeCtx.createGain = vi.fn(makeGain);
+      fakeCtx.createBiquadFilter = vi.fn(() => ({
+        context: fakeCtx,
+        type: 'lowpass',
+        frequency: { value: 1000, setTargetAtTime: vi.fn() },
+        Q: { value: 0.707, setTargetAtTime: vi.fn() },
+        gain: { value: 0, setTargetAtTime: vi.fn() },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }));
+      fakeCtx.createDynamicsCompressor = vi.fn(() => ({
+        context: fakeCtx,
+        threshold: { value: -18, setTargetAtTime: vi.fn() },
+        knee: { value: 6 },
+        ratio: { value: 4, setTargetAtTime: vi.fn() },
+        attack: { value: 0.01, setTargetAtTime: vi.fn() },
+        release: { value: 0.1, setTargetAtTime: vi.fn() },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }));
+      fakeCtx.createWaveShaper = vi.fn(() => ({
+        context: fakeCtx,
+        curve: null,
+        oversample: 'none',
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }));
+      fakeCtx.createStereoPanner = vi.fn(() => ({
+        context: fakeCtx,
+        pan: { value: 0, setTargetAtTime: vi.fn() },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }));
+      fakeCtx.createDelay = vi.fn(() => ({
+        context: fakeCtx,
+        delayTime: { value: 0.1, setTargetAtTime: vi.fn() },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }));
+      fakeCtx.createConvolver = vi.fn(() => ({
+        context: fakeCtx,
+        buffer: null,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      }));
+      fakeCtx.createBuffer = vi.fn((_ch: number, len: number, sr: number) => ({
+        length: len,
+        sampleRate: sr,
+        getChannelData: () => new Float32Array(len),
+      }));
+
+      const ctxTyped = fakeCtx as unknown as BaseAudioContext;
+      const bus = buildAudioBusGraph(ctxTyped, 134, DEFAULT_MASTER_BUS, false);
+      const trackWithReverb = project.tracks.find((t) => t.id === trackId)!;
+      const revDev = trackWithReverb.devices.find((d) => d.xmlTag === 'Reverb')!;
+
+      const ch = getOrCreateTrackChannelRuntime(ctxTyped, bus, trackWithReverb, project);
+      expect(ch.retiringChains).toHaveLength(0);
+
+      // Remove Reverb while audio clock is at t = 1.0s
+      const afterRemove = removeChannelInsertDevice(project, trackId, revDev.id);
+      const trackWithoutReverb = afterRemove.tracks.find((t) => t.id === trackId)!;
+      getOrCreateTrackChannelRuntime(ctxTyped, bus, trackWithoutReverb, afterRemove);
+
+      // Stateful Reverb chain is now retiring (not yet disposed at t = 1.0s)
+      expect(ch.retiringChains).toHaveLength(1);
+      expect(ch.disposedProcessorIds.includes(revDev.id)).toBe(false);
+      const retireAt = ch.retiringChains[0].retireAtAudioTime;
+      expect(retireAt).toBeGreaterThan(simulatedNow + 0.5);
+
+      // Advance audio clock past retireAtAudioTime and prune
+      simulatedNow = retireAt + 0.05;
+      const pruned = pruneRetiringTrackChains(ch, simulatedNow);
+      expect(pruned).toBe(1);
+      expect(ch.retiringChains).toHaveLength(0);
+      expect(ch.disposedProcessorIds.includes(revDev.id)).toBe(true);
+    });
+
+    it('verifies Section 4: MusicalTimeService preserves 4-bar extent and supports 4096 bars across 5/4 and 7/8 meters', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 606, 4, 'sketch');
+      const project4Bar = parseAbletonXmlDom(xml, meta.name, xml);
+      expect(project4Bar.arrangementLengthBars).toBe(4);
+      // Must return 16 beats for a 4-bar project, never inflated to 64 beats (16 bars)
+      expect(MusicalTimeService.arrangementTotalBeats(project4Bar)).toBe(16);
+
+      // 5/4 meter up to bar 4096 and exclusive end boundary 4097.1.0
+      const meter54 = [{ bar: 1, beat: 0, numerator: 5, denominator: 4 }];
+      expect(maxSupportedBeatsForMeterMap(meter54)).toBe(4096 * 5);
+      const endBeat54 = barBeatTickToBeat(MAX_SUPPORTED_TIMELINE_BARS + 1, 1, 0, meter54);
+      expect(endBeat54).toBe(20480);
+      const roundTrip54 = beatToBarBeatTick(20475, meter54);
+      expect(roundTrip54.bar).toBe(4096);
+      expect(roundTrip54.beatInBar).toBe(1);
+
+      // 7/8 meter (3.5 quarter beats per bar) up to bar 4096 and rejecting beats beyond 4097.1.0
+      const meter78 = [{ bar: 1, beat: 0, numerator: 7, denominator: 8 }];
+      const maxBeats78 = maxSupportedBeatsForMeterMap(meter78);
+      expect(maxBeats78).toBe(4096 * 3.5);
+      expect(barBeatTickToBeat(MAX_SUPPORTED_TIMELINE_BARS + 1, 1, 0, meter78)).toBe(maxBeats78);
+      expect(() => beatToBarBeatTick(maxBeats78 + 4, meter78)).toThrow(/exceeds maximum supported/);
+    });
+
+    it('verifies Section 5: executable device contract enforces generatedDescriptor semantics, chain ordering, and registry integrity', () => {
+      const regReport = verifyDeviceRegistryIntegrity();
+      expect(regReport.valid).toBe(true);
+      expect(regReport.errors).toEqual([]);
+
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 707, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+      const trackId = project.tracks[0].id;
+      project = insertDeviceIntoChannelStrip(project, trackId, 'Reverb').project;
+      const track = project.tracks.find((t) => t.id === trackId)!;
+      const rev = track.devices.find((d) => d.xmlTag === 'Reverb')!;
+
+      // Corrupt generatedDescriptor while keeping sourceParameterHash intact
+      const corruptedRev: AbletonDevice = {
+        ...rev,
+        conversionRecord: {
+          ...rev.conversionRecord!,
+          generatedDescriptor: {
+            ...rev.conversionRecord!.generatedDescriptor,
+            decaySec: 999,
+          },
+        },
+      };
+      const ver = verifyDeviceConversionRecord(corruptedRev);
+      expect(ver.isValid).toBe(false);
+      expect(ver.status).toBe('invalidated');
+      expect(ver.reason).toMatch(/Generated descriptor value mismatch/);
+
+      // Violate chain ordering by placing an active instrument after an audio effect
+      const badOrderTrack = {
+        ...track,
+        devices: [
+          ...track.devices,
+          {
+            id: 'extra_inst_after_fx',
+            xmlTag: 'Operator',
+            displayName: 'Operator 2',
+            category: 'instrument' as const,
+            parameters: [{ name: 'Course', value: 1 }],
+            bypassed: false,
+          },
+        ],
+      };
+      const violations = validateTrackDeviceChainOrderingAndCounts(badOrderTrack);
+      expect(violations.length).toBeGreaterThan(0);
+      expect(() =>
+        assertExecutableInsertLimits({
+          ...project,
+          tracks: project.tracks.map((t) => (t.id === track.id ? badOrderTrack : t)),
+        })
+      ).toThrow(/DEVICE_CHAIN_CONTRACT/);
     });
   });
 });

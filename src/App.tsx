@@ -1,4 +1,5 @@
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
+import { ensureProjectDeviceConversions } from './engine/abletonCapabilityMatrix';
 import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
 import { saveExportBlob } from './services/fileExportService';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -214,13 +215,14 @@ export function enrichProjectWithAnalysis(
   rawState: AbletonProjectState,
   formId: MacroArrangementFormId
 ): AbletonProjectState {
-  const totalBars = rawState.arrangementLengthBars || 16;
-  const musicalProfile = analyzeProjectMusicalProfile(rawState);
-  const effectiveForm = rawState.lastGenerationIdentity?.macroFormId || formId;
-  const arrangementSections = rawState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
-  const alsValidation = validateAlsProjectCadence(rawState.rawXmlModified);
+  const syncedState = ensureProjectDeviceConversions(rawState);
+  const totalBars = syncedState.arrangementLengthBars || 16;
+  const musicalProfile = analyzeProjectMusicalProfile(syncedState);
+  const effectiveForm = syncedState.lastGenerationIdentity?.macroFormId || formId;
+  const arrangementSections = syncedState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, syncedState.lastGenerationIdentity?.compositionSeed ?? syncedState.generationSeed ?? 0);
+  const alsValidation = validateAlsProjectCadence(syncedState.rawXmlModified);
   return {
-    ...rawState,
+    ...syncedState,
     arrangementLengthBars: totalBars,
     musicalProfile,
     arrangementSections,
@@ -393,13 +395,14 @@ export default function App() {
       void projectQueueService.restorePersistedProjects().then(async restored => {
         if (cancelled) return;
         if (restored && projectRef.current === initial) {
-          projectRef.current = restored; setProject(restored);
-          setSelectedTrackId(restored.tracks[0]?.id || '1');
-          if (restored.lastGenerationIdentity) {
-            setActiveStrategyId(restored.lastGenerationIdentity.strategyId);
-            setActiveFormId(restored.lastGenerationIdentity.macroFormId);
+          const syncedRestored = ensureProjectDeviceConversions(restored);
+          projectRef.current = syncedRestored; setProject(syncedRestored);
+          setSelectedTrackId(syncedRestored.tracks[0]?.id || '1');
+          if (syncedRestored.lastGenerationIdentity) {
+            setActiveStrategyId(syncedRestored.lastGenerationIdentity.strategyId);
+            setActiveFormId(syncedRestored.lastGenerationIdentity.macroFormId);
           }
-          setStatusMessage(`Recovered ${restored.fileName}. ${projectQueueService.getPersistenceStatus().error || ''}`);
+          setStatusMessage(`Recovered ${syncedRestored.fileName}. ${projectQueueService.getPersistenceStatus().error || ''}`);
         } else if (!restored && projectQueueService.getAllItems().length === 0) {
           const recovery = projectQueueService.getPersistenceStatus();
           if (recovery.status === 'error') {
@@ -1493,8 +1496,19 @@ export default function App() {
       setIsPlaying(false);
       setMasterPeakDb(-60);
     } else {
-      try { synthEngine.start(false); setIsPlaying(synthEngine.getIsPlaying()); }
-      catch(error) { setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`); setIsPlaying(false); }
+      try {
+        const synced = ensureProjectDeviceConversions(projectRef.current);
+        if (synced !== projectRef.current) {
+          projectRef.current = synced;
+          setProject(synced);
+        }
+        synthEngine.setState(synced, humanization, transport, masterBus);
+        synthEngine.start(false);
+        setIsPlaying(synthEngine.getIsPlaying());
+      } catch(error) {
+        setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);
+        setIsPlaying(false);
+      }
     }
   };
 

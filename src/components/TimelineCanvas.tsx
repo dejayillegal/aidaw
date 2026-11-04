@@ -23,6 +23,7 @@ import { evaluateAutomationAtBeat, synthEngine } from '../engine/webAudioSynth';
 import { exportClipToMidiFile, downloadMidiFile } from '../engine/midiFileExporter';
 import { projectQueueService } from '../services/projectQueueService';
 import { spotPositionToBeat } from '../services/commandBus';
+import { beatToBarBeatTick, MusicalTimeService } from '../engine/timelineCoordinates';
 import { SelectedTrackAnalysisStrip } from './SelectedTrackAnalysisStrip';
 import {
   Activity,
@@ -300,7 +301,10 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
   const rawBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
   const totalBars: number = Math.max(4, Math.min(1024, Math.round(rawBars)));
-  const totalBeats = totalBars * 4;
+  const totalBeats = MusicalTimeService.arrangementTotalBeats(
+    { ...project, arrangementLengthBars: totalBars },
+    1
+  );
 
   // Compute visible bar window in the Arrangement View based on continuous zoom & scroll
   const visibleArrBars = Math.max(1, Math.min(totalBars, Math.round(totalBars / Math.max(0.25, arrangementZoom))));
@@ -1350,8 +1354,13 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     onToggleNoteInTrack(selectedTrack.id, rawTargetBeat, pitch, stepBeats);
   };
 
-  const currentBarNumber = Math.floor(playheadBeat / 4) + 1;
-  const currentBeatInBar = Math.floor(playheadBeat % 4) + 1;
+  const posCoord = beatToBarBeatTick(
+    Math.max(0, playheadBeat),
+    project.meterMap,
+    project.ppq
+  );
+  const currentBarNumber = posCoord.bar;
+  const currentBeatInBar = posCoord.beatInBar;
   const currentSixteenth = Math.floor((playheadBeat % 1) * 4) + 1;
   const liveAutoVal = Math.round(
     evaluateAutomationAtBeat(selectedTrack?.automationPoints, playheadBeat, totalBeats) * 100
@@ -1365,7 +1374,14 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           <span className="font-semibold text-slate-100">
             ARRANGEMENT ({totalBars} BARS · {totalBeats} BEATS)
           </span>
-          <span className="px-2 py-0.5 bg-[#0A0C10] border border-[#252D3D] rounded text-amber-400 font-semibold">
+          <span
+            className="px-2 py-0.5 bg-[#0A0C10] border border-[#252D3D] rounded text-amber-400 font-semibold"
+            title={`Canonical MusicalTimeService position: ${MusicalTimeService.formatBarBeatTick(
+              Math.max(0, playheadBeat),
+              project.meterMap,
+              project.ppq
+            )}`}
+          >
             POS: {currentBarNumber}.{currentBeatInBar}.{currentSixteenth}
           </span>
           <span className="hidden xl:inline text-emerald-400">
@@ -1716,6 +1732,14 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               width: `${Math.min(100, (visibleArrBars / Math.max(1, totalBars)) * 100)}%`,
             }}
             className="absolute inset-y-0 border border-amber-400 bg-amber-400/10 pointer-events-none"
+          />
+          {/* Smooth CSS-Transitioned Minimap Playhead */}
+          <div
+            data-testid="minimap-smooth-playhead"
+            style={{
+              left: `${Math.max(0, Math.min(100, (syncedPlayheadBeat / Math.max(1, totalBeats)) * 100))}%`,
+            }}
+            className="absolute inset-y-0 w-[1.5px] bg-amber-300 shadow-[0_0_6px_rgba(251,191,36,0.9)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none"
           />
         </div>
 
@@ -2129,7 +2153,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           </div>
 
           {/* Right Arrangement Canvas (Single Pointer Pipeline — No Double-Firing) */}
-          <div className="relative flex-1" style={{ height: `${totalArrangementHeight}px` }}>
+          <div className="relative flex-1 overflow-hidden" style={{ height: `${totalArrangementHeight}px` }}>
             <canvas
               ref={arrangementCanvasRef}
               onPointerDown={handleArrangementPointerDown}
@@ -2138,6 +2162,18 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               onPointerCancel={handleArrangementPointerUp}
               className="w-full h-full block cursor-pointer touch-none"
             />
+            {syncedPlayheadBeat >= arrStartBeat && syncedPlayheadBeat <= arrEndBeat && (
+              <div
+                data-testid="arrangement-smooth-playhead"
+                style={{
+                  left: `${Math.max(
+                    0,
+                    Math.min(100, ((syncedPlayheadBeat - arrStartBeat) / Math.max(1, arrVisibleBeats)) * 100)
+                  )}%`,
+                }}
+                className="absolute inset-y-0 w-[2px] -translate-x-1/2 bg-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.85)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none z-10"
+              />
+            )}
           </div>
         </div>
       </div>
@@ -2323,12 +2359,21 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       </div>
 
       {/* Lower Piano Roll + Velocity Stalks Canvas (Single Pointer Pipeline — No Double-Firing) */}
-      <div className="relative flex-1 min-h-[175px] w-full">
+      <div className="relative flex-1 min-h-[175px] w-full overflow-hidden">
         <canvas
           ref={pianoRollCanvasRef}
           onPointerDown={handlePianoRollPointerDown}
           className="w-full h-full block cursor-crosshair touch-none"
         />
+        {midiGridSync.isInsideWindow && (
+          <div
+            data-testid="pianoroll-smooth-playhead"
+            style={{
+              left: `${midiGridSync.playheadPixelX}px`,
+            }}
+            className="absolute inset-y-0 w-[2px] -translate-x-1/2 bg-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.85)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none z-10"
+          />
+        )}
       </div>
     </div>
   );

@@ -13,7 +13,11 @@ import {
 } from '../types/ableton';
 import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engine/alsXmlEngine';
 import { projectAudioSettings } from '../engine/projectDefaults';
-import { noteProbabilityPasses, sessionEventsInWindow } from '../engine/timelineCoordinates';
+import {
+  MusicalTimeService,
+  noteProbabilityPasses,
+  sessionEventsInWindow,
+} from '../engine/timelineCoordinates';
 
 export function storeArrangementClipInSession(project: AbletonProjectState, trackId: string, slot: number, clipId: string): AbletonProjectState {
   const track=project.tracks.find(t=>t.id===trackId), clip=track?.clips.find(c=>c.id===clipId);
@@ -31,7 +35,7 @@ export function queueSessionLaunch(project: AbletonProjectState, trackId: string
       (slot!==null && (!Number.isInteger(slot) || slot<0 || slot>3))) throw new Error('SESSION_INPUT: invalid launch');
   const tracks=project.tracks.filter(t=>(!t.locked || slot===null) && t.type==='midi' && (!trackId || t.id===trackId));
   if (trackId && !tracks.length) throw new Error('SESSION_TARGET: missing or locked track');
-  const atBeat=Math.ceil(nowBeat/quantizationBeats)*quantizationBeats;
+  const atBeat=MusicalTimeService.quantizeSessionLaunchBeat(nowBeat, quantizationBeats, project.ppq);
   const events=[...(project.session?.events || [])];
   for (const track of tracks) {
     const clip=slot===null?null:track.sessionClips?.[slot];
@@ -48,7 +52,7 @@ export function queueSessionLaunch(project: AbletonProjectState, trackId: string
 
 export function captureSessionPerformance(project: AbletonProjectState, fromBeat: number, toBeat: number, destinationBeat: number): AbletonProjectState {
   if (!Number.isFinite(destinationBeat) || destinationBeat<0 || toBeat-fromBeat>4096) throw new Error('SESSION_RANGE: capture must be at most 4096 beats with a finite destination');
-  const events=sessionEventsInWindow(project,fromBeat,toBeat).filter(e=>noteProbabilityPasses(e.sourceNote));
+  const events=sessionEventsInWindow(project,fromBeat,toBeat,{evaluateMidiChain:false}).filter(e=>noteProbabilityPasses(e.sourceNote));
   const offset=destinationBeat-fromBeat;
   const tracks=project.tracks.map(track=>{
     const scheduled=events.filter(e=>e.trackId===track.id);

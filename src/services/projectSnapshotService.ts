@@ -1,4 +1,5 @@
 import type { AbletonProjectState, HumanizationConfig, MasterBusConfig, TransportConfig } from '../types/ableton';
+import { ensureProjectDeviceConversions } from '../engine/abletonCapabilityMatrix';
 import { synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
 import { assertAudioSettings } from '../engine/audioSettingsContracts';
 import { assertProjectState } from '../engine/projectStateContracts';
@@ -56,7 +57,7 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
     }
     input.project = { ...input.project, audioSettings: input.audioSettings };
   } else if (input.audioSettings !== undefined) throw new Error('PROJECT_SNAPSHOT: duplicate settings owner');
-  const snapshot = exposedSnapshot(input.project);
+  const snapshot = exposedSnapshot(ensureProjectDeviceConversions(input.project));
   validate(snapshot);
   delete snapshot.project.audioSettings!.transport.arrangementLengthBars;
   snapshot.project.rawXmlModified = synchronizeProjectStateToXml(snapshot.project);

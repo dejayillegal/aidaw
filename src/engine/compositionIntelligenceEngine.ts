@@ -33,6 +33,7 @@ import {
   rootKeyToMidiBase,
   seededRandom,
 } from './alsXmlEngine';
+import { syncDeviceConversionRecord } from './abletonCapabilityMatrix';
 
 /** Track controls address every Arrangement clip; Session content is independent. */
 export function transformTrackArrangementNotes(
@@ -2460,7 +2461,7 @@ export function createUserTrackFromRole(
     soloed: false,
     vcaGroupId: role.vcaGroupId,
     devices: [
-      {
+      syncDeviceConversionRecord({
         id: `dev_${trackId}_inst`,
         xmlTag:
           role.archetype === 'kick'
@@ -2483,8 +2484,8 @@ export function createUserTrackFromRole(
           { name: 'FilterCutoffHz', value: role.defaultCutoffHz, unit: 'Hz', automationTarget: true },
           { name: 'FilterResonance', value: role.defaultResonance },
         ],
-      },
-      {
+      }),
+      syncDeviceConversionRecord({
         id: `dev_${trackId}_eq`,
         xmlTag: 'EQEight',
         displayName: 'EQ Eight Surgical Band',
@@ -2494,7 +2495,7 @@ export function createUserTrackFromRole(
           { name: 'BandLowHz', value: role.frequencyBandHz[0], unit: 'Hz' },
           { name: 'BandHighHz', value: role.frequencyBandHz[1], unit: 'Hz' },
         ],
-      },
+      }),
     ],
     clips: [],
     mixer: {

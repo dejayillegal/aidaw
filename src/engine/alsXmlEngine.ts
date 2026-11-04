@@ -3213,7 +3213,10 @@ export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: s
   }
   const parsed = parseAbletonXmlDom(new XMLSerializer().serializeToString(doc), fileName, baseline);
   parsed.tracks = parsed.tracks.map(track => ({ ...track, devices: [
-    ...(projected.get(track.id) || []).filter(device => !track.devices.some(native => native.id === device.id)), ...track.devices,
+    ...(projected.get(track.id) || [])
+      .filter(device => !track.devices.some(native => native.id === device.id))
+      .map(device => syncDeviceConversionRecord(device)),
+    ...track.devices,
   ] }));
   return parsed;
 }

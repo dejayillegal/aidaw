@@ -1,11 +1,13 @@
 import type {
   AbletonMidiClip,
   AbletonProjectState,
+  AbletonTrack,
   MeterChangeEvent,
   MidiNoteEvent,
   TempoAutomationPoint,
   TransportConfig,
 } from '../types/ableton';
+import { evaluateTrackMidiDeviceChain } from './abletonCapabilityMatrix';
 
 /**
  * Canonical integer resolution: 960 ticks per quarter note (PPQ).
@@ -28,17 +30,35 @@ export function assertValidPpq(ppq: number): void {
   }
 }
 
-export function maxSupportedTicksForPpq(ppq = CANONICAL_PPQ): number {
-  assertValidPpq(ppq);
-  return MAX_SUPPORTED_TIMELINE_BARS * 4 * ppq;
+export function maxSupportedBeatsForMeterMap(meterMap?: MeterChangeEvent[]): number {
+  if (!meterMap || meterMap.length === 0) {
+    return MAX_SUPPORTED_TIMELINE_BARS * 4;
+  }
+  const meters = validateAndNormalizeMeterMap(meterMap);
+  const last = meters[meters.length - 1];
+  const quarterBeatsPerBar = last.numerator * (4 / last.denominator);
+  return last.beat + (MAX_SUPPORTED_TIMELINE_BARS + 1 - last.bar) * quarterBeatsPerBar;
 }
 
-export function beatsToTicks(beats: number, ppq = CANONICAL_PPQ): number {
+export function maxSupportedTicksForPpq(
+  ppq = CANONICAL_PPQ,
+  meterMap?: MeterChangeEvent[]
+): number {
+  assertValidPpq(ppq);
+  const maxBeats = maxSupportedBeatsForMeterMap(meterMap);
+  return Math.round(maxBeats * ppq);
+}
+
+export function beatsToTicks(
+  beats: number,
+  ppq = CANONICAL_PPQ,
+  meterMap?: MeterChangeEvent[]
+): number {
   assertValidPpq(ppq);
   if (!Number.isFinite(beats) || beats < 0) {
     throw new Error('TIMELINE_INPUT: invalid beat or PPQ coordinate');
   }
-  const maxTicks = maxSupportedTicksForPpq(ppq);
+  const maxTicks = maxSupportedTicksForPpq(ppq, meterMap);
   const rounded = Math.round(beats * ppq);
   if (!Number.isSafeInteger(rounded) || rounded > maxTicks) {
     throw new Error(
@@ -48,12 +68,16 @@ export function beatsToTicks(beats: number, ppq = CANONICAL_PPQ): number {
   return rounded;
 }
 
-export function ticksToBeats(ticks: number, ppq = CANONICAL_PPQ): number {
+export function ticksToBeats(
+  ticks: number,
+  ppq = CANONICAL_PPQ,
+  meterMap?: MeterChangeEvent[]
+): number {
   assertValidPpq(ppq);
   if (!Number.isFinite(ticks) || ticks < 0) {
     throw new Error('TIMELINE_INPUT: invalid tick or PPQ coordinate');
   }
-  const maxTicks = maxSupportedTicksForPpq(ppq);
+  const maxTicks = maxSupportedTicksForPpq(ppq, meterMap);
   const rounded = Math.round(ticks);
   if (!Number.isSafeInteger(rounded) || rounded > maxTicks) {
     throw new Error(
@@ -175,28 +199,40 @@ export function beatToBarBeatTick(
   if (!Number.isFinite(beat) || beat < 0) {
     throw new Error('TIMELINE_INPUT: beat must be a finite non-negative number');
   }
-  const totalTicks = beatsToTicks(beat, ppq);
   const meters = validateAndNormalizeMeterMap(meterMap);
+  const totalTicks = beatsToTicks(beat, ppq, meters);
   let active = meters[0];
   for (const candidate of meters) {
-    if (beatsToTicks(candidate.beat, ppq) <= totalTicks) {
+    if (beatsToTicks(candidate.beat, ppq, meters) <= totalTicks) {
       active = candidate;
     } else {
       break;
     }
   }
   const quarterBeatsPerBar = active.numerator * (4 / active.denominator);
-  const ticksPerBar = beatsToTicks(quarterBeatsPerBar, ppq);
+  const ticksPerBar = Math.max(1, Math.round(quarterBeatsPerBar * ppq));
   const ticksPerMeterBeat = Math.max(1, Math.round((4 / active.denominator) * ppq));
-  const deltaTicks = Math.max(0, totalTicks - beatsToTicks(active.beat, ppq));
+  const deltaTicks = Math.max(0, totalTicks - beatsToTicks(active.beat, ppq, meters));
   const barOffset = Math.floor(deltaTicks / ticksPerBar);
   const remTicksInBar = deltaTicks - barOffset * ticksPerBar;
   const beatIndexInBar = Math.floor(remTicksInBar / ticksPerMeterBeat);
   const tickInBeat = remTicksInBar - beatIndexInBar * ticksPerMeterBeat;
+  const resolvedBar = active.bar + barOffset;
+  const resolvedBeatInBar = beatIndexInBar + 1;
+
+  const isExclusiveMaxEndBoundary =
+    resolvedBar === MAX_SUPPORTED_TIMELINE_BARS + 1 &&
+    resolvedBeatInBar === 1 &&
+    tickInBeat === 0;
+  if (resolvedBar > MAX_SUPPORTED_TIMELINE_BARS && !isExclusiveMaxEndBoundary) {
+    throw new Error(
+      `TIMELINE_INPUT: beat ${beat} resolves to bar ${resolvedBar} exceeding maximum supported bar bound (${MAX_SUPPORTED_TIMELINE_BARS})`
+    );
+  }
 
   return {
-    bar: active.bar + barOffset,
-    beatInBar: beatIndexInBar + 1,
+    bar: resolvedBar,
+    beatInBar: resolvedBeatInBar,
     tickInBeat,
     totalTicks,
     numerator: active.numerator,
@@ -253,7 +289,7 @@ export function barBeatTickToBeat(
   const beatOffset = (beatInBar - 1) * quarterBeatsPerMeterBeat;
   const tickBeats = tickInBeat / ppq;
   const totalBeats = barBeats + beatOffset + tickBeats;
-  beatsToTicks(totalBeats, ppq);
+  beatsToTicks(totalBeats, ppq, meters);
   return totalBeats;
 }
 
@@ -417,34 +453,319 @@ export interface SessionScheduledNote {
 }
 
 /** Pure projection into the current scheduler window. Does not own a clock or mutate clips. */
-export function sessionEventsInWindow(project: AbletonProjectState, fromBeat: number, toBeat: number): SessionScheduledNote[] {
-  if (!Number.isFinite(fromBeat) || !Number.isFinite(toBeat) || fromBeat < 0 || toBeat <= fromBeat) throw new Error('SESSION_RANGE: invalid window');
+export function sessionEventsInWindow(
+  project: AbletonProjectState,
+  fromBeat: number,
+  toBeat: number,
+  options?: { evaluateMidiChain?: boolean }
+): SessionScheduledNote[] {
+  if (!Number.isFinite(fromBeat) || !Number.isFinite(toBeat) || fromBeat < 0 || toBeat <= fromBeat) {
+    throw new Error('SESSION_RANGE: invalid window');
+  }
+  const evaluateMidiChain = options?.evaluateMidiChain !== false;
   const result: SessionScheduledNote[] = [];
   let work = 0;
   for (const track of project.tracks) {
-    const launches = (project.session?.events || []).filter(e=>e.trackId===track.id)
-      .map((event,index)=>({event,index})).sort((a,b)=>a.event.atBeat-b.event.atBeat || a.index-b.index).map(x=>x.event);
-    for (let index=0; index<launches.length; index++) {
-      const launch = launches[index], stop = launches[index+1]?.atBeat ?? Infinity;
+    const launches = (project.session?.events || [])
+      .filter((e) => e.trackId === track.id)
+      .map((event, index) => ({ event, index }))
+      .sort((a, b) => a.event.atBeat - b.event.atBeat || a.index - b.index)
+      .map((x) => x.event);
+    for (let index = 0; index < launches.length; index++) {
+      const launch = launches[index];
+      const stop = launches[index + 1]?.atBeat ?? Infinity;
       if (!launch.clipId || stop <= fromBeat || launch.atBeat >= toBeat) continue;
-      const clip = track.sessionClips?.find(c=>c.id===launch.clipId);
-      if (!clip || !(clip.length>0)) throw new Error('SESSION_TARGET: missing clip');
-      const firstCycle=Math.max(0,Math.floor((fromBeat-launch.atBeat)/clip.length));
-      const lastCycle=Math.floor((Math.min(toBeat,stop)-launch.atBeat)/clip.length);
-      for (let cycle=firstCycle;cycle<=lastCycle;cycle++) {
-        if (++work>100000) throw new Error('SESSION_DENSITY: window exceeds 100000 clip/note visits; use a smaller capture range');
-        const periodStart=launch.atBeat+cycle*clip.length, periodEnd=Math.min(periodStart+clip.length,stop);
+      const clip = track.sessionClips?.find((c) => c.id === launch.clipId);
+      if (!clip || !(clip.length > 0)) throw new Error('SESSION_TARGET: missing clip');
+      const firstCycle = Math.max(0, Math.floor((fromBeat - launch.atBeat) / clip.length));
+      const lastCycle = Math.floor((Math.min(toBeat, stop) - launch.atBeat) / clip.length);
+      for (let cycle = firstCycle; cycle <= lastCycle; cycle++) {
+        if (++work > 100000) {
+          throw new Error(
+            'SESSION_DENSITY: window exceeds 100000 clip/note visits; use a smaller capture range'
+          );
+        }
+        const periodStart = launch.atBeat + cycle * clip.length;
+        const periodEnd = Math.min(periodStart + clip.length, stop);
+        const sourceMap = new Map<string, MidiNoteEvent>();
+        const projectedNotes: MidiNoteEvent[] = [];
+
         for (const sourceNote of clip.notes) {
-          if (++work>100000) throw new Error('SESSION_DENSITY: window exceeds 100000 clip/note visits; use a smaller capture range');
-          const time=periodStart+sourceNote.time-clip.startTime;
-          if (!noteIsInsideClip(sourceNote,clip) || time<fromBeat || time>=toBeat || time>=stop) continue;
-          result.push({trackId:track.id,eventId:launch.id,cycle,clipId:clip.id,periodStart,periodEnd,endBeat:stop,sourceNote,
-            note:{...sourceNote,time,quantizedTime:periodStart+sourceNote.quantizedTime-clip.startTime,duration:Math.min(sourceNote.duration,stop-time)}});
+          if (++work > 100000) {
+            throw new Error(
+              'SESSION_DENSITY: window exceeds 100000 clip/note visits; use a smaller capture range'
+            );
+          }
+          if (!noteIsInsideClip(sourceNote, clip)) continue;
+          const time = periodStart + sourceNote.time - clip.startTime;
+          if (time >= stop) continue;
+          sourceMap.set(sourceNote.id, sourceNote);
+          projectedNotes.push({
+            ...sourceNote,
+            sourceNoteId: sourceNote.id,
+            time,
+            quantizedTime: periodStart + sourceNote.quantizedTime - clip.startTime,
+            duration: Math.min(sourceNote.duration, stop - time),
+          });
+        }
+
+        const effectiveNotes = evaluateMidiChain
+          ? evaluateTrackMidiDeviceChain(track, projectedNotes, periodStart, periodEnd)
+          : projectedNotes;
+
+        for (const effNote of effectiveNotes) {
+          if (++work > 100000) {
+            throw new Error(
+              'SESSION_DENSITY: window exceeds 100000 clip/note visits; use a smaller capture range'
+            );
+          }
+          if (effNote.time < fromBeat || effNote.time >= toBeat || effNote.time >= stop) continue;
+          const origSource =
+            sourceMap.get(effNote.sourceNoteId || effNote.id) || effNote;
+          result.push({
+            trackId: track.id,
+            eventId: launch.id,
+            cycle,
+            clipId: clip.id,
+            periodStart,
+            periodEnd,
+            endBeat: stop,
+            sourceNote: origSource,
+            note: {
+              ...effNote,
+              duration: Math.min(effNote.duration, stop - effNote.time),
+            },
+          });
         }
       }
     }
   }
-  return result.sort((a,b)=>a.note.time-b.note.time || a.trackId.localeCompare(b.trackId));
+  return result.sort((a, b) => a.note.time - b.note.time || a.trackId.localeCompare(b.trackId));
+}
+
+export interface EvaluatedPlayableEvent {
+  mode: 'arrangement' | 'session';
+  track: AbletonTrack;
+  trackId: string;
+  clipId: string;
+  eventId?: string;
+  cycle?: number;
+  dedupKey: string;
+  sourceNote: MidiNoteEvent;
+  note: MidiNoteEvent;
+  beat: number;
+  durationBeats: number;
+  startTimeSeconds: number;
+  durationSeconds: number;
+  stopBeat?: number;
+  stopTimeSeconds?: number;
+}
+
+/**
+ * Shared event-evaluation boundary for Arrangement clips across live playback, offline WAV export,
+ * and deterministic PCM synthesis. Evaluates clip boundary containment, deterministic note probability,
+ * MIDI device chain (MidiChord / MidiArpeggiator in chain order), and tempo-dependent seconds mapping.
+ */
+export function evaluatePlayableArrangementEvents(
+  project: AbletonProjectState,
+  fromBeat = 0,
+  toBeat?: number,
+  options?: {
+    loopGeneration?: number;
+    singleTrackId?: string;
+    includeProbability?: boolean;
+    evaluateMidiChain?: boolean;
+  }
+): EvaluatedPlayableEvent[] {
+  const maxBeats =
+    typeof toBeat === 'number' && Number.isFinite(toBeat)
+      ? toBeat
+      : MusicalTimeService.arrangementTotalBeats(project, 1);
+  if (!Number.isFinite(fromBeat) || fromBeat < 0 || maxBeats < fromBeat) {
+    throw new Error('TIMELINE_INPUT: invalid arrangement evaluation window');
+  }
+  const loopGen = options?.loopGeneration ?? 0;
+  const checkProb = options?.includeProbability !== false;
+  const evalMidi = options?.evaluateMidiChain !== false;
+  const tracks = options?.singleTrackId
+    ? project.tracks.filter((t) => t.id === options.singleTrackId)
+    : project.tracks;
+
+  const events: EvaluatedPlayableEvent[] = [];
+  for (const track of tracks) {
+    for (const clip of track.clips || []) {
+      const clipStartBeat = clip.startTime;
+      const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
+      if (clipEndBeat <= fromBeat || clipStartBeat >= maxBeats) continue;
+
+      const sourceMap = new Map<string, MidiNoteEvent>();
+      const eligibleNotes: MidiNoteEvent[] = [];
+      for (const rawNote of clip.notes || []) {
+        if (
+          !Number.isFinite(rawNote.time) ||
+          !Number.isFinite(rawNote.pitch) ||
+          !Number.isFinite(rawNote.duration) ||
+          !Number.isFinite(rawNote.velocity)
+        ) {
+          throw new Error('RENDER_NOTE: non-finite note data');
+        }
+        if (!noteIsInsideClip(rawNote, clip)) continue;
+        if (checkProb && !noteProbabilityPasses(rawNote)) continue;
+        sourceMap.set(rawNote.id, rawNote);
+        eligibleNotes.push(rawNote);
+      }
+
+      const effectiveClipEnd = Math.min(maxBeats, clipEndBeat);
+      const transformedNotes = evalMidi
+        ? evaluateTrackMidiDeviceChain(track, eligibleNotes, clipStartBeat, effectiveClipEnd)
+        : eligibleNotes;
+
+      for (const note of transformedNotes) {
+        if (note.time < fromBeat || note.time >= maxBeats || note.time >= effectiveClipEnd) {
+          continue;
+        }
+        const sourceNote = sourceMap.get(note.sourceNoteId || note.id) || note;
+        const clampedDurationBeats = Math.max(
+          0.01,
+          Math.min(note.duration, effectiveClipEnd - note.time)
+        );
+        const startTimeSeconds = beatToSecondsWithTempoMap(
+          note.time,
+          project.tempo,
+          project.tempoMap
+        );
+        const durationSeconds = MusicalTimeService.noteDurationSeconds(
+          note.time,
+          clampedDurationBeats,
+          project.tempo,
+          project.tempoMap
+        );
+        events.push({
+          mode: 'arrangement',
+          track,
+          trackId: track.id,
+          clipId: clip.id,
+          dedupKey: `${loopGen}_${track.id}_${clip.id}_${note.id}`,
+          sourceNote,
+          note: {
+            ...note,
+            duration: clampedDurationBeats,
+          },
+          beat: note.time,
+          durationBeats: clampedDurationBeats,
+          startTimeSeconds,
+          durationSeconds,
+        });
+      }
+    }
+  }
+
+  return events.sort(
+    (a, b) =>
+      a.beat - b.beat ||
+      a.trackId.localeCompare(b.trackId) ||
+      a.note.pitch - b.note.pitch
+  );
+}
+
+/**
+ * Shared event-evaluation boundary for Session performance windows.
+ * Evaluates Session launch quantization, clip loop cycles, retrigger/stop truncation,
+ * source note probability, and track MIDI device chain (MidiChord / MidiArpeggiator).
+ */
+export function evaluatePlayableSessionEvents(
+  project: AbletonProjectState,
+  fromBeat: number,
+  toBeat: number,
+  options?: {
+    singleTrackId?: string;
+    includeProbability?: boolean;
+    evaluateMidiChain?: boolean;
+  }
+): EvaluatedPlayableEvent[] {
+  const checkProb = options?.includeProbability !== false;
+  const evalMidi = options?.evaluateMidiChain !== false;
+  const rawWindowEvents = sessionEventsInWindow(project, fromBeat, toBeat, {
+    evaluateMidiChain: evalMidi,
+  });
+
+  const events: EvaluatedPlayableEvent[] = [];
+  for (const item of rawWindowEvents) {
+    if (options?.singleTrackId && item.trackId !== options.singleTrackId) continue;
+    if (checkProb && !noteProbabilityPasses(item.sourceNote)) continue;
+    const track = project.tracks.find((t) => t.id === item.trackId);
+    if (!track) continue;
+
+    const startTimeSeconds = beatToSecondsWithTempoMap(
+      item.note.time,
+      project.tempo,
+      project.tempoMap
+    );
+    const durationSeconds = MusicalTimeService.noteDurationSeconds(
+      item.note.time,
+      item.note.duration,
+      project.tempo,
+      project.tempoMap
+    );
+    const stopTimeSeconds = Number.isFinite(item.endBeat)
+      ? beatToSecondsWithTempoMap(item.endBeat, project.tempo, project.tempoMap)
+      : undefined;
+
+    events.push({
+      mode: 'session',
+      track,
+      trackId: item.trackId,
+      clipId: item.clipId,
+      eventId: item.eventId,
+      cycle: item.cycle,
+      dedupKey: `s_${item.note.time}_${item.eventId}_${item.cycle}_${item.note.id}`,
+      sourceNote: item.sourceNote,
+      note: item.note,
+      beat: item.note.time,
+      durationBeats: item.note.duration,
+      startTimeSeconds,
+      durationSeconds,
+      stopBeat: item.endBeat,
+      stopTimeSeconds,
+    });
+  }
+
+  return events.sort(
+    (a, b) =>
+      a.beat - b.beat ||
+      a.trackId.localeCompare(b.trackId) ||
+      a.note.pitch - b.note.pitch
+  );
+}
+
+/**
+ * Unified playable event evaluation boundary across Arrangement and Session modes.
+ */
+export function evaluatePlayableProjectEvents(
+  project: AbletonProjectState,
+  fromBeat = 0,
+  toBeat?: number,
+  options?: {
+    mode?: 'arrangement' | 'session';
+    loopGeneration?: number;
+    singleTrackId?: string;
+    includeProbability?: boolean;
+    evaluateMidiChain?: boolean;
+  }
+): EvaluatedPlayableEvent[] {
+  const effectiveMode =
+    options?.mode ??
+    (project.audioSettings?.transport.arrangementMode === 'session'
+      ? 'session'
+      : 'arrangement');
+  if (effectiveMode === 'session') {
+    const endBeat =
+      typeof toBeat === 'number' && Number.isFinite(toBeat)
+        ? toBeat
+        : MusicalTimeService.arrangementTotalBeats(project, 1);
+    return evaluatePlayableSessionEvents(project, fromBeat, endBeat, options);
+  }
+  return evaluatePlayableArrangementEvents(project, fromBeat, toBeat, options);
 }
 
 /** Compatibility boundary for the existing absolute-beat domain. No second clock or stored time state. */
@@ -524,21 +845,24 @@ export const MusicalTimeService = {
       AbletonProjectState,
       'arrangementLengthBars' | 'audioSettings' | 'tracks' | 'meterMap' | 'ppq'
     >,
-    minBars = 16
+    minBars = 1,
+    includeClipExtent = false
   ): number {
     const ppq = project.ppq || CANONICAL_PPQ;
-    const declaredBars = Math.max(
-      minBars,
-      project.audioSettings?.transport?.arrangementLengthBars || 0,
-      project.arrangementLengthBars || 0
-    );
+    const rawDeclaredBars =
+      project.arrangementLengthBars ||
+      project.audioSettings?.transport?.arrangementLengthBars ||
+      16;
+    const declaredBars = Math.max(minBars, rawDeclaredBars);
     const declaredBeats = this.barsToBeats(declaredBars, 1, project.meterMap, ppq);
     let maxClipEndBeat = 0;
-    for (const track of project.tracks || []) {
-      for (const clip of track.clips || []) {
-        const endBeat = (clip.startTime || 0) + (clip.length || 0);
-        if (endBeat > maxClipEndBeat) {
-          maxClipEndBeat = endBeat;
+    if (includeClipExtent) {
+      for (const track of project.tracks || []) {
+        for (const clip of track.clips || []) {
+          const endBeat = (clip.startTime || 0) + (clip.length || 0);
+          if (endBeat > maxClipEndBeat) {
+            maxClipEndBeat = endBeat;
+          }
         }
       }
     }

@@ -5,6 +5,7 @@ import {
   MAX_SIXTEENTH_SWING_SHIFT_BEATS,
   seededRandom,
 } from './alsXmlEngine';
+import { beatsToTicks, SUPPORTED_PPQ_RESOLUTIONS } from './timelineCoordinates';
 
 /**
  * Standard MIDI File (SMF) Type 0 / Type 1 Exporter.
@@ -129,6 +130,11 @@ export function exportClipToMidiFile(
       : 0;
 
   const exportedNotes: ExportedMidiNoteSummary[] = [];
+  const isCanonicalPpqSupported = (SUPPORTED_PPQ_RESOLUTIONS as readonly number[]).includes(ppq);
+  const toTick = (beatVal: number): number =>
+    isCanonicalPpqSupported
+      ? beatsToTicks(Math.max(0, beatVal), ppq)
+      : Math.max(0, Math.round(beatVal * ppq));
 
   clip.notes.forEach((note, idx) => {
     const rawGridBeat =
@@ -137,7 +143,7 @@ export function exportClipToMidiFile(
         : Math.max(0, Math.round(note.time * 4) / 4);
     // Ensure quantizedBeat is strictly snapped to the nearest 1/32nd or 1/16th grid
     const quantizedBeat = Math.max(0, Math.round(rawGridBeat * 8) / 8);
-    const quantizedTick = Math.max(0, Math.round(quantizedBeat * ppq));
+    const quantizedTick = toTick(quantizedBeat);
 
     let effectiveStartBeat = quantizedBeat;
     let effectiveVelocity = Math.max(1, Math.min(127, Math.round(note.velocity)));

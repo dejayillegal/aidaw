@@ -1169,20 +1169,180 @@ export function verifyDeviceConversionRecord(device: AbletonDevice): {
       reason: `Conversion record for <${device.xmlTag}> (${device.id}) is marked invalidated`,
     };
   }
-  const expectedHash = computeDeviceParameterHash(device);
+  const expectedRecord = buildDeviceConversionRecord(device);
+  const expectedHash = expectedRecord.sourceParameterHash;
   if (
     rec.sourceDeviceId !== device.id ||
     rec.xmlTag !== device.xmlTag ||
     rec.sourceParameterHash !== expectedHash ||
-    rec.conversionVersion !== CURRENT_DEVICE_CONVERSION_VERSION
+    rec.conversionVersion !== CURRENT_DEVICE_CONVERSION_VERSION ||
+    rec.conversionKind !== expectedRecord.conversionKind
   ) {
     return {
       isValid: false,
       status: 'invalidated',
-      reason: `Parameter hash mismatch on <${device.xmlTag}> (${device.id}): expected ${expectedHash}, got ${rec.sourceParameterHash}`,
+      reason: `Parameter hash or conversion kind mismatch on <${device.xmlTag}> (${device.id}): expected ${expectedHash} (${expectedRecord.conversionKind}), got ${rec.sourceParameterHash} (${rec.conversionKind})`,
     };
   }
+  const actualDesc = rec.generatedDescriptor || {};
+  const expectedDesc = expectedRecord.generatedDescriptor || {};
+  const expectedKeys = Object.keys(expectedDesc);
+  const actualKeys = Object.keys(actualDesc);
+  if (expectedKeys.length !== actualKeys.length) {
+    return {
+      isValid: false,
+      status: 'invalidated',
+      reason: `Generated descriptor key count mismatch on <${device.xmlTag}> (${device.id}): expected ${expectedKeys.length} keys, got ${actualKeys.length}`,
+    };
+  }
+  for (const key of expectedKeys) {
+    const expVal = expectedDesc[key];
+    const actVal = actualDesc[key];
+    if (typeof expVal === 'number' && typeof actVal === 'number') {
+      if (!Number.isFinite(actVal) || Math.abs(expVal - actVal) > 1e-6) {
+        return {
+          isValid: false,
+          status: 'invalidated',
+          reason: `Generated descriptor value mismatch on <${device.xmlTag}> (${device.id}) for "${key}": expected ${expVal}, got ${actVal}`,
+        };
+      }
+    } else if (expVal !== actVal) {
+      return {
+        isValid: false,
+        status: 'invalidated',
+        reason: `Generated descriptor value mismatch on <${device.xmlTag}> (${device.id}) for "${key}": expected ${String(expVal)}, got ${String(actVal)}`,
+      };
+    }
+  }
   return { isValid: true, status: 'valid', reason: 'Verified conversion record' };
+}
+
+export interface DeviceChainOrderingViolation {
+  trackId: string;
+  trackName: string;
+  deviceId: string;
+  xmlTag: string;
+  violationKind: 'ordering' | 'max_instances';
+  reason: string;
+}
+
+/**
+ * Validates that active executable/converted devices on a track obey Ableton signal-flow ordering:
+ *   1. midi_processor (MidiChord, MidiArpeggiator) before instrument
+ *   2. instrument before audio_effect
+ * and that no device tag exceeds its declared `maxInstancesPerTrack`.
+ */
+export function validateTrackDeviceChainOrderingAndCounts(
+  track: Pick<AbletonTrack, 'id' | 'name' | 'type' | 'devices'>
+): DeviceChainOrderingViolation[] {
+  const violations: DeviceChainOrderingViolation[] = [];
+  const countsByTag = new Map<string, number>();
+  let seenInstrument = false;
+  let seenAudioEffect = false;
+
+  for (const dev of track.devices || []) {
+    if (dev.bypassed) continue;
+    const tag = dev.xmlTag || dev.type || '';
+    const contract = ABLETON_DEVICE_REGISTRY[tag];
+    if (!contract) continue;
+
+    if (contract.status === 'executable' || contract.status === 'converted') {
+      const nextCount = (countsByTag.get(tag) || 0) + 1;
+      countsByTag.set(tag, nextCount);
+      if (contract.maxInstancesPerTrack > 0 && nextCount > contract.maxInstancesPerTrack) {
+        violations.push({
+          trackId: track.id,
+          trackName: track.name,
+          deviceId: dev.id,
+          xmlTag: tag,
+          violationKind: 'max_instances',
+          reason: `Track "${track.name}" has ${nextCount} active instances of <${tag}> (maxInstancesPerTrack=${contract.maxInstancesPerTrack}).`,
+        });
+      }
+
+      if (contract.kind === 'midi_processor') {
+        if (track.type === 'audio') {
+          violations.push({
+            trackId: track.id,
+            trackName: track.name,
+            deviceId: dev.id,
+            xmlTag: tag,
+            violationKind: 'ordering',
+            reason: `Audio track "${track.name}" cannot execute MIDI processor <${tag}> (${dev.id}).`,
+          });
+        } else if (seenInstrument || seenAudioEffect) {
+          violations.push({
+            trackId: track.id,
+            trackName: track.name,
+            deviceId: dev.id,
+            xmlTag: tag,
+            violationKind: 'ordering',
+            reason: `MIDI processor <${tag}> (${dev.id}) on track "${track.name}" must precede instrument and audio effect devices.`,
+          });
+        }
+      } else if (contract.kind === 'instrument') {
+        if (seenInstrument) {
+          violations.push({
+            trackId: track.id,
+            trackName: track.name,
+            deviceId: dev.id,
+            xmlTag: tag,
+            violationKind: 'ordering',
+            reason: `Track "${track.name}" has multiple active instrument devices (<${tag}> ${dev.id}); only 1 active instrument per track is supported.`,
+          });
+        }
+        seenInstrument = true;
+      } else if (contract.kind === 'audio_effect') {
+        seenAudioEffect = true;
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Verifies that every entry in ABLETON_DEVICE_REGISTRY has complete, consistent contract fields
+ * and matches its classification set.
+ */
+export function verifyDeviceRegistryIntegrity(): {
+  valid: boolean;
+  totalRegistered: number;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  const entries = Object.values(ABLETON_DEVICE_REGISTRY);
+  for (const entry of entries) {
+    if (!entry.xmlTag || !entry.displayName) {
+      errors.push(`Missing xmlTag or displayName on registry entry`);
+    }
+    const classified = classifyAbletonDeviceTag(entry.xmlTag);
+    if (entry.status !== classified) {
+      errors.push(
+        `Status mismatch for <${entry.xmlTag}>: registry=${entry.status}, classify=${classified}`
+      );
+    }
+    if (entry.status === 'converted' && !entry.requiresConversionRecord) {
+      errors.push(`Converted device <${entry.xmlTag}> must require a conversionRecord`);
+    }
+    if (
+      (entry.status === 'executable' || entry.status === 'converted') &&
+      entry.parameterSpecs.length === 0
+    ) {
+      errors.push(`Executable/converted device <${entry.xmlTag}> has no parameterSpecs`);
+    }
+    if (!entry.bypassBehavior || !entry.parameterUpdateBehavior || !entry.disposalBehavior) {
+      errors.push(`Device <${entry.xmlTag}> is missing lifecycle behavior declarations`);
+    }
+    if (!entry.requiredTests || entry.requiredTests.length === 0) {
+      errors.push(`Device <${entry.xmlTag}> has no requiredTests`);
+    }
+  }
+  return {
+    valid: errors.length === 0,
+    totalRegistered: entries.length,
+    errors,
+  };
 }
 
 export function syncDeviceConversionRecord(device: AbletonDevice): AbletonDevice {
@@ -1357,6 +1517,7 @@ export function evaluateTrackMidiDeviceChain(
 export interface ProjectCapabilityAuditReport {
   executableTrackCount: number;
   insertLimitExceededTracks: { trackId: string; trackName: string; deviceCount: number; maxAllowed: number }[];
+  deviceOrderingOrCountViolations: DeviceChainOrderingViolation[];
   unsupportedDevices: { trackId: string; trackName: string; deviceId: string; xmlTag: string }[];
   preservedOnlyDevices: { trackId: string; trackName: string; deviceId: string; xmlTag: string }[];
   convertedDevices: {
@@ -1383,6 +1544,7 @@ export interface ProjectCapabilityAuditReport {
 
 export function auditProjectCapabilities(project: AbletonProjectState): ProjectCapabilityAuditReport {
   const insertLimitExceededTracks: ProjectCapabilityAuditReport['insertLimitExceededTracks'] = [];
+  const deviceOrderingOrCountViolations: DeviceChainOrderingViolation[] = [];
   const unsupportedDevices: ProjectCapabilityAuditReport['unsupportedDevices'] = [];
   const preservedOnlyDevices: ProjectCapabilityAuditReport['preservedOnlyDevices'] = [];
   const convertedDevices: ProjectCapabilityAuditReport['convertedDevices'] = [];
@@ -1403,6 +1565,12 @@ export function auditProjectCapabilities(project: AbletonProjectState): ProjectC
       );
     } else {
       executableTrackCount++;
+    }
+
+    const orderingViolations = validateTrackDeviceChainOrderingAndCounts(track);
+    for (const v of orderingViolations) {
+      deviceOrderingOrCountViolations.push(v);
+      warnings.push(`DEVICE_CHAIN_CONTRACT: ${v.reason}`);
     }
 
     for (const dev of track.devices) {
@@ -1461,6 +1629,7 @@ export function auditProjectCapabilities(project: AbletonProjectState): ProjectC
 
   const canRenderApproximation =
     insertLimitExceededTracks.length === 0 &&
+    deviceOrderingOrCountViolations.length === 0 &&
     unsupportedDevices.length === 0 &&
     preservedOnlyDevices.length === 0 &&
     unconvertedDevices.length === 0;
@@ -1471,6 +1640,7 @@ export function auditProjectCapabilities(project: AbletonProjectState): ProjectC
   return {
     executableTrackCount,
     insertLimitExceededTracks,
+    deviceOrderingOrCountViolations,
     unsupportedDevices,
     preservedOnlyDevices,
     convertedDevices,

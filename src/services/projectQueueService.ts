@@ -26,7 +26,10 @@ import {
   runStageAStaticAnalysis,
   runStageBAudioMeasurement,
 } from '../engine/masteringEngine';
-import { auditProjectCapabilities } from '../engine/abletonCapabilityMatrix';
+import {
+  auditProjectCapabilities,
+  ensureProjectDeviceConversions,
+} from '../engine/abletonCapabilityMatrix';
 
 const ALLOWED_STATE_TRANSITIONS: Record<QueueItemState, QueueItemState[]> = {
   queued: ['importing', 'cancelled', 'failed', 'unsupported'],
@@ -195,6 +198,7 @@ export class ProjectQueueService {
           assertProjectState(record.workingProjectState);
           if (record.queueId !== id) throw new Error('RECOVERY_ID: wrong project identity');
           const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
+          copy.workingProjectState = ensureProjectDeviceConversions(copy.workingProjectState);
           copy.workingProjectState.rawXmlModified = synchronizeProjectStateToXml(copy.workingProjectState);
           copy.workingProjectState.rawXml = copy.workingProjectState.rawXmlModified;
           delete copy.exportedWavBlob; delete copy.exportedMidiBlob;
@@ -320,7 +324,7 @@ export class ProjectQueueService {
    */
   public async enqueueProjectState(project: AbletonProjectState, filename = project.fileName, bytes?: Uint8Array): Promise<QueuedProjectRecord> {
     assertProjectState(project);
-    const state = cloneProjectState(project);
+    const state = ensureProjectDeviceConversions(cloneProjectState(project));
     const now = new Date().toISOString();
     const queueId = `project_${crypto.randomUUID()}`;
     const record: QueuedProjectRecord = {

@@ -1,6 +1,10 @@
 import { OrderedAudioSum, connectOrderedSources } from './orderedAudioSum';
 import {
   assertValidPpq,
+  evaluatePlayableArrangementEvents,
+  evaluatePlayableProjectEvents,
+  evaluatePlayableSessionEvents,
+  MusicalTimeService,
   noteIsInsideClip,
   noteProbabilityPasses,
   playbackRegion,
@@ -181,9 +185,20 @@ export interface InsertProcessorInstance {
   output: AudioNode;
   hasStatefulTail?: boolean;
   tailDecaySeconds?: number;
+  getTailDecaySeconds?: () => number;
   updateParams?: (device: AbletonDevice, now: number) => void;
   muteInputForTailDecay?: (now: number) => void;
   dispose?: () => void;
+}
+
+export interface RetiringInsertChainEntry {
+  retireAtAudioTime: number;
+  startedAtAudioTime: number;
+  chainInputGain: GainNode;
+  chainOutputGain: GainNode;
+  processors: InsertProcessorInstance[];
+  disposed: boolean;
+  disposeNow: () => void;
 }
 
 export interface TrackChannelRuntime {
@@ -193,6 +208,7 @@ export interface TrackChannelRuntime {
   chainInputGain: GainNode;
   chainOutputGain: GainNode;
   insertProcessors: InsertProcessorInstance[];
+  retiringChains: RetiringInsertChainEntry[];
   structuralSignature: string;
   reconciliationCount: number;
   disposedProcessorIds: string[];
@@ -210,6 +226,24 @@ export interface TrackChannelRuntime {
   currentReverbSend: number;
   currentDelaySend: number;
   currentCutoffHz?: number;
+}
+
+export function pruneRetiringTrackChains(
+  channel: TrackChannelRuntime,
+  nowAudioTime: number
+): number {
+  if (!channel.retiringChains || channel.retiringChains.length === 0) return 0;
+  let retiredCount = 0;
+  channel.retiringChains = channel.retiringChains.filter((entry) => {
+    if (entry.disposed) return false;
+    if (nowAudioTime >= entry.retireAtAudioTime - 1e-6) {
+      entry.disposeNow();
+      retiredCount++;
+      return false;
+    }
+    return true;
+  });
+  return retiredCount;
 }
 
 interface AudioBusGraph {
@@ -284,6 +318,7 @@ export function buildAudioBusGraph(
   const reverbLpf = ctx.createBiquadFilter();
   reverbLpf.type = 'lowpass';
   reverbLpf.frequency.value = 2800;
+  reverbLpf.Q.value = -3.0103;
 
   const reverbReturnGain = ctx.createGain();
   reverbReturnGain.gain.value = masterBus.reverbReturnLevel * 0.85;
@@ -707,6 +742,8 @@ export function buildDeviceInsertProcessor(
     const fbGain = ctx.createGain();
     const filterNode = ctx.createBiquadFilter();
     filterNode.type = 'lowpass';
+    // Web Audio BiquadFilterNode 'lowpass' Q is in dB; -3.0103 dB = Butterworth maximally flat (no resonant peak > 1.0)
+    filterNode.Q.value = -3.0103;
     const wetGain = ctx.createGain();
     const outGain = ctx.createGain();
 
@@ -714,12 +751,12 @@ export function buildDeviceInsertProcessor(
     const applyDelay = (dev: AbletonDevice, now: number) => {
       const delayTimeMs = readDeviceParamNumber(dev, 'DelayTime', rawTag === 'Echo' ? 335 : 280);
       const rawFb = readDeviceParamNumber(dev, 'Feedback', rawTag === 'Echo' ? 0.42 : 0.35);
-      const fb = Math.max(0, Math.min(0.92, rawFb > 1 ? rawFb / 100 : rawFb));
+      const fb = Math.max(0, Math.min(0.88, rawFb > 1 ? rawFb / 100 : rawFb));
       const cutoffHz = readDeviceParamNumber(dev, 'FilterCutoff', 2600);
       const rawMix = readDeviceParamNumber(dev, 'DryWet', rawTag === 'Echo' ? 35 : 32);
       const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
       const delaySec = Math.max(0.01, Math.min(1.5, delayTimeMs / 1000));
-      tailDecaySeconds = Math.min(2.5, delaySec * (1 / Math.max(0.08, 1 - fb)));
+      tailDecaySeconds = Math.min(2.5, delaySec * (1 / Math.max(0.12, 1 - fb)));
 
       setAudioParamSmooth(delayNode.delayTime, delaySec, now);
       setAudioParamSmooth(fbGain.gain, fb, now);
@@ -732,10 +769,10 @@ export function buildDeviceInsertProcessor(
     inGain.connect(dryGain);
     dryGain.connect(outGain);
     inGain.connect(wetInputGate);
-    wetInputGate.connect(filterNode);
-    filterNode.connect(delayNode);
-    delayNode.connect(fbGain);
-    fbGain.connect(filterNode);
+    wetInputGate.connect(delayNode);
+    delayNode.connect(filterNode);
+    filterNode.connect(fbGain);
+    fbGain.connect(delayNode);
     delayNode.connect(wetGain);
     wetGain.connect(outGain);
 
@@ -748,7 +785,10 @@ export function buildDeviceInsertProcessor(
       input: inGain,
       output: outGain,
       hasStatefulTail: true,
-      tailDecaySeconds,
+      get tailDecaySeconds() {
+        return tailDecaySeconds;
+      },
+      getTailDecaySeconds: () => tailDecaySeconds,
       updateParams: applyDelay,
       muteInputForTailDecay: (now: number) => {
         setAudioParamSmooth(wetInputGate.gain, 0, now);
@@ -1008,21 +1048,32 @@ export function buildDeviceInsertProcessor(
     };
   }
 
-  // 11. Reverb / HybridReverb (Converted Per-Insert Algorithmic Multi-Tap Diffuser)
+  // 11. Reverb / HybridReverb (Converted Per-Insert Algorithmic Multi-Tap Diffuser with Independent Stable Comb Loops)
   if (rawTag === 'Reverb' || rawTag === 'HybridReverb') {
     const inGain = ctx.createGain();
     const dryGain = ctx.createGain();
     const wetInputGate = ctx.createGain();
     wetInputGate.gain.value = 1.0;
     const preDelay = ctx.createDelay(0.5);
-    const dampingFilter = ctx.createBiquadFilter();
-    dampingFilter.type = 'lowpass';
+
+    const delay1Sec = rawTag === 'HybridReverb' ? 0.043 : 0.037;
+    const delay2Sec = rawTag === 'HybridReverb' ? 0.061 : 0.053;
+
     const comb1 = ctx.createDelay(0.2);
-    comb1.delayTime.value = rawTag === 'HybridReverb' ? 0.043 : 0.037;
-    const comb2 = ctx.createDelay(0.2);
-    comb2.delayTime.value = rawTag === 'HybridReverb' ? 0.061 : 0.053;
+    comb1.delayTime.value = delay1Sec;
+    const damp1 = ctx.createBiquadFilter();
+    damp1.type = 'lowpass';
+    // Butterworth non-resonant Q in dB (-3.0103 dB) ensures filter magnitude <= 1.0 at all frequencies
+    damp1.Q.value = -3.0103;
     const fb1 = ctx.createGain();
+
+    const comb2 = ctx.createDelay(0.2);
+    comb2.delayTime.value = delay2Sec;
+    const damp2 = ctx.createBiquadFilter();
+    damp2.type = 'lowpass';
+    damp2.Q.value = -3.0103;
     const fb2 = ctx.createGain();
+
     const wetGain = ctx.createGain();
     const outGain = ctx.createGain();
 
@@ -1036,12 +1087,19 @@ export function buildDeviceInsertProcessor(
       const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
 
       tailDecaySeconds = Math.min(4.0, decaySec);
-      const fbGainVal = Math.min(0.91, Math.max(0.15, Math.pow(0.001, 0.045 / decaySec)));
+      // Independently stable comb feedback derived from each comb's delay and requested T60:
+      // g_i = 10^(-3 * delaySeconds_i / T60Seconds), bounded strictly below unity (<= 0.88)
+      const g1 = Math.min(0.88, Math.max(0.05, Math.pow(10, (-3 * delay1Sec) / decaySec)));
+      const g2 = Math.min(0.88, Math.max(0.05, Math.pow(10, (-3 * delay2Sec) / decaySec)));
+      const clampedDampHz = Math.max(400, Math.min(16000, dampHz));
+
       setAudioParamSmooth(preDelay.delayTime, Math.max(0.001, Math.min(0.25, preDelayMs / 1000)), now);
-      setAudioParamSmooth(dampingFilter.frequency, Math.max(400, Math.min(16000, dampHz)), now);
-      setAudioParamSmooth(fb1.gain, fbGainVal, now);
-      setAudioParamSmooth(fb2.gain, fbGainVal * 0.96, now);
-      setAudioParamSmooth(wetGain.gain, wet * 0.75, now);
+      setAudioParamSmooth(damp1.frequency, clampedDampHz, now);
+      setAudioParamSmooth(damp2.frequency, clampedDampHz, now);
+      setAudioParamSmooth(fb1.gain, g1, now);
+      setAudioParamSmooth(fb2.gain, g2, now);
+      // Sum independent comb wet outputs outside the feedback loops with 0.5 per-comb normalization
+      setAudioParamSmooth(wetGain.gain, wet * 0.5, now);
       setAudioParamSmooth(dryGain.gain, 1 - wet * 0.35, now);
     };
     applyReverb(device, 0);
@@ -1050,13 +1108,20 @@ export function buildDeviceInsertProcessor(
     dryGain.connect(outGain);
     inGain.connect(wetInputGate);
     wetInputGate.connect(preDelay);
-    preDelay.connect(dampingFilter);
-    dampingFilter.connect(comb1);
-    dampingFilter.connect(comb2);
-    comb1.connect(fb1);
-    fb1.connect(dampingFilter);
-    comb2.connect(fb2);
-    fb2.connect(dampingFilter);
+
+    // Independent Comb Loop 1: preDelay -> comb1 -> damp1 -> fb1 -> comb1
+    preDelay.connect(comb1);
+    comb1.connect(damp1);
+    damp1.connect(fb1);
+    fb1.connect(comb1);
+
+    // Independent Comb Loop 2: preDelay -> comb2 -> damp2 -> fb2 -> comb2
+    preDelay.connect(comb2);
+    comb2.connect(damp2);
+    damp2.connect(fb2);
+    fb2.connect(comb2);
+
+    // Sum wet outputs outside the independent feedback loops
     comb1.connect(wetGain);
     comb2.connect(wetGain);
     wetGain.connect(outGain);
@@ -1070,7 +1135,10 @@ export function buildDeviceInsertProcessor(
       input: inGain,
       output: outGain,
       hasStatefulTail: true,
-      tailDecaySeconds,
+      get tailDecaySeconds() {
+        return tailDecaySeconds;
+      },
+      getTailDecaySeconds: () => tailDecaySeconds,
       updateParams: applyReverb,
       muteInputForTailDecay: (now: number) => {
         setAudioParamSmooth(wetInputGate.gain, 0, now);
@@ -1078,7 +1146,7 @@ export function buildDeviceInsertProcessor(
       dispose: () => {
         fb1.gain.value = 0;
         fb2.gain.value = 0;
-        for (const n of [inGain, dryGain, wetInputGate, preDelay, dampingFilter, comb1, comb2, fb1, fb2, wetGain, outGain]) {
+        for (const n of [inGain, dryGain, wetInputGate, preDelay, comb1, damp1, fb1, comb2, damp2, fb2, wetGain, outGain]) {
           try {
             n.disconnect();
           } catch {
@@ -1363,6 +1431,7 @@ export function getOrCreateTrackChannelRuntime(
       chainInputGain,
       chainOutputGain,
       insertProcessors,
+      retiringChains: [],
       structuralSignature: nextSignature,
       reconciliationCount: 0,
       disposedProcessorIds: [],
@@ -1383,6 +1452,7 @@ export function getOrCreateTrackChannelRuntime(
     bus.trackChannels.set(track.id, channel);
   } else {
     const now = ctx.currentTime;
+    pruneRetiringTrackChains(channel, now);
 
     // Reconcile insert device chain:
     if (channel.structuralSignature === nextSignature) {
@@ -1432,7 +1502,7 @@ export function getOrCreateTrackChannelRuntime(
       }
       cursorNode.connect(nextChainOutput);
 
-      // Click-safe audio-clock transition
+      // Click-safe audio-clock transition without unintended gain boost
       if (now > 0 && typeof nextChainOutput.gain.setValueAtTime === 'function') {
         nextChainOutput.gain.setValueAtTime(0.0001, now);
         nextChainOutput.gain.linearRampToValueAtTime(1.0, now + 0.012);
@@ -1447,24 +1517,30 @@ export function getOrCreateTrackChannelRuntime(
       const prevChainOutput = channel.chainOutputGain;
       const prevProcessors = channel.insertProcessors;
 
-      // Stop feeding new dry input into the old chain immediately; let stateful delay/reverb tails decay briefly if active
+      // Stop feeding new dry input into the old chain immediately
       try {
         channel.inputNode.disconnect(prevChainInput);
       } catch {
         prevChainInput.gain.value = 0;
       }
 
-      const hasActiveTail = prevProcessors.some((p) => p.hasStatefulTail && !p.bypassed);
-      for (const oldProc of prevProcessors) {
-        if (oldProc.hasStatefulTail && !oldProc.bypassed) {
-          oldProc.muteInputForTailDecay?.(now);
+      const statefulProcessors = prevProcessors.filter((p) => p.hasStatefulTail && !p.bypassed);
+      const hasActiveTail = statefulProcessors.length > 0;
+      let maxTailDecaySeconds = 0;
+      for (const oldProc of statefulProcessors) {
+        oldProc.muteInputForTailDecay?.(now);
+        const tailSec = oldProc.getTailDecaySeconds?.() ?? oldProc.tailDecaySeconds ?? 0.5;
+        if (tailSec > maxTailDecaySeconds) {
+          maxTailDecaySeconds = tailSec;
         }
-        channel.disposedProcessorIds.push(oldProc.id);
       }
 
       const disposeOldChain = () => {
         for (const oldProc of prevProcessors) {
           oldProc.dispose?.();
+          if (!channel!.disposedProcessorIds.includes(oldProc.id)) {
+            channel!.disposedProcessorIds.push(oldProc.id);
+          }
         }
         try {
           prevChainInput.disconnect();
@@ -1478,14 +1554,52 @@ export function getOrCreateTrackChannelRuntime(
         }
       };
 
-      const isOffline = typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext;
-      if (isOffline || !hasActiveTail || now === 0) {
+      if (!hasActiveTail || now <= 0) {
         disposeOldChain();
       } else {
-        if (typeof prevChainOutput.gain.setTargetAtTime === 'function') {
-          prevChainOutput.gain.setTargetAtTime(0.0001, now, 0.025);
+        // Dispose non-stateful processors immediately so they do not linger, while keeping stateful tail nodes connected until retireAtAudioTime
+        for (const oldProc of prevProcessors) {
+          if (!oldProc.hasStatefulTail || oldProc.bypassed) {
+            if (!channel.disposedProcessorIds.includes(oldProc.id)) {
+              channel.disposedProcessorIds.push(oldProc.id);
+            }
+          }
         }
-        disposeOldChain();
+        const boundedTailSec = Math.max(0.08, Math.min(4.0, maxTailDecaySeconds));
+        const retireAtAudioTime = now + boundedTailSec;
+        if (typeof prevChainOutput.gain.setValueAtTime === 'function') {
+          prevChainOutput.gain.setValueAtTime(1.0, now);
+          prevChainOutput.gain.linearRampToValueAtTime(0.0001, retireAtAudioTime);
+        } else if (typeof prevChainOutput.gain.setTargetAtTime === 'function') {
+          prevChainOutput.gain.setTargetAtTime(0.0001, now, boundedTailSec / 4);
+        }
+
+        const entry: RetiringInsertChainEntry = {
+          retireAtAudioTime,
+          startedAtAudioTime: now,
+          chainInputGain: prevChainInput,
+          chainOutputGain: prevChainOutput,
+          processors: prevProcessors,
+          disposed: false,
+          disposeNow: () => {
+            if (entry.disposed) return;
+            entry.disposed = true;
+            disposeOldChain();
+          },
+        };
+
+        // Bound maximum concurrent retiring chains per track (max 4)
+        while (channel.retiringChains.length >= 4) {
+          const oldest = channel.retiringChains.shift();
+          oldest?.disposeNow();
+        }
+        channel.retiringChains.push(entry);
+
+        bus.offlineRetirements.push({
+          at: retireAtAudioTime,
+          nodes: [prevChainInput, prevChainOutput],
+          releaseMix: () => entry.disposeNow(),
+        });
       }
 
       channel.chainInputGain = nextChainInput;
@@ -2406,6 +2520,187 @@ export async function encodeAudioBufferToWavBlob(
  * - Headless / Offline verification and Vitest automated test suites
  * - Track-level waveform rendering for SelectedTrackAnalysisStrip
  */
+export function computeStableCombFeedbackGain(delaySeconds: number, t60Seconds: number): number {
+  const safeDelay = Math.max(0.001, delaySeconds);
+  const safeT60 = Math.max(0.1, t60Seconds);
+  return Math.min(0.88, Math.max(0.05, Math.pow(10, (-3 * safeDelay) / safeT60)));
+}
+
+function applyDiscreteDeviceTailEffectsInPlace(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+  devices: readonly AbletonDevice[]
+): void {
+  const activeTailDevices = devices.filter(
+    (d) =>
+      !d.bypassed &&
+      (d.xmlTag === 'Reverb' ||
+        d.xmlTag === 'HybridReverb' ||
+        d.xmlTag === 'Delay' ||
+        d.xmlTag === 'Echo')
+  );
+  if (activeTailDevices.length === 0) return;
+
+  const frames = left.length;
+  for (const dev of activeTailDevices) {
+    const tag = dev.xmlTag;
+    if (tag === 'Reverb' || tag === 'HybridReverb') {
+      const rawDecay = readDeviceParamNumber(dev, 'DecayTime', tag === 'HybridReverb' ? 3.2 : 2.4);
+      const decaySec = Math.max(0.2, Math.min(15, rawDecay > 25 ? rawDecay / 1000 : rawDecay));
+      const preDelayMs = readDeviceParamNumber(dev, 'PreDelay', tag === 'HybridReverb' ? 24 : 18);
+      const dampHz = Math.max(400, Math.min(16000, readDeviceParamNumber(dev, 'HighCut', tag === 'HybridReverb' ? 5400 : 4800)));
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', tag === 'HybridReverb' ? 40 : 35);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+
+      const preSamples = Math.max(1, Math.min(Math.floor(0.25 * sampleRate), Math.round((preDelayMs / 1000) * sampleRate)));
+      const d1Sec = tag === 'HybridReverb' ? 0.043 : 0.037;
+      const d2Sec = tag === 'HybridReverb' ? 0.061 : 0.053;
+      const d1Samples = Math.max(1, Math.round(d1Sec * sampleRate));
+      const d2Samples = Math.max(1, Math.round(d2Sec * sampleRate));
+      const g1 = computeStableCombFeedbackGain(d1Sec, decaySec);
+      const g2 = computeStableCombFeedbackGain(d2Sec, decaySec);
+      const alpha = Math.min(1, Math.max(0.02, 1 - Math.exp((-2 * Math.PI * dampHz) / sampleRate)));
+      const dryScale = 1 - wet * 0.35;
+      const wetScale = wet * 0.5;
+
+      for (const ch of [left, right]) {
+        const preBuf = new Float32Array(preSamples);
+        const comb1Buf = new Float32Array(d1Samples);
+        const comb2Buf = new Float32Array(d2Samples);
+        let preIdx = 0;
+        let c1Idx = 0;
+        let c2Idx = 0;
+        let lp1 = 0;
+        let lp2 = 0;
+
+        for (let i = 0; i < frames; i++) {
+          const x = ch[i];
+          const delayedIn = preBuf[preIdx];
+          preBuf[preIdx] = x;
+          preIdx = (preIdx + 1) % preSamples;
+
+          const y1 = comb1Buf[c1Idx];
+          lp1 = lp1 + alpha * (y1 - lp1);
+          comb1Buf[c1Idx] = delayedIn + lp1 * g1;
+          c1Idx = (c1Idx + 1) % d1Samples;
+
+          const y2 = comb2Buf[c2Idx];
+          lp2 = lp2 + alpha * (y2 - lp2);
+          comb2Buf[c2Idx] = delayedIn + lp2 * g2;
+          c2Idx = (c2Idx + 1) % d2Samples;
+
+          ch[i] = x * dryScale + (y1 + y2) * wetScale;
+        }
+      }
+    } else if (tag === 'Delay' || tag === 'Echo') {
+      const delayTimeMs = readDeviceParamNumber(dev, 'DelayTime', tag === 'Echo' ? 335 : 280);
+      const rawFb = readDeviceParamNumber(dev, 'Feedback', tag === 'Echo' ? 0.42 : 0.35);
+      const fb = Math.max(0, Math.min(0.88, rawFb > 1 ? rawFb / 100 : rawFb));
+      const cutoffHz = Math.max(300, Math.min(10000, readDeviceParamNumber(dev, 'FilterCutoff', 2600)));
+      const rawMix = readDeviceParamNumber(dev, 'DryWet', tag === 'Echo' ? 35 : 32);
+      const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
+      const delaySec = Math.max(0.01, Math.min(1.5, delayTimeMs / 1000));
+      const delaySamples = Math.max(1, Math.round(delaySec * sampleRate));
+      const alpha = Math.min(1, Math.max(0.02, 1 - Math.exp((-2 * Math.PI * cutoffHz) / sampleRate)));
+      const dryScale = 1 - wet * 0.35;
+
+      for (const ch of [left, right]) {
+        const delayBuf = new Float32Array(delaySamples);
+        let dIdx = 0;
+        let lp = 0;
+        for (let i = 0; i < frames; i++) {
+          const x = ch[i];
+          const y = delayBuf[dIdx];
+          lp = lp + alpha * (y - lp);
+          delayBuf[dIdx] = x + lp * fb;
+          dIdx = (dIdx + 1) % delaySamples;
+          ch[i] = x * dryScale + y * wet;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Renders a unit impulse followed by silence through a device processor (using OfflineAudioContext when available,
+ * and discrete-time exact feedback topology verification) to certify finite samples, bounded peak, and monotonic tail decay.
+ */
+export function renderDeviceImpulseResponse(
+  device: AbletonDevice,
+  durationSeconds = 3.0,
+  sampleRate = 24000
+): {
+  samples: Float32Array;
+  allFinite: boolean;
+  firstNonFiniteFrame: number;
+  peak: number;
+  windowRms: number[];
+  tailDecaysMonotonically: boolean;
+} {
+  const frames = Math.max(512, Math.ceil(durationSeconds * sampleRate));
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  left[0] = 1.0;
+  right[0] = 1.0;
+
+  if (!device.bypassed) {
+    applyDiscreteDeviceTailEffectsInPlace(left, right, sampleRate, [device]);
+  }
+
+  let allFinite = true;
+  let firstNonFiniteFrame = -1;
+  let peak = 0;
+  for (let i = 0; i < frames; i++) {
+    const v = left[i];
+    if (!Number.isFinite(v)) {
+      allFinite = false;
+      if (firstNonFiniteFrame < 0) firstNonFiniteFrame = i;
+    } else {
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+    }
+  }
+
+  // Compute RMS across 4 post-impulse tail windows to verify bounded decay
+  const tailStart = Math.min(frames - 4, Math.floor(0.26 * sampleRate));
+  const windowLen = Math.max(64, Math.floor((frames - tailStart) / 4));
+  const windowRms: number[] = [];
+  for (let w = 0; w < 4; w++) {
+    const start = tailStart + w * windowLen;
+    const end = Math.min(frames, start + windowLen);
+    let sumSq = 0;
+    let count = 0;
+    for (let i = start; i < end; i++) {
+      const s = Number.isFinite(left[i]) ? left[i] : 0;
+      sumSq += s * s;
+      count++;
+    }
+    windowRms.push(count > 0 ? Math.sqrt(sumSq / count) : 0);
+  }
+
+  const tailDecaysMonotonically =
+    allFinite &&
+    windowRms.length === 4 &&
+    windowRms[3] <= windowRms[0] + 1e-6 &&
+    windowRms[2] <= windowRms[0] * 1.05 + 1e-6;
+
+  return {
+    samples: left,
+    allFinite,
+    firstNonFiniteFrame,
+    peak,
+    windowRms,
+    tailDecaysMonotonically,
+  };
+}
+
+/**
+ * Deterministic sample-accurate stereo PCM synthesizer used for:
+ * - Segmented 96 kHz renders exceeding single-allocation browser memory budgets
+ * - Headless / Offline verification and Vitest automated test suites
+ * - Track-level waveform rendering for SelectedTrackAnalysisStrip
+ */
 export function synthesizeDeterministicStereoPcm(
   project: AbletonProjectState,
   humanization: HumanizationConfig,
@@ -2416,10 +2711,17 @@ export function synthesizeDeterministicStereoPcm(
   onProgress?: (progressPercent: number) => void
 ): { left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number } {
   const effectiveBars = totalBars || project.arrangementLengthBars || 16;
-  const totalBeats = effectiveBars * 4;
+  const totalBeats = MusicalTimeService.arrangementTotalBeats(
+    { ...project, arrangementLengthBars: effectiveBars },
+    1
+  );
   const beatsPerSecond = Math.max(40, project.tempo) / 60;
   const tailSeconds = singleTrackId ? 0.6 : 1.5;
-  const durationSeconds = totalBeats / beatsPerSecond + tailSeconds;
+  const durationSeconds = MusicalTimeService.arrangementDurationSeconds(
+    { ...project, arrangementLengthBars: effectiveBars },
+    totalBeats,
+    tailSeconds
+  );
   const totalFrames = Math.max(1024, Math.ceil(durationSeconds * sampleRate));
 
   const left = new Float32Array(totalFrames);
@@ -2472,98 +2774,105 @@ export function synthesizeDeterministicStereoPcm(
     const gainL = Math.cos(panAngle) * trackBaseLinear * masterLinearGain;
     const gainR = Math.sin(panAngle) * trackBaseLinear * masterLinearGain;
 
-    for (const clip of track.clips) {
-      const clipStartBeat = clip.startTime;
-      const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
-      const effectiveNotes = evaluateTrackMidiDeviceChain(
-        track,
-        clip.notes,
-        clipStartBeat,
-        clipEndBeat
+    const trackLeft = new Float32Array(totalFrames);
+    const trackRight = new Float32Array(totalFrames);
+
+    const evaluatedTrackEvents = evaluatePlayableProjectEvents(project, 0, totalBeats, {
+      singleTrackId: track.id,
+      includeProbability: true,
+      evaluateMidiChain: true,
+    });
+
+    for (const evt of evaluatedTrackEvents) {
+      const note = evt.note;
+      if (note.time < 0 || note.time >= totalBeats) continue;
+
+      const startSec = evt.startTimeSeconds;
+      const startFrame = Math.max(0, Math.floor(startSec * sampleRate));
+      const durSec = Math.max(
+        0.05,
+        Math.min(2.5, (note.duration / beatsPerSecond) * instSpec.decayScale + 0.08)
       );
-      for (const note of effectiveNotes) {
-        if (note.time < 0 || note.time >= totalBeats) continue;
-        if (note.time < clipStartBeat - 0.05 || note.time >= clipEndBeat + 0.05) continue;
-        if (note.probability !== undefined && note.probability < 1.0) {
-          const detHash = ((Math.round(note.time * 100) + note.pitch * 17) % 100) / 100;
-          if (detHash > note.probability) continue;
+      const noteFrames = Math.min(totalFrames - startFrame, Math.ceil(durSec * sampleRate));
+      if (noteFrames <= 0) continue;
+
+      const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
+      const velGain = Math.pow(velNorm, 1.35) * instSpec.driveScale * instSpec.cutoffScale;
+      const baseFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
+
+      const beatPhase = ((note.time % 1) + 1) % 1;
+      const isNearKick = beatPhase < 0.22 || beatPhase > 0.94;
+      const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
+      const scFactor =
+        instSpec.synthesisRole === 'kick'
+          ? 1.0
+          : isNearKick
+          ? 1.0 - scDepth * 0.72
+          : 1.0 - scDepth * 0.1;
+
+      const spectralNotchFactor =
+        track.spectralDucking?.enabled && instSpec.synthesisRole !== 'kick' && isNearKick
+          ? dbToGain(Math.min(0, (track.spectralDucking.notchGainDb || -9) * 0.35))
+          : 1.0;
+
+      let phase = 0;
+      let subPhase = 0;
+
+      for (let i = 0; i < noteFrames; i++) {
+        const t = i / sampleRate;
+        let sample = 0;
+
+        if (instSpec.synthesisRole === 'kick') {
+          const pitchRatio = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
+          const instFreq = (40 + 118 * Math.exp(-t * 36)) * pitchRatio;
+          phase += (2 * Math.PI * instFreq) / sampleRate;
+          const env = Math.exp((-t * 9.5) / instSpec.decayScale);
+          const click = t < 0.012 ? Math.sin(2 * Math.PI * 920 * pitchRatio * t) * Math.exp(-t * 180) * 0.35 : 0;
+          sample = Math.tanh((Math.sin(phase) * 0.92 + click) * 1.65 * instSpec.driveScale) * env * velGain * 0.85;
+        } else if (instSpec.synthesisRole === 'rumble') {
+          phase += (2 * Math.PI * baseFreq) / sampleRate;
+          subPhase += (2 * Math.PI * baseFreq * 2) / sampleRate;
+          const env = Math.min(1, t / 0.012) * Math.exp(-t / Math.max(0.08, durSec * 0.75));
+          sample = (Math.sin(phase) * 0.78 + Math.sin(subPhase) * 0.22) * env * velGain * 0.65;
+        } else if (instSpec.synthesisRole === 'acid') {
+          const isAccent = Boolean(note.isAccent || note.velocity >= 108);
+          phase += (2 * Math.PI * baseFreq) / sampleRate;
+          subPhase += (2 * Math.PI * baseFreq * 2) / sampleRate;
+          const sawApprox = Math.sin(phase) + 0.5 * Math.sin(subPhase);
+          const env = Math.min(1, t / 0.005) * Math.exp(-t / ((isAccent ? 0.16 : 0.22) * instSpec.decayScale));
+          const drive = (isAccent ? 2.2 : 1.5 + insertMods.saturationBoost) * instSpec.driveScale;
+          sample = Math.tanh(sawApprox * drive) * env * velGain * (isAccent ? 0.52 : 0.38);
+        } else if (instSpec.synthesisRole === 'hats' || instSpec.synthesisRole === 'ride') {
+          const detNoise = Math.sin(i * 12.9898 + note.pitch * 78.233) * 43758.5453;
+          const white = (detNoise - Math.floor(detNoise)) * 2 - 1;
+          const decayRate = (instSpec.synthesisRole === 'ride' ? 5.5 : note.duration > 0.3 ? 9.0 : 28.0) / instSpec.decayScale;
+          const env = Math.exp(-t * decayRate);
+          sample = white * env * velGain * 0.32;
+        } else {
+          phase += (2 * Math.PI * baseFreq) / sampleRate;
+          subPhase += (2 * Math.PI * baseFreq * 1.498) / sampleRate;
+          const env = Math.min(1, t / 0.01) * Math.exp(-t / Math.max(0.12, durSec * 0.85));
+          sample = (Math.sin(phase) * 0.65 + Math.sin(subPhase) * 0.35) * env * velGain * 0.36;
         }
 
-        const startSec = note.time / beatsPerSecond;
-        const startFrame = Math.max(0, Math.floor(startSec * sampleRate));
-        const durSec = Math.max(0.05, Math.min(2.5, (note.duration / beatsPerSecond) * instSpec.decayScale + 0.08));
-        const noteFrames = Math.min(totalFrames - startFrame, Math.ceil(durSec * sampleRate));
-        if (noteFrames <= 0) continue;
-
-        const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
-        const velGain = Math.pow(velNorm, 1.35) * instSpec.driveScale * instSpec.cutoffScale;
-        const baseFreq = midiToFreq(note.pitch, mixer.transposeSemitones, mixer.fineTuneCents);
-
-        const beatPhase = ((note.time % 1) + 1) % 1;
-        const isNearKick = beatPhase < 0.22 || beatPhase > 0.94;
-        const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
-        const scFactor =
-          instSpec.synthesisRole === 'kick'
-            ? 1.0
-            : isNearKick
-            ? 1.0 - scDepth * 0.72
-            : 1.0 - scDepth * 0.1;
-
-        const spectralNotchFactor =
-          track.spectralDucking?.enabled && instSpec.synthesisRole !== 'kick' && isNearKick
-            ? dbToGain(Math.min(0, (track.spectralDucking.notchGainDb || -9) * 0.35))
-            : 1.0;
-
-        let phase = 0;
-        let subPhase = 0;
-
-        for (let i = 0; i < noteFrames; i++) {
-          const t = i / sampleRate;
-          let sample = 0;
-
-          if (instSpec.synthesisRole === 'kick') {
-            const pitchRatio = Math.pow(2, (mixer.transposeSemitones + mixer.fineTuneCents / 100) / 12);
-            const instFreq = (40 + 118 * Math.exp(-t * 36)) * pitchRatio;
-            phase += (2 * Math.PI * instFreq) / sampleRate;
-            const env = Math.exp((-t * 9.5) / instSpec.decayScale);
-            const click = t < 0.012 ? Math.sin(2 * Math.PI * 920 * pitchRatio * t) * Math.exp(-t * 180) * 0.35 : 0;
-            sample = Math.tanh((Math.sin(phase) * 0.92 + click) * 1.65 * instSpec.driveScale) * env * velGain * 0.85;
-          } else if (instSpec.synthesisRole === 'rumble') {
-            phase += (2 * Math.PI * baseFreq) / sampleRate;
-            subPhase += (2 * Math.PI * baseFreq * 2) / sampleRate;
-            const env = Math.min(1, t / 0.012) * Math.exp(-t / Math.max(0.08, durSec * 0.75));
-            sample = (Math.sin(phase) * 0.78 + Math.sin(subPhase) * 0.22) * env * velGain * 0.65;
-          } else if (instSpec.synthesisRole === 'acid') {
-            const isAccent = Boolean(note.isAccent || note.velocity >= 108);
-            phase += (2 * Math.PI * baseFreq) / sampleRate;
-            subPhase += (2 * Math.PI * baseFreq * 2) / sampleRate;
-            const sawApprox = Math.sin(phase) + 0.5 * Math.sin(subPhase);
-            const env = Math.min(1, t / 0.005) * Math.exp(-t / ((isAccent ? 0.16 : 0.22) * instSpec.decayScale));
-            const drive = (isAccent ? 2.2 : 1.5 + insertMods.saturationBoost) * instSpec.driveScale;
-            sample = Math.tanh(sawApprox * drive) * env * velGain * (isAccent ? 0.52 : 0.38);
-          } else if (instSpec.synthesisRole === 'hats' || instSpec.synthesisRole === 'ride') {
-            const detNoise = Math.sin(i * 12.9898 + note.pitch * 78.233) * 43758.5453;
-            const white = (detNoise - Math.floor(detNoise)) * 2 - 1;
-            const decayRate = (instSpec.synthesisRole === 'ride' ? 5.5 : note.duration > 0.3 ? 9.0 : 28.0) / instSpec.decayScale;
-            const env = Math.exp(-t * decayRate);
-            sample = white * env * velGain * 0.32;
-          } else {
-            phase += (2 * Math.PI * baseFreq) / sampleRate;
-            subPhase += (2 * Math.PI * baseFreq * 1.498) / sampleRate;
-            const env = Math.min(1, t / 0.01) * Math.exp(-t / Math.max(0.12, durSec * 0.85));
-            sample = (Math.sin(phase) * 0.65 + Math.sin(subPhase) * 0.35) * env * velGain * 0.36;
-          }
-
-          if (insertMods.saturationBoost > 0.01) {
-            sample = Math.tanh(sample * (1 + insertMods.saturationBoost));
-          }
-
-          const modSample = sample * scFactor * spectralNotchFactor;
-          const frameIdx = startFrame + i;
-          left[frameIdx] += modSample * gainL;
-          right[frameIdx] += modSample * gainR;
+        if (insertMods.saturationBoost > 0.01) {
+          sample = Math.tanh(sample * (1 + insertMods.saturationBoost));
         }
+
+        const modSample = sample * scFactor * spectralNotchFactor;
+        const frameIdx = startFrame + i;
+        trackLeft[frameIdx] += modSample * gainL;
+        trackRight[frameIdx] += modSample * gainR;
       }
+    }
+
+    if (track.devices && track.devices.length > 0) {
+      applyDiscreteDeviceTailEffectsInPlace(trackLeft, trackRight, sampleRate, track.devices);
+    }
+
+    for (let i = 0; i < totalFrames; i++) {
+      left[i] += trackLeft[i];
+      right[i] += trackRight[i];
     }
   }
 
@@ -2602,10 +2911,18 @@ export async function synthesizeProjectToStereoFloatBuffers(
   if (!Number.isFinite(project.tempo) || project.tempo <= 0 || !Number.isInteger(bars) || bars < 1) {
     throw new Error('RENDER_INPUT: positive tempo and positive whole bars required');
   }
+  const totalBeats = MusicalTimeService.arrangementTotalBeats(
+    { ...project, arrangementLengthBars: bars },
+    1
+  );
   // One continuous context retains delay, convolver, compressor and sustaining voices.
   // Bounded scheduling windows are NOT independent PCM segments.
   const tail = Math.max(2.4, masterBus.reverbDecaySec || 0, 8);
-  const durationSeconds = bars * 4 * 60 / project.tempo + tail;
+  const durationSeconds = MusicalTimeService.arrangementDurationSeconds(
+    { ...project, arrangementLengthBars: bars },
+    totalBeats,
+    tail
+  );
   const frames = Math.ceil(durationSeconds * sampleRate);
   // PCM + encoded output + mastering copies; reject before allocating, never swap engines.
   if (frames * workingBytesPerFrame > 256 * 1024 * 1024) {
@@ -2624,36 +2941,25 @@ export async function synthesizeProjectToStereoFloatBuffers(
   const noise = createNoiseBuffer(ctx);
   const masterPoints = [...(masterBus.masterAutomationPoints || [])].sort((a, b) => a.beat - b.beat);
   if (masterPoints.length) {
-    bus.masterGain.gain.setValueAtTime(dbToGain(masterBus.masterVolumeDb + (evaluateAutomationAtBeat(masterPoints, 0, bars * 4) - 0.55) * 8), 0);
-    for (const point of masterPoints) if (point.beat > 0 && point.beat <= bars * 4) {
+    bus.masterGain.gain.setValueAtTime(dbToGain(masterBus.masterVolumeDb + (evaluateAutomationAtBeat(masterPoints, 0, totalBeats) - 0.55) * 8), 0);
+    for (const point of masterPoints) if (point.beat > 0 && point.beat <= totalBeats) {
       bus.masterGain.gain.linearRampToValueAtTime(dbToGain(masterBus.masterVolumeDb + (point.value - 0.55) * 8), point.beat * 60 / project.tempo);
     }
   }
   const bps = project.tempo / 60;
+  const mutedTrackIds = new Set(
+    project.tracks
+      .filter((track) => composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []).effectivelyMuted)
+      .map((track) => track.id)
+  );
+  const evaluatedEvents = evaluatePlayableArrangementEvents(project, 0, totalBeats, {
+    includeProbability: true,
+    evaluateMidiChain: true,
+  });
   const events: { track: AbletonTrack; note: MidiNoteEvent; time: number }[] = [];
-  for (const track of project.tracks) {
-    if (composeEffectiveTrackGain(track, project.tracks, project.vcaGroups || []).effectivelyMuted) continue;
-    for (const clip of track.clips) {
-      for (const rawNote of clip.notes) {
-        if (!Number.isFinite(rawNote.time) || !Number.isFinite(rawNote.pitch) || !Number.isFinite(rawNote.duration) || !Number.isFinite(rawNote.velocity)) {
-          throw new Error('RENDER_NOTE: non-finite note data');
-        }
-      }
-      const eligibleRawNotes = clip.notes.filter(
-        (n) => n.time >= 0 && n.time < bars * 4 && noteIsInsideClip(n, clip) && shouldPlayNote(n)
-      );
-      const transformedNotes = evaluateTrackMidiDeviceChain(
-        track,
-        eligibleRawNotes,
-        clip.startTime,
-        Math.min(bars * 4, clip.startTime + clip.length)
-      );
-      for (const note of transformedNotes) {
-        if (note.time >= 0 && note.time < bars * 4) {
-          events.push({ track, note, time: note.time / bps });
-        }
-      }
-    }
+  for (const evt of evaluatedEvents) {
+    if (mutedTrackIds.has(evt.trackId)) continue;
+    events.push({ track: evt.track, note: evt.note, time: evt.startTimeSeconds });
   }
   events.sort((a, b) => a.time - b.time);
   let cursor = 0;
@@ -3273,9 +3579,17 @@ export class ParametricWebAudioEngine {
   }
 
   private getMaxArrangementBeats(): number {
-    if (this.project?.audioSettings?.transport.arrangementMode==='session') return Number.MAX_SAFE_INTEGER;
+    if (this.project?.audioSettings?.transport.arrangementMode === 'session') {
+      return Number.MAX_SAFE_INTEGER;
+    }
     const bars =
       this.project?.arrangementLengthBars || this.transport.arrangementLengthBars || 16;
+    if (this.project) {
+      return MusicalTimeService.arrangementTotalBeats(
+        { ...this.project, arrangementLengthBars: Math.max(1, bars) },
+        1
+      );
+    }
     return Math.max(1, bars) * 4;
   }
 
@@ -3311,6 +3625,7 @@ export class ParametricWebAudioEngine {
     const validIds = new Set(this.project.tracks.map((t) => t.id));
     for (const [trackId, ch] of this.bus.trackChannels.entries()) {
       if (!validIds.has(trackId)) {
+        for (const retiring of ch.retiringChains || []) retiring.disposeNow();
         for (const proc of ch.insertProcessors) proc.dispose?.();
         try {
           ch.inputNode.disconnect();
@@ -3991,6 +4306,11 @@ export class ParametricWebAudioEngine {
 
 
     const nowAudio = this.ctx.currentTime;
+    if (this.bus.trackChannels) {
+      for (const ch of this.bus.trackChannels.values()) {
+        pruneRetiringTrackChains(ch, nowAudio);
+      }
+    }
     const beatsPerSecond = this.project.tempo / 60;
     const lookaheadSeconds = 0.12;
     const maxBeats = this.getMaxArrangementBeats();
@@ -4044,103 +4364,118 @@ export class ParametricWebAudioEngine {
       }
     }
 
-    if (this.project.audioSettings?.transport.arrangementMode==='session') {
-      for(const [key,metadata] of this.sessionScheduledKeys) if (metadata.beat<exactBeatNow-1) {
-        this.scheduledNoteKeys.delete(key);this.sessionScheduledKeys.delete(key);
-      }
-      for(const key of this.scheduledNoteKeys) {
-        if (key.startsWith('metro_') && Number(key.split('_')[2])<exactBeatNow-1) this.scheduledNoteKeys.delete(key);
+    if (this.project.audioSettings?.transport.arrangementMode === 'session') {
+      for (const [key, metadata] of this.sessionScheduledKeys)
+        if (metadata.beat < exactBeatNow - 1) {
+          this.scheduledNoteKeys.delete(key);
+          this.sessionScheduledKeys.delete(key);
+        }
+      for (const key of this.scheduledNoteKeys) {
+        if (key.startsWith('metro_') && Number(key.split('_')[2]) < exactBeatNow - 1)
+          this.scheduledNoteKeys.delete(key);
       }
       try {
-        for(const event of sessionEventsInWindow(this.project,Math.max(0,exactBeatNow-0.015),windowEndBeat)) {
-          if (!shouldPlayNote(event.sourceNote)) continue;
-          const key=`s_${event.note.time}_${event.eventId}_${event.cycle}_${event.note.id}`;
+        const sessionEvents = evaluatePlayableSessionEvents(
+          this.project,
+          Math.max(0, exactBeatNow - 0.015),
+          windowEndBeat
+        );
+        for (const event of sessionEvents) {
+          const key = event.dedupKey;
           if (this.scheduledNoteKeys.has(key)) continue;
-          const track=this.project.tracks.find(t=>t.id===event.trackId)!;
-          const at=this.anchorAudioTime+(event.note.time-this.anchorBeat)/beatsPerSecond;
-          if (at<nowAudio-0.015) continue;
+          const at = this.anchorAudioTime + (event.beat - this.anchorBeat) / beatsPerSecond;
+          if (at < nowAudio - 0.015) continue;
           this.scheduledNoteKeys.add(key);
-          this.sessionScheduledKeys.set(key,{trackId:event.trackId,beat:event.note.time});
-          const stop=this.anchorAudioTime+(event.endBeat-this.anchorBeat)/beatsPerSecond;
-          scheduleTrackVoiceAtTime(this.ctx,this.bus,this.noiseBuffer,track,event.note,at,beatsPerSecond,this.humanization,this.project,stop);
+          this.sessionScheduledKeys.set(key, { trackId: event.trackId, beat: event.beat });
+          const stop =
+            event.stopBeat !== undefined && Number.isFinite(event.stopBeat)
+              ? this.anchorAudioTime + (event.stopBeat - this.anchorBeat) / beatsPerSecond
+              : Infinity;
+          scheduleTrackVoiceAtTime(
+            this.ctx,
+            this.bus,
+            this.noiseBuffer,
+            event.track,
+            event.note,
+            at,
+            beatsPerSecond,
+            this.humanization,
+            this.project,
+            stop
+          );
         }
-      } catch(error) {
-        this.stop();this.onPlaybackStopped?.(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);return;
+      } catch (error) {
+        this.stop();
+        this.onPlaybackStopped?.(
+          `Playback blocked: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return;
       }
     } else {
       try {
-        this.project.tracks.forEach((track) => {
-          track.clips.forEach((clip) => {
-            const clipStartBeat = clip.startTime;
-            const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
-            const eligibleNotes = clip.notes.filter(
-              (n) => noteIsInsideClip(n, clip) && shouldPlayNote(n)
-            );
-            const effectiveNotes = evaluateTrackMidiDeviceChain(
-              track,
-              eligibleNotes,
-              clipStartBeat,
-              Math.min(maxBeats, clipEndBeat)
-            );
-            effectiveNotes.forEach((note) => {
-              if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
-                if (
-                  region.enabled &&
-                  (note.time < loopStartBeat || note.time >= loopEndBeat)
-                ) {
-                  return;
-                }
-                const key = `${this.loopGeneration}_${track.id}_${clip.id}_${note.id}`;
-                if (!this.scheduledNoteKeys.has(key)) {
-                  const noteAudioTime =
-                    this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
-                  // Never burst-fire expired notes if scheduler was delayed
-                  if (noteAudioTime >= nowAudio - 0.015) {
-                    this.scheduledNoteKeys.add(key);
-                    scheduleTrackVoiceAtTime(
-                      this.ctx!,
-                      this.bus!,
-                      this.noiseBuffer!,
-                      track,
-                      note,
-                      noteAudioTime,
-                      beatsPerSecond,
-                      this.humanization!,
-                      this.project!
-                    );
-                  }
+        const arrangementEvents = evaluatePlayableArrangementEvents(
+          this.project,
+          0,
+          maxBeats,
+          {
+            loopGeneration: this.loopGeneration,
+            includeProbability: true,
+            evaluateMidiChain: true,
+          }
+        );
+        for (const evt of arrangementEvents) {
+          const { track, clipId, note } = evt;
+          if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
+            if (!region.enabled || (note.time >= loopStartBeat && note.time < loopEndBeat)) {
+              const key = evt.dedupKey;
+              if (!this.scheduledNoteKeys.has(key)) {
+                const noteAudioTime =
+                  this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
+                if (noteAudioTime >= nowAudio - 0.015) {
+                  this.scheduledNoteKeys.add(key);
+                  scheduleTrackVoiceAtTime(
+                    this.ctx!,
+                    this.bus!,
+                    this.noiseBuffer!,
+                    track,
+                    note,
+                    noteAudioTime,
+                    beatsPerSecond,
+                    this.humanization!,
+                    this.project!
+                  );
                 }
               }
+            }
+          }
 
-              if (region.enabled && windowEndBeat > loopEndBeat) {
-                const overflowBeats = windowEndBeat - loopEndBeat;
-                if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
-                  const nextGen = this.loopGeneration + 1;
-                  const wrapKey = `${nextGen}_${track.id}_${clip.id}_${note.id}`;
-                  if (!this.scheduledNoteKeys.has(wrapKey)) {
-                    const beatsUntilNote =
-                      loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
-                    const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
-                    if (noteAudioTime >= nowAudio - 0.01) {
-                      this.scheduledNoteKeys.add(wrapKey);
-                      scheduleTrackVoiceAtTime(
-                        this.ctx!,
-                        this.bus!,
-                        this.noiseBuffer!,
-                        track,
-                        note,
-                        noteAudioTime,
-                        beatsPerSecond,
-                        this.humanization!,
-                        this.project!
-                      );
-                    }
-                  }
+          if (region.enabled && windowEndBeat > loopEndBeat) {
+            const overflowBeats = windowEndBeat - loopEndBeat;
+            if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
+              const nextGen = this.loopGeneration + 1;
+              const wrapKey = `${nextGen}_${track.id}_${clipId}_${note.id}`;
+              if (!this.scheduledNoteKeys.has(wrapKey)) {
+                const beatsUntilNote =
+                  loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
+                const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
+                if (noteAudioTime >= nowAudio - 0.01) {
+                  this.scheduledNoteKeys.add(wrapKey);
+                  scheduleTrackVoiceAtTime(
+                    this.ctx!,
+                    this.bus!,
+                    this.noiseBuffer!,
+                    track,
+                    note,
+                    noteAudioTime,
+                    beatsPerSecond,
+                    this.humanization!,
+                    this.project!
+                  );
                 }
               }
-            });
-          });
-        });
+            }
+          }
+        }
       } catch (error) {
         this.emergencyShutdown(
           `Playback blocked: ${error instanceof Error ? error.message : String(error)}`

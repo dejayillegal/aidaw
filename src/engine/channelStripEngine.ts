@@ -14,9 +14,12 @@ import {
 import {
   auditProjectCapabilities,
   classifyAbletonDeviceTag,
+  getAbletonDeviceContract,
   isInstrumentDeviceTag,
+   isMidiProcessorDeviceTag,
   MAX_EXECUTABLE_INSERT_DEVICES,
   syncDeviceConversionRecord,
+  validateTrackDeviceChainOrderingAndCounts,
   verifyDeviceConversionRecord,
 } from './abletonCapabilityMatrix';
 import { assertRuntimeTimingMapSupport } from './timelineCoordinates';
@@ -49,6 +52,10 @@ export function assertExecutableInsertLimits(project: AbletonProjectState): void
     throw new Error(
       `CONVERSION_REQUIRED: ${first.trackName} contains converted device <${first.xmlTag}> (${first.deviceId}) with ${first.status} conversion record (${first.reason}); regenerate or validate its conversion record or bypass it before playback or WAV rendering.`
     );
+  }
+  if (audit.deviceOrderingOrCountViolations.length > 0) {
+    const first = audit.deviceOrderingOrCountViolations[0];
+    throw new Error(`DEVICE_CHAIN_CONTRACT: ${first.reason}`);
   }
 }
 
@@ -404,6 +411,21 @@ export function insertDeviceIntoChannelStrip(
     };
   }
 
+  const contract = getAbletonDeviceContract(template.xmlTag);
+  if (contract && contract.maxInstancesPerTrack > 0) {
+    const existingActiveCount = targetTrack.devices.filter(
+      (d) => !d.bypassed && d.xmlTag === template.xmlTag
+    ).length;
+    if (existingActiveCount >= contract.maxInstancesPerTrack) {
+      return {
+        project: fallbackProject,
+        updatedTrack: targetTrack,
+        insertedDevice: null,
+        error: `DEVICE_CHAIN_CONTRACT: Track "${targetTrack.name}" already has ${existingActiveCount} active instance(s) of <${template.xmlTag}> (maxInstancesPerTrack=${contract.maxInstancesPerTrack}).`,
+      };
+    }
+  }
+
   const newDeviceId = `${targetTrack.id}_ins_${Date.now()}_${targetTrack.devices.length + 1}`;
   const newDevice: AbletonDevice = syncDeviceConversionRecord({
     id: newDeviceId,
@@ -423,8 +445,43 @@ export function insertDeviceIntoChannelStrip(
     targetSlotIndex <= nextDevices.length
   ) {
     nextDevices.splice(targetSlotIndex, 0, newDevice);
+  } else if (isMidiProcessorDeviceTag(template.xmlTag)) {
+    // Default insertion position for a MIDI processor is before the first instrument or audio effect
+    const firstInstOrAudioIdx = nextDevices.findIndex(
+      (d) => !isMidiProcessorDeviceTag(d.xmlTag || d.type || '')
+    );
+    if (firstInstOrAudioIdx >= 0) {
+      nextDevices.splice(firstInstOrAudioIdx, 0, newDevice);
+    } else {
+      nextDevices.push(newDevice);
+    }
+  } else if (isInstrumentDeviceTag(template.xmlTag)) {
+    // Default insertion position for an instrument is after MIDI processors and before audio effects
+    const firstAudioIdx = nextDevices.findIndex(
+      (d) =>
+        !isMidiProcessorDeviceTag(d.xmlTag || d.type || '') &&
+        !isInstrumentDeviceTag(d.xmlTag || d.type || '')
+    );
+    if (firstAudioIdx >= 0) {
+      nextDevices.splice(firstAudioIdx, 0, newDevice);
+    } else {
+      nextDevices.push(newDevice);
+    }
   } else {
     nextDevices.push(newDevice);
+  }
+
+  const candidateViolations = validateTrackDeviceChainOrderingAndCounts({
+    ...targetTrack,
+    devices: nextDevices,
+  });
+  if (candidateViolations.length > 0) {
+    return {
+      project: fallbackProject,
+      updatedTrack: targetTrack,
+      insertedDevice: null,
+      error: `DEVICE_CHAIN_CONTRACT: ${candidateViolations[0].reason}`,
+    };
   }
 
   const updatedTrack: AbletonTrack = {
