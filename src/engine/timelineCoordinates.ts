@@ -594,8 +594,9 @@ export function evaluatePlayableArrangementEvents(
   const events: EvaluatedPlayableEvent[] = [];
   for (const track of tracks) {
     for (const clip of track.clips || []) {
+      if (!Number.isFinite(clip.length) || clip.length <= 0) continue;
       const clipStartBeat = clip.startTime;
-      const clipEndBeat = clip.startTime + Math.max(0.25, clip.length);
+      const clipEndBeat = clip.startTime + clip.length;
       if (clipEndBeat <= fromBeat || clipStartBeat >= maxBeats) continue;
 
       const sourceMap = new Map<string, MidiNoteEvent>();
@@ -626,7 +627,7 @@ export function evaluatePlayableArrangementEvents(
         }
         const sourceNote = sourceMap.get(note.sourceNoteId || note.id) || note;
         const clampedDurationBeats = Math.max(
-          0.01,
+          1e-6,
           Math.min(note.duration, effectiveClipEnd - note.time)
         );
         const startTimeSeconds = beatToSecondsWithTempoMap(
@@ -905,9 +906,9 @@ export const MusicalTimeService = {
     tempoMap?: TempoAutomationPoint[]
   ): number {
     const safeStart = Math.max(0, startBeat);
-    const safeEnd = Math.max(safeStart + 0.01, safeStart + Math.max(0.01, durationBeats));
+    const safeEnd = Math.max(safeStart + 1e-6, safeStart + Math.max(1e-6, durationBeats));
     return Math.max(
-      0.005,
+      1e-4,
       beatToSecondsWithTempoMap(safeEnd, baseTempo, tempoMap) -
         beatToSecondsWithTempoMap(safeStart, baseTempo, tempoMap)
     );

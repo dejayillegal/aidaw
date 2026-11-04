@@ -23,7 +23,12 @@ import { evaluateAutomationAtBeat, synthEngine } from '../engine/webAudioSynth';
 import { exportClipToMidiFile, downloadMidiFile } from '../engine/midiFileExporter';
 import { projectQueueService } from '../services/projectQueueService';
 import { spotPositionToBeat } from '../services/commandBus';
-import { beatToBarBeatTick, MusicalTimeService } from '../engine/timelineCoordinates';
+import {
+  beatToBarBeatTick,
+  CANONICAL_PPQ,
+  MAX_SUPPORTED_TIMELINE_BARS,
+  MusicalTimeService,
+} from '../engine/timelineCoordinates';
 import { SelectedTrackAnalysisStrip } from './SelectedTrackAnalysisStrip';
 import {
   Activity,
@@ -127,6 +132,57 @@ export function mapBeatToMidiGridCoordinates(
     sixteenthIndexInBar,
     isInsideWindow,
   };
+}
+
+export interface PlayheadSmoothingSnapshot {
+  isPlaying: boolean;
+  beat: number;
+  scrollBar: number;
+  zoom: number;
+  projectRevision: number;
+  prefersReducedMotion: boolean;
+}
+
+/**
+ * Determines whether the visual playhead must snap immediately (`transition: none`)
+ * rather than interpolating across a transport discontinuity (seek, stop/reset,
+ * loop wrap, backward jump, project switch, viewport scroll/zoom change, or
+ * reduced-motion preference).
+ */
+export function shouldSnapPlayheadImmediately(
+  prev: PlayheadSmoothingSnapshot | null,
+  next: PlayheadSmoothingSnapshot
+): boolean {
+  if (next.prefersReducedMotion) return true;
+  if (!next.isPlaying) return true;
+  if (!prev) return true;
+  if (!prev.isPlaying) return true;
+  if (prev.projectRevision !== next.projectRevision) return true;
+  if (prev.scrollBar !== next.scrollBar) return true;
+  if (Math.abs(prev.zoom - next.zoom) > 1e-6) return true;
+  const deltaBeat = next.beat - prev.beat;
+  // Backward jump (loop wrap, stop/reset, or backward seek) or large forward jump (seek)
+  if (deltaBeat < -1e-4 || deltaBeat > 1.25) return true;
+  return false;
+}
+
+export function mapBeatToArrangementPlayheadTransform(
+  beat: number,
+  options: {
+    canvasWidthPx: number;
+    arrStartBeat: number;
+    arrVisibleBeats: number;
+  }
+): { isVisible: boolean; translateX: number; normalizedRatio: number } {
+  const safeBeat = Number.isFinite(beat) ? Math.max(0, beat) : 0;
+  const width = Math.max(1, options.canvasWidthPx || 800);
+  const start = options.arrStartBeat;
+  const span = Math.max(1 / CANONICAL_PPQ, options.arrVisibleBeats);
+  const end = start + span;
+  const isVisible = safeBeat >= start && safeBeat <= end;
+  const normalizedRatio = Math.max(0, Math.min(1, (safeBeat - start) / span));
+  const translateX = normalizedRatio * width;
+  return { isVisible, translateX, normalizedRatio };
 }
 
 interface TimelineCanvasProps {
@@ -269,6 +325,21 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const [engineSyncedBeat, setEngineSyncedBeat] = useState<number>(() =>
     synthEngine.getCurrentBeat()
   );
+  const [arrangementWidthPx, setArrangementWidthPx] = useState<number>(800);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return Boolean(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  });
+  const prevPlayheadSnapshotRef = useRef<PlayheadSmoothingSnapshot | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(Boolean(e.matches));
+    setPrefersReducedMotion(Boolean(mq.matches));
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, []);
 
   // Synchronize with synthEngine high-precision audio clock during playback or seek
   useEffect(() => {
@@ -300,7 +371,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     project.tracks.find((t) => t.id === selectedTrackId) || project.tracks[0];
 
   const rawBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-  const totalBars: number = Math.max(4, Math.min(1024, Math.round(rawBars)));
+  const totalBars: number = Math.max(1, Math.min(MAX_SUPPORTED_TIMELINE_BARS, Math.round(rawBars)));
   const totalBeats = MusicalTimeService.arrangementTotalBeats(
     { ...project, arrangementLengthBars: totalBars },
     1
@@ -318,6 +389,28 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const arrStartBeat = effectiveScrollBar * 4;
   const arrVisibleBeats = visibleArrBars * 4;
   const arrEndBeat = arrStartBeat + arrVisibleBeats;
+
+  const currentPlayheadSnapshot: PlayheadSmoothingSnapshot = {
+    isPlaying: Boolean(isPlaying || synthEngine.getIsPlaying()),
+    beat: syncedPlayheadBeat,
+    scrollBar: effectiveScrollBar,
+    zoom: arrangementZoom,
+    projectRevision: project.projectRevision ?? project.revision ?? 1,
+    prefersReducedMotion,
+  };
+  const snapPlayheadImmediately = shouldSnapPlayheadImmediately(
+    prevPlayheadSnapshotRef.current,
+    currentPlayheadSnapshot
+  );
+  useEffect(() => {
+    prevPlayheadSnapshotRef.current = currentPlayheadSnapshot;
+  });
+
+  const arrangementPlayheadTransform = mapBeatToArrangementPlayheadTransform(syncedPlayheadBeat, {
+    canvasWidthPx: arrangementWidthPx,
+    arrStartBeat,
+    arrVisibleBeats,
+  });
 
   const midiGridSync = mapBeatToMidiGridCoordinates(syncedPlayheadBeat, {
     canvasWidth: pianoRollWidthPx,
@@ -351,8 +444,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
-    const width = rect.width;
+    const width = rect.width > 0 ? rect.width : 800;
     const height = rect.height;
+    if (rect.width > 0 && Math.abs(rect.width - arrangementWidthPx) > 1) {
+      setArrangementWidthPx(rect.width);
+    }
 
     ctx.fillStyle = '#0D1015';
     ctx.fillRect(0, 0, width, height);
@@ -511,7 +607,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       // Render Track Clips at their exact true startTime and length (Fixed Bug P0-002!)
       track.clips.forEach((clip: AbletonMidiClip) => {
         const trueClipStart = clip.startTime;
-        const trueClipEnd = clip.startTime + Math.max(0.25, clip.length);
+        const trueClipEnd = clip.startTime + Math.max(1 / CANONICAL_PPQ, clip.length);
         const clipStart = Math.max(arrStartBeat, trueClipStart);
         const clipEnd = Math.min(arrEndBeat, trueClipEnd);
         if (clipEnd <= clipStart) return;
@@ -574,7 +670,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           ctx.clip();
           ctx.fillStyle = track.soloed ? '#0A0D12' : '#F8FAFC';
           ctx.font = '500 9.5px "JetBrains Mono", monospace';
-          const clipBars = Math.round((Math.max(0.25, clip.length) / 4) * 10) / 10;
+          const clipBars = Math.round((Math.max(1 / CANONICAL_PPQ, clip.length) / 4) * 100) / 100;
           const label = `${clip.name} (${clipBars}B · ${clip.notes.length}n)`;
           ctx.fillText(label, clipX + 5, y + 12);
           ctx.restore();
@@ -813,16 +909,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       });
     }
 
-    // Draw Live Playhead if inside visible window
+    // Draw Playhead Ruler Cap in header only (vertical line is rendered by the single GPU-composited playhead overlay to prevent duplicate competing playheads)
     if (syncedPlayheadBeat >= arrStartBeat && syncedPlayheadBeat <= arrEndBeat) {
       const playheadX = ((syncedPlayheadBeat - arrStartBeat) / arrVisibleBeats) * width;
-      ctx.strokeStyle = '#F59E0B';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(playheadX, 0);
-      ctx.lineTo(playheadX, height);
-      ctx.stroke();
-
       ctx.fillStyle = '#F59E0B';
       ctx.beginPath();
       ctx.moveTo(playheadX - 5, 0);
@@ -904,7 +993,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
     const allClipsNotes = selectedTrack.clips.flatMap((c) =>
       c.notes.filter(
-        (n) => n.time >= c.startTime - 0.05 && n.time < c.startTime + Math.max(0.25, c.length) + 0.05
+        (n) => n.time >= c.startTime - 0.05 && n.time < c.startTime + Math.max(1 / CANONICAL_PPQ, c.length) + 0.05
       )
     );
     const visibleNotes = allClipsNotes.filter(
@@ -1096,18 +1185,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       ctx.fillRect(actualX, stalkY, Math.max(4, Math.min(10, noteW * 0.45)), stalkHeight);
     });
 
-    // 5. Draw Active Synchronized MIDI Grid Step Highlight & Live Playhead inside Piano Roll
+    // 5. Draw Active Synchronized MIDI Grid Step Highlight & Playhead Cap (vertical line is rendered by the single transform overlay)
     if (isInsideWindow) {
       ctx.fillStyle = 'rgba(245, 158, 11, 0.09)';
       ctx.fillRect(stepStartPixelX, 0, Math.max(2, stepEndPixelX - stepStartPixelX), rollHeight);
     }
-
-    ctx.strokeStyle = '#F59E0B';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(playheadPixelX, 0);
-    ctx.lineTo(playheadPixelX, height);
-    ctx.stroke();
 
     ctx.fillStyle = '#F59E0B';
     ctx.beginPath();
@@ -1393,14 +1475,15 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             </span>
           )}
 
-          {/* Configurable Track Arrangement Duration (8, 16, 32, 64, 128, 256 Bars) */}
+          {/* Configurable Track Arrangement Duration (1 to 4096 Bars) */}
           {onChangeArrangementLength && (
             <div className="flex items-center bg-[#0B0D11] border border-[#252D3D] rounded p-0.5 text-[10px]">
               <span className="px-1.5 text-slate-400">LENGTH:</span>
-              {([8, 16, 32, 64, 128, 256] as const).map((bars) => (
+              {([1, 4, 8, 16, 32, 64, 128, 256, 1024, 4096] as const).map((bars) => (
                 <button
                   key={bars}
                   type="button"
+                  data-testid={`arrangement-length-${bars}b-btn`}
                   onClick={() => onChangeArrangementLength(bars)}
                   className={`px-1.5 py-0.5 rounded transition-colors ${
                     totalBars === bars
@@ -1412,6 +1495,23 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                   {bars}B
                 </button>
               ))}
+              <input
+                type="number"
+                data-testid="arrangement-length-bars-input"
+                min={1}
+                max={MAX_SUPPORTED_TIMELINE_BARS}
+                value={totalBars}
+                onChange={(e) => {
+                  const parsed = parseInt(e.target.value, 10);
+                  if (Number.isFinite(parsed)) {
+                    onChangeArrangementLength(
+                      Math.max(1, Math.min(MAX_SUPPORTED_TIMELINE_BARS, parsed))
+                    );
+                  }
+                }}
+                className="ml-1 w-14 bg-[#07090D] border border-[#252D3D] rounded px-1 py-0.2 text-center text-amber-300 font-semibold"
+                title={`Set exact arrangement extent in bars (1–${MAX_SUPPORTED_TIMELINE_BARS})`}
+              />
             </div>
           )}
         </div>
@@ -1705,10 +1805,10 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           {project.tracks.map((trk, tIdx) => {
             const rowH = Math.max(1.5, 18 / Math.max(1, project.tracks.length));
             return trk.clips.map((c) => {
-              const leftPct = Math.max(0, Math.min(100, (c.startTime / Math.max(1, totalBeats)) * 100));
+              const leftPct = Math.max(0, Math.min(100, (c.startTime / Math.max(1 / CANONICAL_PPQ, totalBeats)) * 100));
               const widthPct = Math.max(
                 0.8,
-                Math.min(100 - leftPct, (Math.max(0.25, c.length) / Math.max(1, totalBeats)) * 100)
+                Math.min(100 - leftPct, (Math.max(1 / CANONICAL_PPQ, c.length) / Math.max(1 / CANONICAL_PPQ, totalBeats)) * 100)
               );
               return (
                 <div
@@ -1733,11 +1833,13 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             }}
             className="absolute inset-y-0 border border-amber-400 bg-amber-400/10 pointer-events-none"
           />
-          {/* Smooth CSS-Transitioned Minimap Playhead */}
+          {/* Smooth Transform-Synced Minimap Playhead */}
           <div
             data-testid="minimap-smooth-playhead"
+            data-snap-immediate={snapPlayheadImmediately ? 'true' : 'false'}
             style={{
-              left: `${Math.max(0, Math.min(100, (syncedPlayheadBeat / Math.max(1, totalBeats)) * 100))}%`,
+              left: `${Math.max(0, Math.min(100, (syncedPlayheadBeat / Math.max(1 / CANONICAL_PPQ, totalBeats)) * 100))}%`,
+              transition: snapPlayheadImmediately ? 'none' : 'left 45ms linear, transform 45ms linear',
             }}
             className="absolute inset-y-0 w-[1.5px] bg-amber-300 shadow-[0_0_6px_rgba(251,191,36,0.9)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none"
           />
@@ -2162,16 +2264,16 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               onPointerCancel={handleArrangementPointerUp}
               className="w-full h-full block cursor-pointer touch-none"
             />
-            {syncedPlayheadBeat >= arrStartBeat && syncedPlayheadBeat <= arrEndBeat && (
+            {arrangementPlayheadTransform.isVisible && (
               <div
                 data-testid="arrangement-smooth-playhead"
+                data-snap-immediate={snapPlayheadImmediately ? 'true' : 'false'}
                 style={{
-                  left: `${Math.max(
-                    0,
-                    Math.min(100, ((syncedPlayheadBeat - arrStartBeat) / Math.max(1, arrVisibleBeats)) * 100)
-                  )}%`,
+                  left: 0,
+                  transform: `translate3d(${arrangementPlayheadTransform.translateX.toFixed(2)}px, 0, 0)`,
+                  transition: snapPlayheadImmediately ? 'none' : 'transform 45ms linear',
                 }}
-                className="absolute inset-y-0 w-[2px] -translate-x-1/2 bg-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.85)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none z-10"
+                className="absolute inset-y-0 w-[2px] bg-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.85)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none z-10"
               />
             )}
           </div>
@@ -2368,10 +2470,13 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         {midiGridSync.isInsideWindow && (
           <div
             data-testid="pianoroll-smooth-playhead"
+            data-snap-immediate={snapPlayheadImmediately ? 'true' : 'false'}
             style={{
-              left: `${midiGridSync.playheadPixelX}px`,
+              left: 0,
+              transform: `translate3d(${midiGridSync.playheadPixelX.toFixed(2)}px, 0, 0)`,
+              transition: snapPlayheadImmediately ? 'none' : 'transform 45ms linear',
             }}
-            className="absolute inset-y-0 w-[2px] -translate-x-1/2 bg-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.85)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none z-10"
+            className="absolute inset-y-0 w-[2px] bg-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.85)] transition-[left,transform] duration-75 ease-linear will-change-[left,transform] pointer-events-none z-10"
           />
         )}
       </div>

@@ -1,5 +1,5 @@
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
-import { ensureProjectDeviceConversions } from './engine/abletonCapabilityMatrix';
+import { CANONICAL_PPQ, MAX_SUPPORTED_TIMELINE_BARS } from './engine/timelineCoordinates';
 import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
 import { saveExportBlob } from './services/fileExportService';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -215,14 +215,13 @@ export function enrichProjectWithAnalysis(
   rawState: AbletonProjectState,
   formId: MacroArrangementFormId
 ): AbletonProjectState {
-  const syncedState = ensureProjectDeviceConversions(rawState);
-  const totalBars = syncedState.arrangementLengthBars || 16;
-  const musicalProfile = analyzeProjectMusicalProfile(syncedState);
-  const effectiveForm = syncedState.lastGenerationIdentity?.macroFormId || formId;
-  const arrangementSections = syncedState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, syncedState.lastGenerationIdentity?.compositionSeed ?? syncedState.generationSeed ?? 0);
-  const alsValidation = validateAlsProjectCadence(syncedState.rawXmlModified);
+  const totalBars = rawState.arrangementLengthBars || 16;
+  const musicalProfile = analyzeProjectMusicalProfile(rawState);
+  const effectiveForm = rawState.lastGenerationIdentity?.macroFormId || formId;
+  const arrangementSections = rawState.arrangementSections || generateSectionArrangementPlan(effectiveForm, totalBars, rawState.lastGenerationIdentity?.compositionSeed ?? rawState.generationSeed ?? 0);
+  const alsValidation = validateAlsProjectCadence(rawState.rawXmlModified);
   return {
-    ...syncedState,
+    ...rawState,
     arrangementLengthBars: totalBars,
     musicalProfile,
     arrangementSections,
@@ -395,14 +394,13 @@ export default function App() {
       void projectQueueService.restorePersistedProjects().then(async restored => {
         if (cancelled) return;
         if (restored && projectRef.current === initial) {
-          const syncedRestored = ensureProjectDeviceConversions(restored);
-          projectRef.current = syncedRestored; setProject(syncedRestored);
-          setSelectedTrackId(syncedRestored.tracks[0]?.id || '1');
-          if (syncedRestored.lastGenerationIdentity) {
-            setActiveStrategyId(syncedRestored.lastGenerationIdentity.strategyId);
-            setActiveFormId(syncedRestored.lastGenerationIdentity.macroFormId);
+          projectRef.current = restored; setProject(restored);
+          setSelectedTrackId(restored.tracks[0]?.id || '1');
+          if (restored.lastGenerationIdentity) {
+            setActiveStrategyId(restored.lastGenerationIdentity.strategyId);
+            setActiveFormId(restored.lastGenerationIdentity.macroFormId);
           }
-          setStatusMessage(`Recovered ${syncedRestored.fileName}. ${projectQueueService.getPersistenceStatus().error || ''}`);
+          setStatusMessage(`Recovered ${restored.fileName}. ${projectQueueService.getPersistenceStatus().error || ''}`);
         } else if (!restored && projectQueueService.getAllItems().length === 0) {
           const recovery = projectQueueService.getPersistenceStatus();
           if (recovery.status === 'error') {
@@ -1364,9 +1362,9 @@ export default function App() {
     setStatusMessage(summary);
   };
 
-  // Handler: Configurable Arrangement Duration (4 to 1024 Bars) - Non-destructive Extent Change (v7.1 P1-006)
+  // Handler: Configurable Arrangement Duration (1 to 4096 Bars) - Non-destructive Extent Change
   const handleChangeArrangementLength = (bars: number) => {
-    const safeBars = Math.max(4, Math.min(1024, Math.round(bars)));
+    const safeBars = Math.max(1, Math.min(MAX_SUPPORTED_TIMELINE_BARS, Math.round(bars)));
     handleExecuteProjectCommand('Change Arrangement Extent', 'transport', prev => ({
       ...prev, arrangementLengthBars: safeBars,
     }));
@@ -1497,12 +1495,7 @@ export default function App() {
       setMasterPeakDb(-60);
     } else {
       try {
-        const synced = ensureProjectDeviceConversions(projectRef.current);
-        if (synced !== projectRef.current) {
-          projectRef.current = synced;
-          setProject(synced);
-        }
-        synthEngine.setState(synced, humanization, transport, masterBus);
+        synthEngine.setState(projectRef.current, humanization, transport, masterBus);
         synthEngine.start(false);
         setIsPlaying(synthEngine.getIsPlaying());
       } catch(error) {
@@ -1611,7 +1604,7 @@ export default function App() {
 
         // Find the clip covering stepBeat, or create a 4-bar clip at that bar if none covers stepBeat
         let targetClipIdx = track.clips.findIndex(
-          (c) => stepBeat >= c.startTime - 0.05 && stepBeat < c.startTime + Math.max(0.25, c.length) + 0.05
+          (c) => stepBeat >= c.startTime - 0.05 && stepBeat < c.startTime + Math.max(1 / CANONICAL_PPQ, c.length) + 0.05
         );
         let nextClips = [...track.clips];
         if (targetClipIdx < 0) {

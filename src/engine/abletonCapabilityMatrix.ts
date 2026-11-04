@@ -70,6 +70,7 @@ export interface AbletonCapabilityEntry {
 
 export const MAX_EXECUTABLE_INSERT_DEVICES = 10;
 export const CURRENT_DEVICE_CONVERSION_VERSION = 1;
+export const LEGACY_CONVERSION_MIGRATION_V1 = 'legacy_missing_conversion_record_v1';
 
 export const ABLETON_DEVICE_REGISTRY: Record<string, AbletonDeviceContract> = {
   DrumGroupDevice: {
@@ -475,7 +476,7 @@ export const ABLETON_DEVICE_REGISTRY: Record<string, AbletonDeviceContract> = {
     conversionKind: 'audio_insert_dsp',
     maxInstancesPerTrack: MAX_EXECUTABLE_INSERT_DEVICES,
     parameterSpecs: [
-      { name: 'DecayTime', aliases: ['Decay', 'DecaySec'], min: 0.2, max: 12, defaultValue: 2.4, unit: 's', description: 'Reverb tail decay time in seconds' },
+      { name: 'DecayTime', aliases: ['Decay', 'DecaySec'], min: 0.2, max: 15, defaultValue: 2.4, unit: 's', description: 'Reverb tail decay time in seconds' },
       { name: 'PreDelay', aliases: ['PredelayMs'], min: 1, max: 200, defaultValue: 18, unit: 'ms', description: 'Initial reflection pre-delay in ms' },
       { name: 'HighCut', aliases: ['DampingHz', 'ShelfFreq'], min: 400, max: 16000, defaultValue: 4800, unit: 'Hz', description: 'Reverb tail high-cut damping frequency' },
       { name: 'DryWet', aliases: ['Mix'], min: 0, max: 100, defaultValue: 35, unit: '%', description: 'Dry/wet reverb blend percentage' },
@@ -1151,10 +1152,28 @@ export function verifyDeviceConversionRecord(device: AbletonDevice): {
   status: 'valid' | 'invalidated' | 'unconverted';
   reason: string;
 } {
+  const rec = device.conversionRecord;
+  if (
+    rec &&
+    typeof rec.conversionVersion === 'number' &&
+    rec.conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION
+  ) {
+    return {
+      isValid: false,
+      status: 'invalidated',
+      reason: `FUTURE_CONVERSION_VERSION: Unsupported future conversionVersion ${rec.conversionVersion} on <${device.xmlTag}> (${device.id}); max supported is ${CURRENT_DEVICE_CONVERSION_VERSION}`,
+    };
+  }
   if (!CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+    if (rec !== undefined) {
+      return {
+        isValid: false,
+        status: 'invalidated',
+        reason: `Unexpected conversionRecord on non-converted device <${device.xmlTag}> (${device.id})`,
+      };
+    }
     return { isValid: true, status: 'valid', reason: 'Not a converted device' };
   }
-  const rec = device.conversionRecord;
   if (!rec || rec.status === 'unconverted') {
     return {
       isValid: false,
@@ -1169,13 +1188,19 @@ export function verifyDeviceConversionRecord(device: AbletonDevice): {
       reason: `Conversion record for <${device.xmlTag}> (${device.id}) is marked invalidated`,
     };
   }
+  if (rec.conversionVersion !== CURRENT_DEVICE_CONVERSION_VERSION) {
+    return {
+      isValid: false,
+      status: 'invalidated',
+      reason: `Conversion version mismatch on <${device.xmlTag}> (${device.id}): expected ${CURRENT_DEVICE_CONVERSION_VERSION}, got ${rec.conversionVersion}`,
+    };
+  }
   const expectedRecord = buildDeviceConversionRecord(device);
   const expectedHash = expectedRecord.sourceParameterHash;
   if (
     rec.sourceDeviceId !== device.id ||
     rec.xmlTag !== device.xmlTag ||
     rec.sourceParameterHash !== expectedHash ||
-    rec.conversionVersion !== CURRENT_DEVICE_CONVERSION_VERSION ||
     rec.conversionKind !== expectedRecord.conversionKind
   ) {
     return {
@@ -1345,8 +1370,98 @@ export function verifyDeviceRegistryIntegrity(): {
   };
 }
 
+/**
+ * Named, versioned migration for genuinely missing legacy conversion metadata (`conversionRecord === undefined`).
+ * Never overwrites, repairs, or downgrades an existing `conversionRecord` (whether valid, stale, invalidated, altered, or future version).
+ */
+export function migrateLegacyDeviceConversionRecord(device: AbletonDevice): {
+  device: AbletonDevice;
+  migrated: boolean;
+  migrationId?: string;
+} {
+  if (!CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+    return { device, migrated: false };
+  }
+  if (device.conversionRecord !== undefined) {
+    return { device, migrated: false };
+  }
+  return {
+    device: {
+      ...device,
+      conversionRecord: buildDeviceConversionRecord(device),
+    },
+    migrated: true,
+    migrationId: LEGACY_CONVERSION_MIGRATION_V1,
+  };
+}
+
+export function migrateMissingLegacyProjectConversions(project: AbletonProjectState): {
+  project: AbletonProjectState;
+  migrated: boolean;
+  migratedDeviceIds: string[];
+  migrationId: string;
+} {
+  const migratedDeviceIds: string[] = [];
+  let tracksChanged = false;
+  const nextTracks = project.tracks.map((track) => {
+    let devicesChanged = false;
+    const nextDevices = (track.devices || []).map((dev) => {
+      const res = migrateLegacyDeviceConversionRecord(dev);
+      if (res.migrated) {
+        devicesChanged = true;
+        migratedDeviceIds.push(dev.id);
+      }
+      return res.device;
+    });
+    if (!devicesChanged) {
+      return track;
+    }
+    tracksChanged = true;
+    return {
+      ...track,
+      devices: nextDevices,
+    };
+  });
+
+  if (!tracksChanged) {
+    return {
+      project,
+      migrated: false,
+      migratedDeviceIds,
+      migrationId: LEGACY_CONVERSION_MIGRATION_V1,
+    };
+  }
+
+  return {
+    project: {
+      ...project,
+      tracks: nextTracks,
+    },
+    migrated: true,
+    migratedDeviceIds,
+    migrationId: LEGACY_CONVERSION_MIGRATION_V1,
+  };
+}
+
+/**
+ * Synchronizes derived conversion metadata for a supported converted device during an atomic parameter edit or creation.
+ * - Preserves and rejects unknown future `conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION` without silently downgrading.
+ * - Idempotent: returns the exact same `device` reference when the conversion record is already valid.
+ */
 export function syncDeviceConversionRecord(device: AbletonDevice): AbletonDevice {
   if (!CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+    return device;
+  }
+  if (
+    device.conversionRecord &&
+    typeof device.conversionRecord.conversionVersion === 'number' &&
+    device.conversionRecord.conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION
+  ) {
+    throw new Error(
+      `FUTURE_CONVERSION_VERSION: Cannot downgrade or overwrite unsupported future conversionVersion ${device.conversionRecord.conversionVersion} on <${device.xmlTag}> (${device.id})`
+    );
+  }
+  if (device.conversionRecord && verifyDeviceConversionRecord(device).isValid) {
     return device;
   }
   return {
@@ -1355,14 +1470,95 @@ export function syncDeviceConversionRecord(device: AbletonDevice): AbletonDevice
   };
 }
 
-export function ensureProjectDeviceConversions(project: AbletonProjectState): AbletonProjectState {
-  return {
-    ...project,
-    tracks: project.tracks.map((track) => ({
-      ...track,
-      devices: track.devices.map((dev) => syncDeviceConversionRecord(dev)),
-    })),
+/**
+ * Explicit validated command to convert or reconvert a supported converted device instance on a project track.
+ * Rejects unsupported/non-converted devices and refuses to downgrade future conversion versions.
+ */
+export function convertOrReconvertDeviceInstance(
+  project: AbletonProjectState,
+  trackId: string,
+  deviceId: string
+): {
+  project: AbletonProjectState;
+  record: DeviceConversionRecord;
+  changed: boolean;
+} {
+  const trackIdx = project.tracks.findIndex((t) => t.id === trackId);
+  if (trackIdx < 0) {
+    throw new Error(`CONVERT_TARGET_NOT_FOUND: Track ${trackId} not found`);
+  }
+  const track = project.tracks[trackIdx];
+  const devIdx = (track.devices || []).findIndex((d) => d.id === deviceId);
+  if (devIdx < 0) {
+    throw new Error(`CONVERT_TARGET_NOT_FOUND: Device ${deviceId} not found on track ${trackId}`);
+  }
+  const targetDevice = track.devices[devIdx];
+  if (!CONVERTED_DEVICE_TAGS.has(targetDevice.xmlTag)) {
+    throw new Error(
+      `UNSUPPORTED_CONVERSION_TARGET: Device ${deviceId} (<${targetDevice.xmlTag}>) is not a convertible device`
+    );
+  }
+  if (
+    targetDevice.conversionRecord &&
+    typeof targetDevice.conversionRecord.conversionVersion === 'number' &&
+    targetDevice.conversionRecord.conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION
+  ) {
+    throw new Error(
+      `FUTURE_CONVERSION_VERSION: Cannot downgrade unsupported future conversionVersion ${targetDevice.conversionRecord.conversionVersion} on <${targetDevice.xmlTag}> (${deviceId})`
+    );
+  }
+  if (targetDevice.conversionRecord && verifyDeviceConversionRecord(targetDevice).isValid) {
+    return {
+      project,
+      record: targetDevice.conversionRecord,
+      changed: false,
+    };
+  }
+  const synced = syncDeviceConversionRecord(targetDevice);
+  const nextDevices = [...track.devices];
+  nextDevices[devIdx] = synced;
+  const nextTracks = [...project.tracks];
+  nextTracks[trackIdx] = {
+    ...track,
+    devices: nextDevices,
   };
+  return {
+    project: {
+      ...project,
+      tracks: nextTracks,
+    },
+    record: synced.conversionRecord!,
+    changed: true,
+  };
+}
+
+export function invalidateDeviceConversionRecord(
+  device: AbletonDevice,
+  reason = 'Device parameter mutated without conversion sync'
+): AbletonDevice {
+  if (!CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+    return device;
+  }
+  if (
+    device.conversionRecord &&
+    typeof device.conversionRecord.conversionVersion === 'number' &&
+    device.conversionRecord.conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION
+  ) {
+    return device;
+  }
+  const base = device.conversionRecord ?? buildDeviceConversionRecord(device);
+  return {
+    ...device,
+    conversionRecord: {
+      ...base,
+      status: 'invalidated',
+      limitations: [...(base.limitations || []), reason],
+    },
+  };
+}
+
+export function ensureProjectDeviceConversions(project: AbletonProjectState): AbletonProjectState {
+  return migrateMissingLegacyProjectConversions(project).project;
 }
 
 /**
@@ -1486,15 +1682,18 @@ export function evaluateTrackMidiDeviceChain(
           startBeat + (maxNoteDuration > rateBeats ? maxNoteDuration : minSpanForPattern)
         );
 
+        const rawSpan = Math.max(0, windowEndBeat - startBeat);
         const totalArpSteps = Math.max(
           1,
-          Math.floor((windowEndBeat - startBeat + 1e-9) / rateBeats)
+          Math.ceil((rawSpan - 1e-9) / rateBeats)
         );
-        const stepNoteDuration = Math.max(0.02, rateBeats * (gatePct / 100));
+        const stepNoteDuration = Math.max(1e-6, rateBeats * (gatePct / 100));
 
         for (let s = 0; s < totalArpSteps; s++) {
           const stepTime = startBeat + s * rateBeats;
-          if (stepTime >= clipEndBeat - 1e-9) break;
+          if (stepTime >= windowEndBeat - 1e-9 || stepTime >= clipEndBeat - 1e-9) break;
+          const remainingInClip = clipEndBeat - stepTime;
+          if (remainingInClip <= 1e-9) break;
           const chosen = patternPitches[s % patternPitches.length];
           arpeggiated.push({
             ...chosen.template,
@@ -1502,7 +1701,7 @@ export function evaluateTrackMidiDeviceChain(
             sourceNoteId: chosen.template.sourceNoteId || chosen.template.id,
             time: stepTime,
             quantizedTime: stepTime,
-            duration: Math.min(stepNoteDuration, Math.max(0.02, clipEndBeat - stepTime)),
+            duration: Math.max(1e-6, Math.min(stepNoteDuration, remainingInClip)),
             pitch: chosen.pitch,
           });
         }

@@ -55,9 +55,9 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
     if (input.project?.audioSettings && JSON.stringify(input.project.audioSettings) !== JSON.stringify(input.audioSettings)) {
       throw new Error('PROJECT_SNAPSHOT: ambiguous settings owners');
     }
-    input.project = { ...input.project, audioSettings: input.audioSettings };
+    input.project = ensureProjectDeviceConversions({ ...input.project, audioSettings: input.audioSettings });
   } else if (input.audioSettings !== undefined) throw new Error('PROJECT_SNAPSHOT: duplicate settings owner');
-  const snapshot = exposedSnapshot(ensureProjectDeviceConversions(input.project));
+  const snapshot = exposedSnapshot(input.project);
   validate(snapshot);
   delete snapshot.project.audioSettings!.transport.arrangementLengthBars;
   snapshot.project.rawXmlModified = synchronizeProjectStateToXml(snapshot.project);

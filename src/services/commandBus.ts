@@ -18,6 +18,7 @@ import {
   noteProbabilityPasses,
   sessionEventsInWindow,
 } from '../engine/timelineCoordinates';
+import { assertProjectState } from '../engine/projectStateContracts';
 
 export function storeArrangementClipInSession(project: AbletonProjectState, trackId: string, slot: number, clipId: string): AbletonProjectState {
   const track=project.tracks.find(t=>t.id===trackId), clip=track?.clips.find(c=>c.id===clipId);
@@ -200,6 +201,8 @@ export class StudioCommandBus {
     const undoStack = this.undoStacks.get(projectQueueId);
     if (!undoStack || undoStack.length === 0) return null;
 
+    const candidate = undoStack[undoStack.length - 1];
+    assertProjectState(candidate.beforeState);
     const tx = undoStack.pop()!;
     const redoStack = this.redoStacks.get(projectQueueId) || [];
     redoStack.push(tx);
@@ -213,6 +216,8 @@ export class StudioCommandBus {
     const redoStack = this.redoStacks.get(projectQueueId);
     if (!redoStack || redoStack.length === 0) return null;
 
+    const candidate = redoStack[redoStack.length - 1];
+    assertProjectState(candidate.afterState);
     const tx = redoStack.pop()!;
     const undoStack = this.undoStacks.get(projectQueueId) || [];
     undoStack.push(tx);

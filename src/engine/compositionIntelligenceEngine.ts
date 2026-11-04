@@ -2231,12 +2231,12 @@ export function insertClipIntoTrackTimeline(
   newClip: AbletonMidiClip
 ): AbletonMidiClip[] {
   const targetStart = newClip.startTime;
-  const targetEnd = newClip.startTime + Math.max(0.25, newClip.length);
+  const targetEnd = newClip.startTime + Math.max(1 / 960, newClip.length);
   const result: AbletonMidiClip[] = [];
 
   for (const clip of existingClips) {
     const cStart = clip.startTime;
-    const cEnd = clip.startTime + Math.max(0.25, clip.length);
+    const cEnd = clip.startTime + Math.max(1 / 960, clip.length);
 
     // No overlap
     if (cEnd <= targetStart + 0.001 || cStart >= targetEnd - 0.001) {
@@ -2291,7 +2291,7 @@ export function splitTrackClipAtBeat(
 
   for (const clip of clips) {
     const cStart = clip.startTime;
-    const cEnd = clip.startTime + Math.max(0.25, clip.length);
+    const cEnd = clip.startTime + Math.max(1 / 960, clip.length);
     if (splitBeat > cStart + 0.24 && splitBeat < cEnd - 0.24) {
       splitOccurred = true;
       const leftNotes = clip.notes.filter((n) => n.time < splitBeat - 0.001);

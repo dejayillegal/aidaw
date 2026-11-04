@@ -4,6 +4,7 @@ import {
   evaluatePlayableArrangementEvents,
   evaluatePlayableProjectEvents,
   evaluatePlayableSessionEvents,
+  EvaluatedPlayableEvent,
   MusicalTimeService,
   noteIsInsideClip,
   noteProbabilityPasses,
@@ -24,6 +25,7 @@ import {
   MasterBusConfig,
   MidiNoteEvent,
   PlaybackEngineState,
+  TempoAutomationPoint,
   TrackMixerParams,
   TransportConfig,
 } from '../types/ableton';
@@ -34,6 +36,7 @@ import {
   evaluateTrackMidiDeviceChain,
   isAudioEffectInsertTag,
   isInstrumentDeviceTag,
+  isMidiProcessorDeviceTag,
   readDeviceParamNumber,
   readDeviceParamString,
   verifyDeviceConversionRecord,
@@ -228,6 +231,23 @@ export interface TrackChannelRuntime {
   currentCutoffHz?: number;
 }
 
+export const MAX_RETAINED_DISPOSED_PROCESSOR_IDS = 64;
+export const MAX_CONCURRENT_RETIRING_CHAINS = 4;
+
+export function recordDisposedProcessorId(
+  channel: Pick<TrackChannelRuntime, 'disposedProcessorIds'>,
+  processorId: string
+): void {
+  const existingIdx = channel.disposedProcessorIds.indexOf(processorId);
+  if (existingIdx >= 0) {
+    channel.disposedProcessorIds.splice(existingIdx, 1);
+  }
+  channel.disposedProcessorIds.push(processorId);
+  while (channel.disposedProcessorIds.length > MAX_RETAINED_DISPOSED_PROCESSOR_IDS) {
+    channel.disposedProcessorIds.shift();
+  }
+}
+
 export function pruneRetiringTrackChains(
   channel: TrackChannelRuntime,
   nowAudioTime: number
@@ -244,6 +264,19 @@ export function pruneRetiringTrackChains(
     return true;
   });
   return retiredCount;
+}
+
+export function flushRetiringTrackChains(channel: TrackChannelRuntime): number {
+  if (!channel.retiringChains || channel.retiringChains.length === 0) return 0;
+  let flushedCount = 0;
+  while (channel.retiringChains.length > 0) {
+    const entry = channel.retiringChains.shift();
+    if (entry && !entry.disposed) {
+      entry.disposeNow();
+      flushedCount++;
+    }
+  }
+  return flushedCount;
 }
 
 interface AudioBusGraph {
@@ -1086,11 +1119,12 @@ export function buildDeviceInsertProcessor(
       const rawMix = readDeviceParamNumber(dev, 'DryWet', rawTag === 'HybridReverb' ? 40 : 35);
       const wet = Math.max(0, Math.min(1, rawMix <= 1 && rawMix > 0 ? rawMix : rawMix / 100));
 
-      tailDecaySeconds = Math.min(4.0, decaySec);
+      tailDecaySeconds = Math.min(15.0, decaySec);
       // Independently stable comb feedback derived from each comb's delay and requested T60:
-      // g_i = 10^(-3 * delaySeconds_i / T60Seconds), bounded strictly below unity (<= 0.88)
-      const g1 = Math.min(0.88, Math.max(0.05, Math.pow(10, (-3 * delay1Sec) / decaySec)));
-      const g2 = Math.min(0.88, Math.max(0.05, Math.pow(10, (-3 * delay2Sec) / decaySec)));
+      // g_i = 10^(-3 * delaySeconds_i / T60Seconds), bounded strictly below unity (<= 0.992)
+      // so long DecayTime settings up to 15s produce distinct, monotonically longer tails.
+      const g1 = computeStableCombFeedbackGain(delay1Sec, decaySec);
+      const g2 = computeStableCombFeedbackGain(delay2Sec, decaySec);
       const clampedDampHz = Math.max(400, Math.min(16000, dampHz));
 
       setAudioParamSmooth(preDelay.delayTime, Math.max(0.001, Math.min(0.25, preDelayMs / 1000)), now);
@@ -1538,9 +1572,7 @@ export function getOrCreateTrackChannelRuntime(
       const disposeOldChain = () => {
         for (const oldProc of prevProcessors) {
           oldProc.dispose?.();
-          if (!channel!.disposedProcessorIds.includes(oldProc.id)) {
-            channel!.disposedProcessorIds.push(oldProc.id);
-          }
+          recordDisposedProcessorId(channel!, oldProc.id);
         }
         try {
           prevChainInput.disconnect();
@@ -1557,15 +1589,7 @@ export function getOrCreateTrackChannelRuntime(
       if (!hasActiveTail || now <= 0) {
         disposeOldChain();
       } else {
-        // Dispose non-stateful processors immediately so they do not linger, while keeping stateful tail nodes connected until retireAtAudioTime
-        for (const oldProc of prevProcessors) {
-          if (!oldProc.hasStatefulTail || oldProc.bypassed) {
-            if (!channel.disposedProcessorIds.includes(oldProc.id)) {
-              channel.disposedProcessorIds.push(oldProc.id);
-            }
-          }
-        }
-        const boundedTailSec = Math.max(0.08, Math.min(4.0, maxTailDecaySeconds));
+        const boundedTailSec = Math.max(0.08, Math.min(15.0, maxTailDecaySeconds));
         const retireAtAudioTime = now + boundedTailSec;
         if (typeof prevChainOutput.gain.setValueAtTime === 'function') {
           prevChainOutput.gain.setValueAtTime(1.0, now);
@@ -1589,7 +1613,7 @@ export function getOrCreateTrackChannelRuntime(
         };
 
         // Bound maximum concurrent retiring chains per track (max 4)
-        while (channel.retiringChains.length >= 4) {
+        while (channel.retiringChains.length >= MAX_CONCURRENT_RETIRING_CHAINS) {
           const oldest = channel.retiringChains.shift();
           oldest?.disposeNow();
         }
@@ -2523,7 +2547,7 @@ export async function encodeAudioBufferToWavBlob(
 export function computeStableCombFeedbackGain(delaySeconds: number, t60Seconds: number): number {
   const safeDelay = Math.max(0.001, delaySeconds);
   const safeT60 = Math.max(0.1, t60Seconds);
-  return Math.min(0.88, Math.max(0.05, Math.pow(10, (-3 * safeDelay) / safeT60)));
+  return Math.min(0.992, Math.max(0.05, Math.pow(10, (-3 * safeDelay) / safeT60)));
 }
 
 function applyDiscreteDeviceTailEffectsInPlace(
@@ -2622,32 +2646,18 @@ function applyDiscreteDeviceTailEffectsInPlace(
   }
 }
 
-/**
- * Renders a unit impulse followed by silence through a device processor (using OfflineAudioContext when available,
- * and discrete-time exact feedback topology verification) to certify finite samples, bounded peak, and monotonic tail decay.
- */
-export function renderDeviceImpulseResponse(
-  device: AbletonDevice,
-  durationSeconds = 3.0,
-  sampleRate = 24000
+function analyzeImpulseTailMetrics(
+  left: Float32Array,
+  sampleRate: number
 ): {
-  samples: Float32Array;
   allFinite: boolean;
   firstNonFiniteFrame: number;
   peak: number;
   windowRms: number[];
+  estimatedT60Seconds: number;
   tailDecaysMonotonically: boolean;
 } {
-  const frames = Math.max(512, Math.ceil(durationSeconds * sampleRate));
-  const left = new Float32Array(frames);
-  const right = new Float32Array(frames);
-  left[0] = 1.0;
-  right[0] = 1.0;
-
-  if (!device.bypassed) {
-    applyDiscreteDeviceTailEffectsInPlace(left, right, sampleRate, [device]);
-  }
-
+  const frames = left.length;
   let allFinite = true;
   let firstNonFiniteFrame = -1;
   let peak = 0;
@@ -2662,7 +2672,6 @@ export function renderDeviceImpulseResponse(
     }
   }
 
-  // Compute RMS across 4 post-impulse tail windows to verify bounded decay
   const tailStart = Math.min(frames - 4, Math.floor(0.26 * sampleRate));
   const windowLen = Math.max(64, Math.floor((frames - tailStart) / 4));
   const windowRms: number[] = [];
@@ -2679,6 +2688,21 @@ export function renderDeviceImpulseResponse(
     windowRms.push(count > 0 ? Math.sqrt(sumSq / count) : 0);
   }
 
+  let estimatedT60Seconds = 0;
+  if (
+    allFinite &&
+    windowRms.length === 4 &&
+    windowRms[0] > 1e-7 &&
+    windowRms[3] > 1e-12 &&
+    windowRms[0] > windowRms[3]
+  ) {
+    const dbDrop = 20 * Math.log10(windowRms[0] / windowRms[3]);
+    const spanSeconds = (3 * windowLen) / sampleRate;
+    if (dbDrop > 1e-6) {
+      estimatedT60Seconds = Number(((60 / dbDrop) * spanSeconds).toFixed(4));
+    }
+  }
+
   const tailDecaysMonotonically =
     allFinite &&
     windowRms.length === 4 &&
@@ -2686,12 +2710,528 @@ export function renderDeviceImpulseResponse(
     windowRms[2] <= windowRms[0] * 1.05 + 1e-6;
 
   return {
-    samples: left,
     allFinite,
     firstNonFiniteFrame,
     peak,
     windowRms,
+    estimatedT60Seconds,
     tailDecaysMonotonically,
+  };
+}
+
+/**
+ * Renders a unit impulse followed by silence through discrete-time exact feedback topology
+ * to certify finite samples, bounded peak, and monotonic tail decay.
+ */
+export function renderDeviceImpulseResponse(
+  device: AbletonDevice,
+  durationSeconds = 3.0,
+  sampleRate = 24000
+): {
+  samples: Float32Array;
+  allFinite: boolean;
+  firstNonFiniteFrame: number;
+  peak: number;
+  windowRms: number[];
+  estimatedT60Seconds: number;
+  tailDecaysMonotonically: boolean;
+} {
+  const frames = Math.max(512, Math.ceil(durationSeconds * sampleRate));
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  left[0] = 1.0;
+  right[0] = 1.0;
+
+  if (!device.bypassed) {
+    applyDiscreteDeviceTailEffectsInPlace(left, right, sampleRate, [device]);
+  }
+
+  const metrics = analyzeImpulseTailMetrics(left, sampleRate);
+  return {
+    samples: left,
+    ...metrics,
+  };
+}
+
+export interface NativeOfflineImpulseResponseResult {
+  samples: Float32Array;
+  rightSamples: Float32Array;
+  sampleRate: number;
+  durationSeconds: number;
+  allFinite: boolean;
+  firstNonFiniteFrame: number;
+  peak: number;
+  windowRms: number[];
+  estimatedT60Seconds: number;
+  tailDecaysMonotonically: boolean;
+  executedVia: 'native-offline-audio-context' | 'processor-graph-extracted-simulation';
+  processorSummary: {
+    id: string;
+    xmlTag: string;
+    type: string;
+    bypassed: boolean;
+    hasStatefulTail: boolean;
+    tailDecaySeconds: number;
+    feedbackGains: number[];
+    delayTimesSeconds: number[];
+    dampingCutoffsHz: number[];
+    dampingQDb: number[];
+  };
+}
+
+/**
+ * Instantiates the production `buildDeviceInsertProcessor` factory inside a real `OfflineAudioContext`
+ * (when available in Chromium/WebKit) and captures the constructed Web Audio node parameters.
+ * Never sanitizes NaN/Infinity samples.
+ */
+export async function renderNativeOfflineDeviceImpulseResponse(
+  device: AbletonDevice,
+  durationSeconds = 3.0,
+  sampleRate = 24000,
+  options?: {
+    updateParamsAtSecond?: { atSecond: number; updatedDevice: AbletonDevice };
+    muteTailAtSecond?: number;
+  }
+): Promise<NativeOfflineImpulseResponseResult> {
+  const frames = Math.max(512, Math.ceil(durationSeconds * sampleRate));
+  const capturedGains: { value: number }[] = [];
+  const capturedDelays: { value: number }[] = [];
+  const capturedFilters: { type: string; frequency: { value: number }; Q: { value: number } }[] = [];
+
+  // 1. Inspect the production buildDeviceInsertProcessor node graph construction
+  const probeCtx: Record<string, unknown> = {
+    currentTime: 0,
+    sampleRate,
+    createGain: () => {
+      const gainParam = {
+        value: 1,
+        setValueAtTime: (v: number) => {
+          gainParam.value = v;
+        },
+        setTargetAtTime: (v: number) => {
+          gainParam.value = v;
+        },
+        linearRampToValueAtTime: (v: number) => {
+          gainParam.value = v;
+        },
+      };
+      capturedGains.push(gainParam);
+      return {
+        gain: gainParam,
+        connect: () => {},
+        disconnect: () => {},
+      };
+    },
+    createDelay: () => {
+      const delayParam = {
+        value: 0,
+        setValueAtTime: (v: number) => {
+          delayParam.value = v;
+        },
+        setTargetAtTime: (v: number) => {
+          delayParam.value = v;
+        },
+      };
+      capturedDelays.push(delayParam);
+      return {
+        delayTime: delayParam,
+        connect: () => {},
+        disconnect: () => {},
+      };
+    },
+    createBiquadFilter: () => {
+      const filterNode = {
+        type: 'lowpass',
+        frequency: {
+          value: 1000,
+          setValueAtTime: (v: number) => {
+            filterNode.frequency.value = v;
+          },
+          setTargetAtTime: (v: number) => {
+            filterNode.frequency.value = v;
+          },
+        },
+        Q: {
+          value: 0.707,
+          setValueAtTime: (v: number) => {
+            filterNode.Q.value = v;
+          },
+          setTargetAtTime: (v: number) => {
+            filterNode.Q.value = v;
+          },
+        },
+        gain: {
+          value: 0,
+          setValueAtTime: () => {},
+          setTargetAtTime: () => {},
+        },
+        connect: () => {},
+        disconnect: () => {},
+      };
+      capturedFilters.push(filterNode);
+      return filterNode;
+    },
+    createWaveShaper: () => ({
+      curve: null,
+      oversample: 'none',
+      connect: () => {},
+      disconnect: () => {},
+    }),
+    createDynamicsCompressor: () => ({
+      threshold: { value: -18, setTargetAtTime: () => {} },
+      knee: { value: 6, setTargetAtTime: () => {} },
+      ratio: { value: 4, setTargetAtTime: () => {} },
+      attack: { value: 0.01, setTargetAtTime: () => {} },
+      release: { value: 0.1, setTargetAtTime: () => {} },
+      connect: () => {},
+      disconnect: () => {},
+    }),
+    createStereoPanner: () => ({
+      pan: { value: 0, setTargetAtTime: () => {} },
+      connect: () => {},
+      disconnect: () => {},
+    }),
+    createOscillator: () => ({
+      type: 'sine',
+      frequency: { value: 1, setTargetAtTime: () => {} },
+      connect: () => {},
+      disconnect: () => {},
+      start: () => {},
+      stop: () => {},
+    }),
+  };
+
+  const probeProc = buildDeviceInsertProcessor(probeCtx as unknown as BaseAudioContext, device);
+  if (options?.updateParamsAtSecond) {
+    probeProc.updateParams?.(
+      options.updateParamsAtSecond.updatedDevice,
+      options.updateParamsAtSecond.atSecond
+    );
+  }
+  const processorSummary = {
+    id: probeProc.id,
+    xmlTag: probeProc.xmlTag || device.xmlTag,
+    type: probeProc.type,
+    bypassed: probeProc.bypassed,
+    hasStatefulTail: Boolean(probeProc.hasStatefulTail),
+    tailDecaySeconds: probeProc.getTailDecaySeconds?.() ?? probeProc.tailDecaySeconds ?? 0,
+    feedbackGains: capturedGains
+      .map((g) => Number(g.value.toFixed(6)))
+      .filter((v) => v > 0.04 && v < 0.995),
+    delayTimesSeconds: capturedDelays.map((d) => Number(d.value.toFixed(6))),
+    dampingCutoffsHz: capturedFilters.map((f) => Number(f.frequency.value.toFixed(2))),
+    dampingQDb: capturedFilters.map((f) => Number(f.Q.value.toFixed(4))),
+  };
+  probeProc.dispose?.();
+
+  // 2. When real OfflineAudioContext is available, render through the native Web Audio graph
+  if (typeof OfflineAudioContext === 'function') {
+    const offlineCtx = new OfflineAudioContext(2, frames, sampleRate);
+    const impulseBuffer = offlineCtx.createBuffer(2, frames, sampleRate);
+    impulseBuffer.getChannelData(0)[0] = 1.0;
+    impulseBuffer.getChannelData(1)[0] = 1.0;
+
+    const src = offlineCtx.createBufferSource();
+    src.buffer = impulseBuffer;
+    const liveProc = buildDeviceInsertProcessor(offlineCtx, device);
+    src.connect(liveProc.input);
+    liveProc.output.connect(offlineCtx.destination);
+    src.start(0);
+
+    if (options?.updateParamsAtSecond && options.updateParamsAtSecond.atSecond > 0) {
+      liveProc.updateParams?.(
+        options.updateParamsAtSecond.updatedDevice,
+        options.updateParamsAtSecond.atSecond
+      );
+    }
+    if (options?.muteTailAtSecond !== undefined && options.muteTailAtSecond >= 0) {
+      liveProc.muteInputForTailDecay?.(options.muteTailAtSecond);
+    }
+
+    const rendered = await offlineCtx.startRendering();
+    liveProc.dispose?.();
+    const ch0 = rendered.getChannelData(0);
+    const ch1 = rendered.getChannelData(1);
+    const metrics = analyzeImpulseTailMetrics(ch0, sampleRate);
+    return {
+      samples: ch0,
+      rightSamples: ch1,
+      sampleRate,
+      durationSeconds,
+      ...metrics,
+      executedVia: 'native-offline-audio-context',
+      processorSummary,
+    };
+  }
+
+  // 3. In headless/JSDOM unit environments without native OfflineAudioContext, execute the
+  // processor graph parameters extracted from buildDeviceInsertProcessor
+  const effectiveDevice = options?.updateParamsAtSecond
+    ? options.updateParamsAtSecond.updatedDevice
+    : device;
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  left[0] = 1.0;
+  right[0] = 1.0;
+  if (!effectiveDevice.bypassed) {
+    applyDiscreteDeviceTailEffectsInPlace(left, right, sampleRate, [effectiveDevice]);
+  }
+  const metrics = analyzeImpulseTailMetrics(left, sampleRate);
+  return {
+    samples: left,
+    rightSamples: right,
+    sampleRate,
+    durationSeconds,
+    ...metrics,
+    executedVia: 'processor-graph-extracted-simulation',
+    processorSummary,
+  };
+}
+
+export interface CompiledTrackScheduleEntry {
+  trackId: string;
+  signature: string;
+  events: EvaluatedPlayableEvent[];
+}
+
+export interface CompiledArrangementSchedule {
+  maxBeats: number;
+  tempo: number;
+  tempoMapSignature: string;
+  trackEntries: Map<string, CompiledTrackScheduleEntry>;
+  events: EvaluatedPlayableEvent[];
+  cursorIndex: number;
+  cursorBeat: number;
+  cursorLoopGeneration: number;
+  totalCompilations: number;
+  totalTrackRebuilds: number;
+  lastCompileDurationMs: number;
+}
+
+export interface SchedulerWindowQueryResult {
+  windowEvents: EvaluatedPlayableEvent[];
+  wrapEvents: EvaluatedPlayableEvent[];
+  visitedCount: number;
+  totalCompiledEvents: number;
+  usedIndexedCursor: boolean;
+  rebuiltTracksCount: number;
+  queryDurationMs: number;
+}
+
+export function computeTrackScheduleSignature(track: AbletonTrack): string {
+  const clipsPart = (track.clips || [])
+    .map((clip) => {
+      const notes = clip.notes || [];
+      let noteChecksum = notes.length;
+      for (let i = 0; i < notes.length; i++) {
+        const n = notes[i];
+        noteChecksum =
+          (Math.imul(noteChecksum ^ Math.round(n.time * 960), 16777619) ^
+            Math.round(n.duration * 960) ^
+            (n.pitch << 8) ^
+            n.velocity ^
+            Math.round((n.probability ?? 1) * 1000)) >>>
+          0;
+      }
+      return `${clip.id}:${clip.startTime}:${clip.length}:${clip.loopEndBeats ?? 0}:${notes.length}:${noteChecksum}`;
+    })
+    .join(';');
+
+  const midiDevicesPart = (track.devices || [])
+    .filter((d) => isMidiProcessorDeviceTag(d.xmlTag))
+    .map((d) => {
+      const rec = d.conversionRecord;
+      const descKeys = rec?.generatedDescriptor
+        ? Object.entries(rec.generatedDescriptor)
+            .map(([k, v]) => `${k}=${v}`)
+            .sort()
+            .join(',')
+        : '';
+      return `${d.id}:${d.xmlTag}:${Boolean(d.bypassed)}:${computeDeviceParameterHash(d)}:${rec?.status ?? 'none'}:${rec?.conversionVersion ?? 0}:${rec?.sourceParameterHash ?? ''}:${descKeys}`;
+    })
+    .join('|');
+
+  return `${track.id}::${clipsPart}::${midiDevicesPart}`;
+}
+
+export function findFirstEventIndexAtOrAfterBeat(
+  events: readonly EvaluatedPlayableEvent[],
+  targetBeat: number
+): number {
+  let lo = 0;
+  let hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (events[mid].beat < targetBeat) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+export function compileOrUpdateArrangementSchedule(
+  project: AbletonProjectState,
+  maxBeats: number,
+  existing: CompiledArrangementSchedule | null
+): { schedule: CompiledArrangementSchedule; rebuiltTracksCount: number } {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const tempoMapSig = project.tempoMap
+    ? project.tempoMap.map((p) => `${p.beat}:${p.bpm}:${p.curve || 'step'}`).join(';')
+    : '';
+  const globalTimingChanged =
+    !existing ||
+    existing.maxBeats !== maxBeats ||
+    existing.tempo !== project.tempo ||
+    existing.tempoMapSignature !== tempoMapSig;
+
+  const prevEntries = globalTimingChanged
+    ? new Map<string, CompiledTrackScheduleEntry>()
+    : existing.trackEntries;
+  const nextEntries = new Map<string, CompiledTrackScheduleEntry>();
+  let rebuiltTracksCount = 0;
+
+  for (const track of project.tracks) {
+    const sig = computeTrackScheduleSignature(track);
+    const cached = prevEntries.get(track.id);
+    if (cached && cached.signature === sig) {
+      nextEntries.set(track.id, cached);
+    } else {
+      const trackEvents = evaluatePlayableArrangementEvents(project, 0, maxBeats, {
+        singleTrackId: track.id,
+        loopGeneration: 0,
+        includeProbability: true,
+        evaluateMidiChain: true,
+      });
+      nextEntries.set(track.id, {
+        trackId: track.id,
+        signature: sig,
+        events: trackEvents,
+      });
+      rebuiltTracksCount++;
+    }
+  }
+
+  const trackSetUnchanged =
+    existing !== null &&
+    !globalTimingChanged &&
+    rebuiltTracksCount === 0 &&
+    existing.trackEntries.size === nextEntries.size &&
+    project.tracks.every((t) => existing.trackEntries.has(t.id));
+
+  if (trackSetUnchanged && existing) {
+    return { schedule: existing, rebuiltTracksCount: 0 };
+  }
+
+  const merged: EvaluatedPlayableEvent[] = [];
+  for (const entry of nextEntries.values()) {
+    for (let i = 0; i < entry.events.length; i++) {
+      merged.push(entry.events[i]);
+    }
+  }
+  merged.sort(
+    (a, b) =>
+      a.beat - b.beat ||
+      a.trackId.localeCompare(b.trackId) ||
+      a.note.pitch - b.note.pitch
+  );
+
+  const compileDurationMs =
+    (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
+
+  return {
+    schedule: {
+      maxBeats,
+      tempo: project.tempo,
+      tempoMapSignature: tempoMapSig,
+      trackEntries: nextEntries,
+      events: merged,
+      cursorIndex: 0,
+      cursorBeat: -1,
+      cursorLoopGeneration: -1,
+      totalCompilations: (existing?.totalCompilations ?? 0) + 1,
+      totalTrackRebuilds: (existing?.totalTrackRebuilds ?? 0) + rebuiltTracksCount,
+      lastCompileDurationMs: Number(compileDurationMs.toFixed(4)),
+    },
+    rebuiltTracksCount,
+  };
+}
+
+export function queryCompiledArrangementWindow(
+  schedule: CompiledArrangementSchedule,
+  windowStartBeat: number,
+  windowEndBeat: number,
+  loopGeneration: number,
+  region: { enabled: boolean; start: number; end: number; span: number },
+  rebuiltTracksCount = 0
+): SchedulerWindowQueryResult {
+  const q0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const events = schedule.events;
+  const totalCompiledEvents = events.length;
+
+  let startIdx = 0;
+  let usedIndexedCursor = false;
+  if (
+    schedule.cursorLoopGeneration === loopGeneration &&
+    schedule.cursorBeat >= 0 &&
+    windowStartBeat >= schedule.cursorBeat &&
+    windowStartBeat - schedule.cursorBeat <= 1.0 &&
+    schedule.cursorIndex >= 0 &&
+    schedule.cursorIndex <= totalCompiledEvents
+  ) {
+    usedIndexedCursor = true;
+    startIdx = schedule.cursorIndex;
+    while (startIdx < totalCompiledEvents && events[startIdx].beat < windowStartBeat) {
+      startIdx++;
+    }
+    while (startIdx > 0 && events[startIdx - 1].beat >= windowStartBeat) {
+      startIdx--;
+    }
+  } else {
+    startIdx = findFirstEventIndexAtOrAfterBeat(events, windowStartBeat);
+  }
+
+  schedule.cursorIndex = startIdx;
+  schedule.cursorBeat = windowStartBeat;
+  schedule.cursorLoopGeneration = loopGeneration;
+
+  const windowEvents: EvaluatedPlayableEvent[] = [];
+  let visitedCount = 0;
+
+  for (let i = startIdx; i < totalCompiledEvents; i++) {
+    const evt = events[i];
+    if (evt.beat > windowEndBeat) break;
+    visitedCount++;
+    if (!region.enabled || (evt.beat >= region.start && evt.beat < region.end)) {
+      windowEvents.push(evt);
+    }
+  }
+
+  const wrapEvents: EvaluatedPlayableEvent[] = [];
+  if (region.enabled && windowEndBeat > region.end) {
+    const overflowBeats = windowEndBeat - region.end;
+    const wrapLimitBeat = region.start + overflowBeats;
+    const wrapStartIdx = findFirstEventIndexAtOrAfterBeat(events, region.start);
+    for (let j = wrapStartIdx; j < totalCompiledEvents; j++) {
+      const evt = events[j];
+      if (evt.beat > wrapLimitBeat || evt.beat >= region.end) break;
+      visitedCount++;
+      wrapEvents.push(evt);
+    }
+  }
+
+  const queryDurationMs =
+    (typeof performance !== 'undefined' ? performance.now() : 0) - q0;
+
+  return {
+    windowEvents,
+    wrapEvents,
+    visitedCount,
+    totalCompiledEvents,
+    usedIndexedCursor,
+    rebuiltTracksCount,
+    queryDurationMs: Number(queryDurationMs.toFixed(4)),
   };
 }
 
@@ -2710,6 +3250,9 @@ export function synthesizeDeterministicStereoPcm(
   singleTrackId?: string,
   onProgress?: (progressPercent: number) => void
 ): { left: Float32Array; right: Float32Array; sampleRate: number; durationSeconds: number } {
+  if (!singleTrackId) {
+    assertExecutableInsertLimits(project);
+  }
   const effectiveBars = totalBars || project.arrangementLengthBars || 16;
   const totalBeats = MusicalTimeService.arrangementTotalBeats(
     { ...project, arrangementLengthBars: effectiveBars },
@@ -3117,7 +3660,7 @@ export function computeSelectedTrackAnalysisData(
   totalBars = 16,
   resolutionBins = 256
 ): SelectedTrackAnalysisData {
-  const effectiveBars = Math.max(4, Math.min(256, totalBars || project.arrangementLengthBars || 16));
+  const effectiveBars = Math.max(1, Math.min(4096, totalBars || project.arrangementLengthBars || 16));
   const totalBeats = effectiveBars * 4;
   const totalSixteenths = effectiveBars * 16;
 
@@ -3625,8 +4168,12 @@ export class ParametricWebAudioEngine {
     const validIds = new Set(this.project.tracks.map((t) => t.id));
     for (const [trackId, ch] of this.bus.trackChannels.entries()) {
       if (!validIds.has(trackId)) {
-        for (const retiring of ch.retiringChains || []) retiring.disposeNow();
-        for (const proc of ch.insertProcessors) proc.dispose?.();
+        flushRetiringTrackChains(ch);
+        for (const proc of ch.insertProcessors) {
+          proc.dispose?.();
+          recordDisposedProcessorId(ch, proc.id);
+        }
+        ch.insertProcessors = [];
         try {
           ch.inputNode.disconnect();
           ch.chainInputGain.disconnect();
@@ -3834,6 +4381,82 @@ export class ParametricWebAudioEngine {
     }
   }
 
+  private compiledSchedule: CompiledArrangementSchedule | null = null;
+  private lastWindowTelemetry: SchedulerWindowQueryResult | null = null;
+
+  public getSchedulerWindowTelemetry(): SchedulerWindowQueryResult | null {
+    return this.lastWindowTelemetry;
+  }
+
+  public getCompiledArrangementSchedule(): CompiledArrangementSchedule | null {
+    return this.compiledSchedule;
+  }
+
+  public sweepRetiredInsertChains(audioTimeOverride?: number): number {
+    if (!this.bus) return 0;
+    const nowAudio =
+      typeof audioTimeOverride === 'number'
+        ? audioTimeOverride
+        : this.ctx?.currentTime ?? 0;
+    let totalPruned = 0;
+    if (this.bus.trackChannels) {
+      for (const ch of this.bus.trackChannels.values()) {
+        totalPruned += pruneRetiringTrackChains(ch, nowAudio);
+      }
+    }
+    if (Array.isArray(this.bus.offlineRetirements) && this.bus.offlineRetirements.length > 0) {
+      this.bus.offlineRetirements = this.bus.offlineRetirements.filter((retirement) => {
+        if (retirement.at > nowAudio + 1e-6) return true;
+        retirement.releaseMix();
+        for (const node of retirement.nodes) {
+          try {
+            node.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+        return false;
+      });
+    }
+    return totalPruned;
+  }
+
+  public flushAllRetiringTrackChains(): number {
+    if (!this.bus) return 0;
+    let totalFlushed = 0;
+    if (this.bus.trackChannels) {
+      for (const ch of this.bus.trackChannels.values()) {
+        totalFlushed += flushRetiringTrackChains(ch);
+      }
+    }
+    if (Array.isArray(this.bus.offlineRetirements)) {
+      while (this.bus.offlineRetirements.length > 0) {
+        const retirement = this.bus.offlineRetirements.shift();
+        if (retirement) {
+          retirement.releaseMix();
+          for (const node of retirement.nodes) {
+            try {
+              node.disconnect();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+    }
+    return totalFlushed;
+  }
+
+  public handleAudioContextLifecycle(state?: AudioContextState): void {
+    const effectiveState = state ?? this.ctx?.state;
+    if (effectiveState === 'closed' || effectiveState === 'suspended') {
+      this.flushAllRetiringTrackChains();
+      if (effectiveState === 'closed' && this.isPlaying) {
+        this.stop();
+      }
+    }
+  }
+
   public emergencyShutdown(reason?: string): void {
     // Emergency shutdown is completely independent of coordinate conversion errors.
     try {
@@ -3850,6 +4473,7 @@ export class ParametricWebAudioEngine {
         }
       }
     }
+    this.flushAllRetiringTrackChains();
     this.isPlaying = false;
     this.lastSchedulerPerfMs = 0;
     if (this.schedulerTimerId !== null) {
@@ -4094,6 +4718,7 @@ export class ParametricWebAudioEngine {
         }
       }
     }
+    this.flushAllRetiringTrackChains();
     this.isPlaying = false;
     this.lastSchedulerPerfMs = 0;
     if (this.schedulerTimerId !== null) {
@@ -4106,6 +4731,11 @@ export class ParametricWebAudioEngine {
     }
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
+    if (this.compiledSchedule) {
+      this.compiledSchedule.cursorIndex = 0;
+      this.compiledSchedule.cursorBeat = -1;
+      this.compiledSchedule.cursorLoopGeneration = -1;
+    }
     if (this.playbackState !== 'interrupted' && this.playbackState !== 'error') {
       this.playbackState = this.ctx ? 'ready' : 'idle';
     }
@@ -4124,6 +4754,14 @@ export class ParametricWebAudioEngine {
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
     this.loopGeneration++;
+    if (this.compiledSchedule) {
+      this.compiledSchedule.cursorIndex = findFirstEventIndexAtOrAfterBeat(
+        this.compiledSchedule.events,
+        clamped
+      );
+      this.compiledSchedule.cursorBeat = clamped;
+      this.compiledSchedule.cursorLoopGeneration = this.loopGeneration;
+    }
   }
 
   public getCurrentBeat(): number {
@@ -4413,65 +5051,76 @@ export class ParametricWebAudioEngine {
       }
     } else {
       try {
-        const arrangementEvents = evaluatePlayableArrangementEvents(
+        const compiled = compileOrUpdateArrangementSchedule(
           this.project,
-          0,
           maxBeats,
-          {
-            loopGeneration: this.loopGeneration,
-            includeProbability: true,
-            evaluateMidiChain: true,
-          }
+          this.compiledSchedule
         );
-        for (const evt of arrangementEvents) {
-          const { track, clipId, note } = evt;
-          if (note.time >= exactBeatNow - 0.015 && note.time <= windowEndBeat) {
-            if (!region.enabled || (note.time >= loopStartBeat && note.time < loopEndBeat)) {
-              const key = evt.dedupKey;
-              if (!this.scheduledNoteKeys.has(key)) {
-                const noteAudioTime =
-                  this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
-                if (noteAudioTime >= nowAudio - 0.015) {
-                  this.scheduledNoteKeys.add(key);
-                  scheduleTrackVoiceAtTime(
-                    this.ctx!,
-                    this.bus!,
-                    this.noiseBuffer!,
-                    track,
-                    note,
-                    noteAudioTime,
-                    beatsPerSecond,
-                    this.humanization!,
-                    this.project!
-                  );
-                }
-              }
+        this.compiledSchedule = compiled.schedule;
+
+        const windowStartBeat = Math.max(0, exactBeatNow - 0.015);
+        const queryResult = queryCompiledArrangementWindow(
+          this.compiledSchedule,
+          windowStartBeat,
+          windowEndBeat,
+          this.loopGeneration,
+          region,
+          compiled.rebuiltTracksCount
+        );
+        this.lastWindowTelemetry = queryResult;
+
+        const tracksById = new Map<string, AbletonTrack>();
+        for (const t of this.project.tracks) {
+          tracksById.set(t.id, t);
+        }
+
+        for (const evt of queryResult.windowEvents) {
+          const liveTrack = tracksById.get(evt.trackId) || evt.track;
+          const { clipId, note } = evt;
+          const key = `${this.loopGeneration}_${evt.trackId}_${clipId}_${note.id}`;
+          if (!this.scheduledNoteKeys.has(key)) {
+            const noteAudioTime =
+              this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
+            if (noteAudioTime >= nowAudio - 0.015) {
+              this.scheduledNoteKeys.add(key);
+              scheduleTrackVoiceAtTime(
+                this.ctx!,
+                this.bus!,
+                this.noiseBuffer!,
+                liveTrack,
+                note,
+                noteAudioTime,
+                beatsPerSecond,
+                this.humanization!,
+                this.project!
+              );
             }
           }
+        }
 
-          if (region.enabled && windowEndBeat > loopEndBeat) {
-            const overflowBeats = windowEndBeat - loopEndBeat;
-            if (note.time >= loopStartBeat && note.time <= loopStartBeat + overflowBeats) {
-              const nextGen = this.loopGeneration + 1;
-              const wrapKey = `${nextGen}_${track.id}_${clipId}_${note.id}`;
-              if (!this.scheduledNoteKeys.has(wrapKey)) {
-                const beatsUntilNote =
-                  loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
-                const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
-                if (noteAudioTime >= nowAudio - 0.01) {
-                  this.scheduledNoteKeys.add(wrapKey);
-                  scheduleTrackVoiceAtTime(
-                    this.ctx!,
-                    this.bus!,
-                    this.noiseBuffer!,
-                    track,
-                    note,
-                    noteAudioTime,
-                    beatsPerSecond,
-                    this.humanization!,
-                    this.project!
-                  );
-                }
+        if (region.enabled && queryResult.wrapEvents.length > 0) {
+          const nextGen = this.loopGeneration + 1;
+          for (const evt of queryResult.wrapEvents) {
+            const liveTrack = tracksById.get(evt.trackId) || evt.track;
+            const { clipId, note } = evt;
+            const wrapKey = `${nextGen}_${evt.trackId}_${clipId}_${note.id}`;
+            if (!this.scheduledNoteKeys.has(wrapKey)) {
+              const beatsUntilNote =
+                loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
+              const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
+              if (noteAudioTime >= nowAudio - 0.01) {
+                this.scheduledNoteKeys.add(wrapKey);
+                scheduleTrackVoiceAtTime(
+                  this.ctx!,
+                  this.bus!,
+                  this.noiseBuffer!,
+                  liveTrack,
+                  note,
+                  noteAudioTime,
+                  beatsPerSecond,
+                  this.humanization!,
+                  this.project!
+                );
               }
             }
           }

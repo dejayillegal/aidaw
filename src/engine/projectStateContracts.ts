@@ -1,5 +1,10 @@
 import { assertAudioSettings } from './audioSettingsContracts';
 import {
+  classifyAbletonDeviceTag,
+  CURRENT_DEVICE_CONVERSION_VERSION,
+  verifyDeviceConversionRecord,
+} from './abletonCapabilityMatrix';
+import {
   assertValidPpq,
   MAX_SUPPORTED_TIMELINE_BARS,
   validateAndNormalizeMeterMap,
@@ -46,6 +51,32 @@ export function assertProjectState(project: AbletonProjectState): void {
     if (!track || typeof track.id !== 'string' || !track.id || trackIds.has(track.id)) fail('duplicate or missing track identity');
     trackIds.add(track.id);
     if (!['midi', 'audio'].includes(track.type) || !Array.isArray(track.clips) || !Array.isArray(track.devices)) fail('invalid track');
+    for (const dev of track.devices) {
+      if (!dev || typeof dev.id !== 'string' || !dev.id || typeof dev.xmlTag !== 'string' || !dev.xmlTag) {
+        fail(`invalid device on ${track.id}`);
+      }
+      if (
+        dev.conversionRecord &&
+        typeof dev.conversionRecord.conversionVersion === 'number' &&
+        dev.conversionRecord.conversionVersion > CURRENT_DEVICE_CONVERSION_VERSION
+      ) {
+        fail(
+          `FUTURE_CONVERSION_VERSION: Unsupported future conversionVersion ${dev.conversionRecord.conversionVersion} on <${dev.xmlTag}> (${dev.id})`
+        );
+      }
+      if (!dev.bypassed) {
+        const supportClass = classifyAbletonDeviceTag(dev.xmlTag);
+        if (supportClass === 'unsupported' && !dev.isUserCreated) {
+          fail(
+            `UNSUPPORTED_DEVICE: ${track.name} contains unsupported device <${dev.xmlTag}> (${dev.id})`
+          );
+        }
+        const convCheck = verifyDeviceConversionRecord(dev);
+        if (!convCheck.isValid) {
+          fail(`CONVERSION_REQUIRED: ${convCheck.reason}`);
+        }
+      }
+    }
     if (!track.mixer || !['volumeDb', 'pan', 'transposeSemitones', 'fineTuneCents', 'sidechainDepth', 'reverbSend', 'delaySend', 'filterCutoffHz', 'filterResonance'].every(key => Number.isFinite(track.mixer[key as keyof typeof track.mixer]))) fail(`invalid mixer on ${track.id}`);
     if (track.mixer.pan < -1 || track.mixer.pan > 1) fail('pan outside [-1,1]');
     if (!Array.isArray(track.automationPoints) || track.automationPoints.some(p => !Number.isFinite(p.beat) || p.beat < 0 || !Number.isFinite(p.value) || p.value < 0 || p.value > 1)) fail('invalid normalized energy automation');

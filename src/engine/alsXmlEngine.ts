@@ -33,6 +33,7 @@ import {
 import {
   CONVERTED_DEVICE_TAGS,
   EXECUTABLE_DEVICE_TAGS,
+  migrateLegacyDeviceConversionRecord,
   syncDeviceConversionRecord,
 } from './abletonCapabilityMatrix';
 
@@ -3215,7 +3216,7 @@ export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: s
   parsed.tracks = parsed.tracks.map(track => ({ ...track, devices: [
     ...(projected.get(track.id) || [])
       .filter(device => !track.devices.some(native => native.id === device.id))
-      .map(device => syncDeviceConversionRecord(device)),
+      .map(device => migrateLegacyDeviceConversionRecord(device).device),
     ...track.devices,
   ] }));
   return parsed;

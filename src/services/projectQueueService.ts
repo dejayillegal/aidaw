@@ -198,7 +198,6 @@ export class ProjectQueueService {
           assertProjectState(record.workingProjectState);
           if (record.queueId !== id) throw new Error('RECOVERY_ID: wrong project identity');
           const copy = JSON.parse(JSON.stringify(record)) as QueuedProjectRecord;
-          copy.workingProjectState = ensureProjectDeviceConversions(copy.workingProjectState);
           copy.workingProjectState.rawXmlModified = synchronizeProjectStateToXml(copy.workingProjectState);
           copy.workingProjectState.rawXml = copy.workingProjectState.rawXmlModified;
           delete copy.exportedWavBlob; delete copy.exportedMidiBlob;

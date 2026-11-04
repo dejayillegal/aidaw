@@ -44,11 +44,18 @@ import type {
 import {
   ABLETON_CAPABILITY_MATRIX,
   ABLETON_DEVICE_REGISTRY,
+  CURRENT_DEVICE_CONVERSION_VERSION,
+  LEGACY_CONVERSION_MIGRATION_V1,
   MAX_EXECUTABLE_INSERT_DEVICES,
   auditProjectCapabilities,
   buildDeviceConversionRecord,
+  convertOrReconvertDeviceInstance,
+  ensureProjectDeviceConversions,
   evaluateTrackMidiDeviceChain,
   getAbletonDeviceContract,
+  invalidateDeviceConversionRecord,
+  migrateLegacyDeviceConversionRecord,
+  migrateMissingLegacyProjectConversions,
   syncDeviceConversionRecord,
   validateTrackDeviceChainOrderingAndCounts,
   verifyDeviceConversionRecord,
@@ -66,21 +73,34 @@ import {
 } from '../engine/channelStripEngine';
 import { assertProjectState } from '../engine/projectStateContracts';
 import {
+  MAX_CONCURRENT_RETIRING_CHAINS,
+  MAX_RETAINED_DISPOSED_PROCESSOR_IDS,
   ParametricWebAudioEngine,
   buildAudioBusGraph,
   buildDeviceInsertProcessor,
+  compileOrUpdateArrangementSchedule,
   computeStableCombFeedbackGain,
+  findFirstEventIndexAtOrAfterBeat,
+  flushRetiringTrackChains,
   getOrCreateTrackChannelRuntime,
   pruneRetiringTrackChains,
+  queryCompiledArrangementWindow,
   renderDeviceImpulseResponse,
+  renderNativeOfflineDeviceImpulseResponse,
   resolveTrackInstrumentSynthesis,
   synthesizeDeterministicStereoPcm,
 } from '../engine/webAudioSynth';
 import {
+  StudioCommandBus,
   captureSessionPerformance,
   queueSessionLaunch,
   storeArrangementClipInSession,
 } from '../services/commandBus';
+import {
+  mapBeatToArrangementPlayheadTransform,
+  shouldSnapPlayheadImmediately,
+} from '../components/TimelineCanvas';
+import { enrichProjectWithAnalysis } from '../App';
 
 const DEFAULT_HUMANIZATION: HumanizationConfig = {
   microTimingMaxShiftBeats: 0.012,
@@ -1262,7 +1282,7 @@ describe('G1–G8 Strengthening Contracts', () => {
         Math.pow(10, (-3 * 0.043) / 1.2),
         5
       );
-      expect(computeStableCombFeedbackGain(0.043, 100)).toBeLessThanOrEqual(0.88);
+      expect(computeStableCombFeedbackGain(0.043, 100)).toBeLessThanOrEqual(0.992);
     });
 
     it('verifies Section 2: unified event-evaluation boundary across Session, captured Arrangement, and rendered PCM with MidiChord + MidiArpeggiator', () => {
@@ -1550,5 +1570,561 @@ describe('G1–G8 Strengthening Contracts', () => {
       ).toThrow(/DEVICE_CHAIN_CONTRACT/);
     });
   });
+
+  describe('2026-11-04 Strengthening Directives (Sections 2–8)', () => {
+    it('Section 2: separates read-only validation, legacy migration, and explicit reconversion; preserves future metadata; and rejects all 6 negative fixtures across Play, recovery, undo/redo, save/reopen, and export', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 1101, 4, 'sketch');
+      const validProject = parseAbletonXmlDom(xml, meta.name, xml);
+
+      // 1. Idempotency: already-valid project returns exact same object reference without cloning
+      expect(ensureProjectDeviceConversions(validProject)).toBe(validProject);
+      const migrationNoOp = migrateMissingLegacyProjectConversions(validProject);
+      expect(migrationNoOp.migrated).toBe(false);
+      expect(migrationNoOp.migratedDeviceIds).toHaveLength(0);
+      expect(migrationNoOp.project).toBe(validProject);
+      expect(migrationNoOp.migrationId).toBe(LEGACY_CONVERSION_MIGRATION_V1);
+
+      const firstConvertedDev = validProject.tracks[0].devices.find(
+        (d) => d.xmlTag === 'DrumBuss'
+      )!;
+      expect(syncDeviceConversionRecord(firstConvertedDev)).toBe(firstConvertedDev);
+
+      // 2. Construct the 6 negative fixtures
+      const replaceFirstDev = (mutatedDev: AbletonDevice) => ({
+        ...validProject,
+        tracks: validProject.tracks.map((t, idx) =>
+          idx === 0
+            ? {
+                ...t,
+                devices: t.devices.map((d) =>
+                  d.id === firstConvertedDev.id ? mutatedDev : d
+                ),
+              }
+            : t
+        ),
+      });
+
+      const missingLegacyDev: AbletonDevice = {
+        ...firstConvertedDev,
+        conversionRecord: undefined,
+      };
+      const staleHashDev: AbletonDevice = {
+        ...firstConvertedDev,
+        parameters: firstConvertedDev.parameters.map((p) =>
+          p.name === 'Drive' ? { ...p, value: 91 } : p
+        ),
+      };
+      const explicitlyInvalidatedDev = invalidateDeviceConversionRecord(
+        firstConvertedDev,
+        'Manual test invalidation'
+      );
+      const futureVersionDev: AbletonDevice = {
+        ...firstConvertedDev,
+        conversionRecord: {
+          ...firstConvertedDev.conversionRecord!,
+          conversionVersion: CURRENT_DEVICE_CONVERSION_VERSION + 10,
+          generatedDescriptor: {
+            ...firstConvertedDev.conversionRecord!.generatedDescriptor,
+            futureSpatialField: 'ambisonic_3rd_order',
+          },
+        } as AbletonDevice['conversionRecord'],
+      };
+      const wrongDescriptorDev: AbletonDevice = {
+        ...firstConvertedDev,
+        conversionRecord: {
+          ...firstConvertedDev.conversionRecord!,
+          conversionKind: 'midi_note_transformer',
+        },
+      };
+      const unsupportedDev: AbletonDevice = {
+        id: 'dev_unsupported_vst',
+        xmlTag: 'UnsupportedExternalPlugin',
+        displayName: 'External VST3',
+        category: 'audio_effect',
+        parameters: [{ name: 'Mix', value: 100 }],
+        bypassed: false,
+        isUserCreated: false,
+      };
+
+      const negativeFixtures: Array<{
+        name: string;
+        project: typeof validProject;
+        expectedPattern: RegExp;
+      }> = [
+        {
+          name: 'missing legacy metadata',
+          project: replaceFirstDev(missingLegacyDev),
+          expectedPattern: /CONVERSION_REQUIRED/,
+        },
+        {
+          name: 'stale parameter hashes',
+          project: replaceFirstDev(staleHashDev),
+          expectedPattern: /CONVERSION_REQUIRED/,
+        },
+        {
+          name: 'explicitly invalidated records',
+          project: replaceFirstDev(explicitlyInvalidatedDev),
+          expectedPattern: /CONVERSION_REQUIRED/,
+        },
+        {
+          name: 'future conversion versions',
+          project: replaceFirstDev(futureVersionDev),
+          expectedPattern: /FUTURE_CONVERSION_VERSION/,
+        },
+        {
+          name: 'incorrect conversion kind or descriptor',
+          project: replaceFirstDev(wrongDescriptorDev),
+          expectedPattern: /CONVERSION_REQUIRED/,
+        },
+        {
+          name: 'unsupported devices',
+          project: replaceFirstDev(unsupportedDev),
+          expectedPattern: /UNSUPPORTED_DEVICE/,
+        },
+      ];
+
+      for (const fixture of negativeFixtures) {
+        const beforeSnapshot = JSON.stringify(fixture.project);
+
+        // Enrichment does not rewrite or conceal invalid conversion state
+        const enriched = enrichProjectWithAnalysis(fixture.project, 'hypnotic_longform');
+        expect(enriched.tracks).toBe(fixture.project.tracks);
+
+        // (a) Open -> Play rejects without mutating project state
+        const engine = new ParametricWebAudioEngine();
+        engine.setState(fixture.project, DEFAULT_HUMANIZATION, DEFAULT_TRANSPORT, DEFAULT_MASTER_BUS);
+        expect(() => engine.start(false)).toThrow(fixture.expectedPattern);
+        expect(JSON.stringify(fixture.project)).toBe(beforeSnapshot);
+
+        // (b) Canonical state contract (used by recovery & XML sync) rejects
+        expect(() => assertProjectState(fixture.project)).toThrow(fixture.expectedPattern);
+
+        // (c) Save / Reopen (v2/v3 snapshot) rejects without silently rebuilding conversion records
+        expect(() =>
+          encodeProjectSnapshot(
+            fixture.project,
+            DEFAULT_HUMANIZATION,
+            DEFAULT_MASTER_BUS,
+            DEFAULT_TRANSPORT
+          )
+        ).toThrow(fixture.expectedPattern);
+        const rawSnapshotText = JSON.stringify({
+          format: 'parametric-als-daw',
+          version: 2,
+          project: {
+            ...fixture.project,
+            audioSettings: {
+              humanization: DEFAULT_HUMANIZATION,
+              masterBus: DEFAULT_MASTER_BUS,
+              transport: DEFAULT_TRANSPORT,
+            },
+          },
+        });
+        expect(() => decodeProjectSnapshot(rawSnapshotText)).toThrow(fixture.expectedPattern);
+
+        // (d) CommandBus mutation and Undo/Redo reject invalid conversion state
+        const bus = new StudioCommandBus();
+        expect(() =>
+          bus.executeMutation('q_neg', `mutate ${fixture.name}`, 'mixer', validProject, () => fixture.project)
+        ).toThrow(fixture.expectedPattern);
+
+        // (e) Offline export rejects
+        expect(() =>
+          synthesizeDeterministicStereoPcm(
+            fixture.project,
+            DEFAULT_HUMANIZATION,
+            DEFAULT_MASTER_BUS,
+            22050
+          )
+        ).toThrow(fixture.expectedPattern);
+      }
+
+      // 3. Future conversion metadata is preserved untouched by legacy migration and rejected by sync
+      const futureMig = migrateLegacyDeviceConversionRecord(futureVersionDev);
+      expect(futureMig.migrated).toBe(false);
+      expect(futureMig.device).toBe(futureVersionDev);
+      expect(futureVersionDev.conversionRecord?.conversionVersion).toBe(
+        CURRENT_DEVICE_CONVERSION_VERSION + 10
+      );
+      expect(() => syncDeviceConversionRecord(futureVersionDev)).toThrow(
+        /FUTURE_CONVERSION_VERSION/
+      );
+      expect(() =>
+        convertOrReconvertDeviceInstance(
+          replaceFirstDev(futureVersionDev),
+          validProject.tracks[0].id,
+          firstConvertedDev.id
+        )
+      ).toThrow(/FUTURE_CONVERSION_VERSION/);
+
+      // 4. Missing legacy metadata can be migrated explicitly via migrateMissingLegacyProjectConversions
+      const migratedLegacy = migrateMissingLegacyProjectConversions(
+        replaceFirstDev(missingLegacyDev)
+      );
+      expect(migratedLegacy.migrated).toBe(true);
+      expect(migratedLegacy.migratedDeviceIds).toEqual([firstConvertedDev.id]);
+      expect(() => assertProjectState(migratedLegacy.project)).not.toThrow();
+
+      // 5. Stale/invalidated metadata is NOT touched by legacy migration, but IS repaired by explicit convertOrReconvertDeviceInstance
+      const staleUnmigrated = migrateMissingLegacyProjectConversions(
+        replaceFirstDev(staleHashDev)
+      );
+      expect(staleUnmigrated.migrated).toBe(false);
+      expect(staleUnmigrated.migratedDeviceIds).toHaveLength(0);
+      expect(() => assertProjectState(staleUnmigrated.project)).toThrow(/CONVERSION_REQUIRED/);
+
+      const explicitlyReconverted = convertOrReconvertDeviceInstance(
+        replaceFirstDev(staleHashDev),
+        validProject.tracks[0].id,
+        firstConvertedDev.id
+      );
+      expect(explicitlyReconverted.changed).toBe(true);
+      expect(() => assertProjectState(explicitlyReconverted.project)).not.toThrow();
+    });
+
+    it('Section 3: preserves exact 0.0625-beat clip boundary with 0.0625-beat MidiArpeggiator rate without generating events at or beyond clip end', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 1202, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+      const track = project.tracks[3];
+
+      const arpDev = syncDeviceConversionRecord({
+        id: 'arp_short_clip',
+        xmlTag: 'MidiArpeggiator',
+        displayName: 'Arpeggiator',
+        category: 'midi_effect',
+        parameters: [
+          { name: 'Rate', value: 0.0625 },
+          { name: 'Gate', value: 100 },
+          { name: 'Steps', value: 2 },
+          { name: 'Distance', value: 12 },
+          { name: 'Style', value: 'Up' },
+        ],
+        bypassed: false,
+      });
+
+      const shortClip = {
+        id: 'clip_00625',
+        name: 'Short_64th_Clip',
+        startTime: 0,
+        endTime: 0.0625,
+        length: 0.0625,
+        notes: [
+          {
+            id: 'note_inside_short_clip',
+            time: 0,
+            quantizedTime: 0,
+            duration: 1.0, // Note duration exceeds clip, must be bounded by clip end 0.0625
+            pitch: 60,
+            velocity: 100,
+            probability: 1,
+            isGhost: false,
+          },
+        ],
+      };
+
+      project = {
+        ...project,
+        arrangementLengthBars: 1,
+        tracks: [
+          {
+            ...track,
+            devices: [
+              arpDev,
+              ...track.devices.filter((d) => d.category === 'instrument'),
+            ],
+            clips: [shortClip],
+          },
+        ],
+      };
+
+      // Evaluate across [0, 4): only 1 arpeggiator step at beat 0 is strictly inside [0, 0.0625)
+      const events = evaluatePlayableArrangementEvents(project, 0, 4);
+      expect(events).toHaveLength(1);
+      expect(events[0].beat).toBe(0);
+      expect(events[0].note.duration).toBeCloseTo(0.0625, 6);
+      expect(events.some((e) => e.beat >= 0.0625 - 1e-9)).toBe(false);
+
+      // Querying [0.0625, 1.0) produces zero events
+      const afterClipEvents = evaluatePlayableArrangementEvents(project, 0.0625, 1.0);
+      expect(afterClipEvents).toHaveLength(0);
+
+      // Compiled schedule matches exact evaluation
+      const { schedule } = compileOrUpdateArrangementSchedule(project, 4, null);
+      const winAfter = queryCompiledArrangementWindow(schedule, 0.0625, 1.0, 0, {
+        enabled: false,
+        start: 0,
+        end: 4,
+        span: 4,
+      });
+      expect(winAfter.windowEvents).toHaveLength(0);
+    });
+
+    it('Section 4: scales scheduling with the active window via indexed binary search while preserving full-clip Chord/Arpeggiator continuity across lookahead windows', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 1303, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+
+      // Expand into a dense 128-bar arrangement (512 beats) with MidiChord + MidiArpeggiator
+      const targetTrackId = project.tracks[0].id;
+      const baseClip = project.tracks[0].clips[0];
+      const expandedClips = Array.from({ length: 32 }, (_, idx) => {
+        const offsetBeats = idx * 16;
+        return {
+          ...baseClip,
+          id: `${baseClip.id}_rep_${idx}`,
+          startTime: offsetBeats,
+          endTime: offsetBeats + 16,
+          length: 16,
+          notes: baseClip.notes.map((n, nIdx) => ({
+            ...n,
+            id: `${n.id}_${idx}_${nIdx}`,
+            time: n.time - baseClip.startTime + offsetBeats,
+            quantizedTime: n.quantizedTime - baseClip.startTime + offsetBeats,
+          })),
+        };
+      });
+      project = {
+        ...project,
+        arrangementLengthBars: 128,
+        tracks: project.tracks.map((t, i) =>
+          i === 0 ? { ...t, clips: expandedClips } : t
+        ),
+      };
+      project = insertDeviceIntoChannelStrip(project, targetTrackId, 'MidiChord').project;
+      project = insertDeviceIntoChannelStrip(project, targetTrackId, 'MidiArpeggiator').project;
+
+      const maxBeats = 128 * 4;
+      const { schedule: compiled1 } = compileOrUpdateArrangementSchedule(project, maxBeats, null);
+      expect(compiled1.events.length).toBeGreaterThan(500);
+
+      // Querying a 20ms lookahead window (~0.045 beats) around beat 256 visits only the active window events
+      const windowStart = 256.0;
+      const windowEnd = 256.15;
+      const startIndex = findFirstEventIndexAtOrAfterBeat(compiled1.events, windowStart);
+      expect(startIndex).toBeGreaterThan(0);
+      const winQuery = queryCompiledArrangementWindow(
+        compiled1,
+        windowStart,
+        windowEnd,
+        0,
+        { enabled: false, start: 0, end: maxBeats, span: maxBeats }
+      );
+      expect(winQuery.visitedCount).toBeLessThan(32);
+      expect(winQuery.visitedCount).toBeLessThan(compiled1.events.length / 10);
+
+      // Single-track edit incrementally rebuilds only that track without recompiling untouched tracks
+      const prevTrackCacheRef = compiled1.trackEntries.get(project.tracks[1].id);
+      const editedProject = updateChannelInsertParam(
+        project,
+        targetTrackId,
+        project.tracks[0].devices.find((d) => d.xmlTag === 'MidiArpeggiator')!.id,
+        'Gate',
+        75
+      );
+      const { schedule: compiled2, rebuiltTracksCount } = compileOrUpdateArrangementSchedule(
+        editedProject,
+        maxBeats,
+        compiled1
+      );
+      expect(rebuiltTracksCount).toBe(1);
+      expect(compiled2.trackEntries.get(editedProject.tracks[1].id)).toBe(prevTrackCacheRef);
+
+      // Verify Chord/Arpeggiator continuity across adjacent lookahead windows [0, 0.3), [0.3, 0.6), [0.6, 1.0)
+      const fullWindowEvents = evaluatePlayableArrangementEvents(editedProject, 0, 1.0, {
+        singleTrackId: targetTrackId,
+      });
+      const subWindows = [
+        [0, 0.3],
+        [0.3, 0.6],
+        [0.6, 1.0],
+      ] as const;
+      const stitched: typeof fullWindowEvents = [];
+      for (const [wStart, wEnd] of subWindows) {
+        const res = queryCompiledArrangementWindow(
+          compiled2,
+          wStart,
+          wEnd,
+          0,
+          { enabled: false, start: 0, end: maxBeats, span: maxBeats }
+        );
+        stitched.push(
+          ...res.windowEvents.filter(
+            (e) => e.trackId === targetTrackId && e.beat >= wStart && e.beat < wEnd
+          )
+        );
+      }
+      expect(
+        stitched.map((e) => ({ beat: e.beat, pitch: e.note.pitch, dur: e.note.duration }))
+      ).toEqual(
+        fullWindowEvents.map((e) => ({ beat: e.beat, pitch: e.note.pitch, dur: e.note.duration }))
+      );
+    });
+
+    it('Section 5: verifies native OfflineAudioContext processor graph construction and monotonic long-decay T60 envelopes up to 15.0s', async () => {
+      // 1. Long decay settings (0.8s, 2.4s, 6.0s, 15.0s) produce strictly increasing feedback gains and distinct T60 decay envelopes
+      const decayTimes = [0.8, 2.4, 6.0, 15.0];
+      const feedbackGains = decayTimes.map((t60) => computeStableCombFeedbackGain(0.043, t60));
+      for (let i = 1; i < feedbackGains.length; i++) {
+        expect(feedbackGains[i]).toBeGreaterThan(feedbackGains[i - 1]);
+        expect(feedbackGains[i]).toBeLessThan(1.0);
+      }
+
+      const lateWindowRmsByDecay: number[] = [];
+      for (const decaySec of decayTimes) {
+        const rev = syncDeviceConversionRecord({
+          id: `rev_decay_${decaySec}`,
+          xmlTag: 'Reverb',
+          displayName: 'Reverb',
+          category: 'audio_effect',
+          parameters: [
+            { name: 'DecayTime', value: decaySec },
+            { name: 'PreDelay', value: 5 },
+            { name: 'HighCut', value: 7000 },
+            { name: 'DryWet', value: 85 },
+          ],
+          bypassed: false,
+        });
+        const ir = renderDeviceImpulseResponse(rev, 3.0, 12000);
+        expect(ir.allFinite).toBe(true);
+        expect(ir.tailDecaysMonotonically).toBe(true);
+        lateWindowRmsByDecay.push(ir.windowRms[3]);
+
+        const nativeProbe = await renderNativeOfflineDeviceImpulseResponse(rev, 0.5, 12000);
+        expect(nativeProbe.processorSummary.type).toBe('reverb');
+        expect(nativeProbe.processorSummary.tailDecaySeconds).toBeCloseTo(decaySec, 4);
+        expect(nativeProbe.allFinite).toBe(true);
+      }
+
+      for (let i = 1; i < lateWindowRmsByDecay.length; i++) {
+        expect(lateWindowRmsByDecay[i]).toBeGreaterThan(lateWindowRmsByDecay[i - 1]);
+      }
+    });
+
+    it('Section 6: qualifies retiring chain lifecycle across continue, stop/pause flush, track removal, context close, rapid edits (max 4), and bounded disposedProcessorIds (max 64)', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 1606, 4, 'sketch');
+      let project = parseAbletonXmlDom(xml, meta.name, xml);
+      const trackId = project.tracks[0].id;
+      project = insertDeviceIntoChannelStrip(project, trackId, 'Reverb').project;
+
+      let simulatedNow = 2.0;
+      const testCtx = createTestAudioContext();
+      Object.defineProperty(testCtx, 'currentTime', {
+        get: () => simulatedNow,
+      });
+
+      const bus = buildAudioBusGraph(testCtx, project.tempo, DEFAULT_MASTER_BUS, false);
+      const ch = getOrCreateTrackChannelRuntime(testCtx, bus, project.tracks[0], project);
+
+      // 1. Rapid structural edits (> MAX_CONCURRENT_RETIRING_CHAINS) bound retiringChains to 4 and flush oldest immediately
+      let workingProject = project;
+      for (let i = 0; i < 10; i++) {
+        const revDev = workingProject.tracks[0].devices.find((d) => d.xmlTag === 'Reverb')!;
+        workingProject = removeChannelInsertDevice(workingProject, trackId, revDev.id);
+        getOrCreateTrackChannelRuntime(testCtx, bus, workingProject.tracks[0], workingProject);
+        workingProject = insertDeviceIntoChannelStrip(workingProject, trackId, 'Reverb').project;
+        getOrCreateTrackChannelRuntime(testCtx, bus, workingProject.tracks[0], workingProject);
+      }
+      expect(ch.retiringChains.length).toBeLessThanOrEqual(MAX_CONCURRENT_RETIRING_CHAINS);
+
+      // 2. Explicit flush (used on pause/stop/track-removal/context-close) disposes all remaining retiring chains immediately
+      const flushed = flushRetiringTrackChains(ch);
+      expect(flushed).toBeGreaterThan(0);
+      expect(ch.retiringChains).toHaveLength(0);
+
+      // 3. Many structural edits cap retained disposedProcessorIds at MAX_RETAINED_DISPOSED_PROCESSOR_IDS (64)
+      simulatedNow = 0; // Immediate disposal path
+      for (let i = 0; i < 30; i++) {
+        const eqRes = insertDeviceIntoChannelStrip(workingProject, trackId, 'EQEight');
+        workingProject = eqRes.project;
+        getOrCreateTrackChannelRuntime(testCtx, bus, workingProject.tracks[0], workingProject);
+        workingProject = removeChannelInsertDevice(workingProject, trackId, eqRes.insertedDevice!.id);
+        getOrCreateTrackChannelRuntime(testCtx, bus, workingProject.tracks[0], workingProject);
+      }
+      expect(ch.disposedProcessorIds.length).toBeLessThanOrEqual(
+        MAX_RETAINED_DISPOSED_PROCESSOR_IDS
+      );
+    });
+
+    it('Section 7: snaps playhead immediately on seek, stop, loop wrap, project change, scroll/zoom change, and prefers-reduced-motion while smoothing continuous forward playback', () => {
+      const baseSnap = {
+        isPlaying: true,
+        beat: 4.0,
+        scrollBar: 0,
+        zoom: 1,
+        projectRevision: 1,
+        prefersReducedMotion: false,
+      };
+
+      // Continuous forward advance during playback -> smooth transition (shouldSnap = false)
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, beat: 4.12 })
+      ).toBe(false);
+
+      // Loop wrap / backward jump -> snap immediately
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, beat: 0.02 })
+      ).toBe(true);
+
+      // Large forward seek -> snap immediately
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, beat: 12.0 })
+      ).toBe(true);
+
+      // Stop / pause -> snap immediately
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, isPlaying: false, beat: 0 })
+      ).toBe(true);
+
+      // Project switch / revision change -> snap immediately
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, projectRevision: 2, beat: 4.05 })
+      ).toBe(true);
+
+      // Viewport scroll or zoom change -> snap immediately
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, scrollBar: 4, beat: 4.05 })
+      ).toBe(true);
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, { ...baseSnap, zoom: 2, beat: 4.05 })
+      ).toBe(true);
+
+      // prefers-reduced-motion -> snap immediately
+      expect(
+        shouldSnapPlayheadImmediately(baseSnap, {
+          ...baseSnap,
+          beat: 4.08,
+          prefersReducedMotion: true,
+        })
+      ).toBe(true);
+
+      // Transform coordinate mapping
+      const transform = mapBeatToArrangementPlayheadTransform(8, {
+        canvasWidthPx: 1000,
+        arrStartBeat: 0,
+        arrVisibleBeats: 16,
+      });
+      expect(transform.isVisible).toBe(true);
+      expect(transform.translateX).toBeCloseTo(500, 5);
+    });
+
+    it('Section 8: supports 1-bar projects, fractional clips, and 4096-bar timeline extents across state validation, XML round-trip, and playback region', () => {
+      const { xml, meta } = buildStarterAbletonXml('berghain-134', 1808, 1, 'sketch');
+      const oneBarProject = parseAbletonXmlDom(xml, meta.name, xml);
+      expect(oneBarProject.arrangementLengthBars).toBe(1);
+      expect(MusicalTimeService.arrangementTotalBeats(oneBarProject)).toBe(4);
+      expect(playbackRegion(4, { ...DEFAULT_TRANSPORT, loopEnabled: false }).end).toBe(4);
+
+      const maxBarProject = {
+        ...oneBarProject,
+        arrangementLengthBars: MAX_SUPPORTED_TIMELINE_BARS,
+        requestedDurationBars: MAX_SUPPORTED_TIMELINE_BARS,
+      };
+      expect(() => assertProjectState(maxBarProject)).not.toThrow();
+      const syncedMaxXml = synchronizeProjectStateToXml(maxBarProject, oneBarProject);
+      const reparsedMax = parseAbletonXmlDom(syncedMaxXml, meta.name, syncedMaxXml);
+      expect(reparsedMax.arrangementLengthBars).toBe(4096);
+      expect(MusicalTimeService.arrangementTotalBeats(reparsedMax)).toBe(4096 * 4);
+    });
+  });
 });
+
 
