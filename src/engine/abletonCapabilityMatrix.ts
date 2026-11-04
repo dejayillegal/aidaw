@@ -1802,6 +1802,7 @@ export function evaluateTrackMidiDeviceChain(
       const expanded: MidiNoteEvent[] = [];
       for (const note of currentStream) {
         expanded.push(note);
+        if(note.harmonicOwner==='voiced-midi') continue;
         shifts.forEach((rawShift, idx) => {
           const shift = Math.round(rawShift);
           const nextPitch = note.pitch + shift;

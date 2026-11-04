@@ -177,6 +177,7 @@ export function assertStructuralProjectState(project: AbletonProjectState): void
             fail('duplicate or missing note identity');
           }
           noteIds.add(note.id);
+          if(note.harmonicOwner!==undefined&&note.harmonicOwner!=='voiced-midi')fail('invalid harmonic owner');
           if (
             ![note.time, note.quantizedTime, note.duration, note.pitch, note.velocity].every(
               Number.isFinite

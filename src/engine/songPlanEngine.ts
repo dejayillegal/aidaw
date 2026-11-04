@@ -40,7 +40,82 @@ export interface SongTransition {
   intensity: number;
   tailPolicy: "preserve";
 }
+export interface SongGroove {
+  bassSteps: number[];
+  percussionSteps: number[];
+  chordSteps: number[];
+  hatGhostProbability: number;
+  densityScale: number;
+  supportingAcidProbability: number;
+}
+const STYLE_GROOVES: Partial<Record<CompositionStrategyId, SongGroove>> = {
+  hypnotic_evolving: {
+    bassSteps: [2, 5, 6, 10, 13, 14],
+    percussionSteps: [3, 6, 7, 11, 15],
+    chordSteps: [0, 6, 11],
+    hatGhostProbability: 0.55,
+    densityScale: 1,
+    supportingAcidProbability: 0.63,
+  },
+  asymmetric_industrial: {
+    bassSteps: [2, 5, 9, 12, 15],
+    percussionSteps: [0, 3, 6, 9, 12, 14],
+    chordSteps: [1, 7, 13],
+    hatGhostProbability: 0.32,
+    densityScale: 1.1,
+    supportingAcidProbability: 0.52,
+  },
+  minimal_groove: {
+    bassSteps: [2, 6, 11, 14],
+    percussionSteps: [3, 11],
+    chordSteps: [3, 10],
+    hatGhostProbability: 0.18,
+    densityScale: 0.65,
+    supportingAcidProbability: 0.4,
+  },
+  dub_space: {
+    bassSteps: [2, 6, 10, 14],
+    percussionSteps: [3, 10, 15],
+    chordSteps: [0, 3, 6, 10],
+    hatGhostProbability: 0.28,
+    densityScale: 0.82,
+    supportingAcidProbability: 0,
+  },
+  detroit_funk: {
+    bassSteps: [2, 5, 7, 10, 14],
+    percussionSteps: [3, 6, 11, 14],
+    chordSteps: [2, 6, 11],
+    hatGhostProbability: 0.48,
+    densityScale: 1,
+    supportingAcidProbability: 0.5,
+  },
+  raw_warehouse: {
+    bassSteps: [2, 3, 6, 7, 10, 11, 14, 15],
+    percussionSteps: [3, 6, 7, 11, 14, 15],
+    chordSteps: [0, 7, 14],
+    hatGhostProbability: 0.84,
+    densityScale: 1.2,
+    supportingAcidProbability: 0.58,
+  },
+  acid_modulation: {
+    bassSteps: [2, 6, 10, 14],
+    percussionSteps: [3, 7, 10, 15],
+    chordSteps: [3, 11],
+    hatGhostProbability: 0.4,
+    densityScale: 0.95,
+    supportingAcidProbability: 0.82,
+  },
+  peak_rolling: {
+    bassSteps: [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15],
+    percussionSteps: [2, 3, 6, 7, 11, 14, 15],
+    chordSteps: [0, 6, 14],
+    hatGhostProbability: 0.72,
+    densityScale: 1.16,
+    supportingAcidProbability: 0.6,
+  },
+};
 export interface SongPlan {
+  groove?: SongGroove;
   version: number;
   generatorVersion: string;
   seed: number;
@@ -133,6 +208,11 @@ export function createSongPlan(
   seed: number,
   style: CompositionStrategyId = "hypnotic_evolving",
 ): SongPlan {
+  const grooveProfile = STYLE_GROOVES[style];
+  if (!grooveProfile)
+    throw new Error(
+      "SONG_PLAN_STYLE: select one of the eight composition strategies",
+    );
   const bars = project.arrangementLengthBars ?? 64;
   if (
     !Number.isSafeInteger(seed) ||
@@ -322,7 +402,9 @@ export function createSongPlan(
           toBeat: end,
           density: Math.min(
             1,
-            s.energy * (role === "pad" ? 0.45 : role === "synth" ? 0.7 : 1) +
+            s.energy *
+              grooveProfile.densityScale *
+              (role === "pad" ? 0.45 : role === "synth" ? 0.7 : 1) +
               random(seed, i + index * 77) * 0.12,
           ),
           featured: s.focalRole === role,
@@ -346,37 +428,36 @@ export function createSongPlan(
       spans,
     };
   });
-  const transitions: SongTransition[] = sections
-    .slice(1)
-    .map((s, i) => ({
-      id: `transition_${i}`,
-      sourceSection: sections[i].id,
-      destinationSection: s.id,
-      anchorBeat: s.fromBeat,
-      roles: (s.name === "Peak"
-        ? ["rumble", "percussion", "acid"]
+  const transitions: SongTransition[] = sections.slice(1).map((s, i) => ({
+    id: `transition_${i}`,
+    sourceSection: sections[i].id,
+    destinationSection: s.id,
+    anchorBeat: s.fromBeat,
+    roles: (s.name === "Peak"
+      ? ["rumble", "percussion", "acid"]
+      : s.name === "Breakdown"
+        ? ["rumble", "kick"]
+        : ["percussion", "synth"]) as TechnoArchetype[],
+    preparationBeats: s.name === "Peak" ? 4 : 2,
+    recoveryBeats: 4,
+    kind:
+      s.name === "Peak"
+        ? "bass-withdrawal"
         : s.name === "Breakdown"
-          ? ["rumble", "kick"]
-          : ["percussion", "synth"]) as TechnoArchetype[],
-      preparationBeats: s.name === "Peak" ? 4 : 2,
-      recoveryBeats: 4,
-      kind:
-        s.name === "Peak"
-          ? "bass-withdrawal"
-          : s.name === "Breakdown"
-            ? "rhythmic-subtraction"
-            : s.name === "Development"
-              ? "filter-rise"
-              : i % 2
-                ? "chord-anticipation"
-                : "fill",
-      purpose: s.name === "Peak" ? "arrival" : "contrast",
-      intensity: s.name === "Peak" ? 0.85 : 0.45,
-      tailPolicy: "preserve",
-    }));
+          ? "rhythmic-subtraction"
+          : s.name === "Development"
+            ? "filter-rise"
+            : i % 2
+              ? "chord-anticipation"
+              : "fill",
+    purpose: s.name === "Peak" ? "arrival" : "contrast",
+    intensity: s.name === "Peak" ? 0.85 : 0.45,
+    tailPolicy: "preserve",
+  }));
   return {
-    version: 1,
-    generatorVersion: "song-plan-1",
+    version: 2,
+    generatorVersion: "song-plan-2",
+    groove: structuredClone(grooveProfile),
     seed,
     style,
     durationBars: bars,
@@ -407,7 +488,13 @@ export function createSongPlan(
 }
 
 export function assertSongPlan(plan: SongPlan): void {
-  if (!plan || plan.version !== 1 || plan.generatorVersion !== "song-plan-1")
+  if (
+    !plan ||
+    !(
+      (plan.version === 1 && plan.generatorVersion === "song-plan-1") ||
+      (plan.version === 2 && plan.generatorVersion === "song-plan-2")
+    )
+  )
     throw new Error("SONG_PLAN_VERSION: unsupported plan; original preserved");
   if (
     !Number.isSafeInteger(plan.seed) ||
@@ -418,6 +505,29 @@ export function assertSongPlan(plan: SongPlan): void {
     plan.tempo <= 0
   )
     throw new Error("SONG_PLAN_INPUT: invalid identity/duration");
+  if (plan.version === 2) {
+    const g = plan.groove;
+    if (
+      !g ||
+      ![
+        g.hatGhostProbability,
+        g.densityScale,
+        g.supportingAcidProbability,
+      ].every(Number.isFinite) ||
+      g.hatGhostProbability < 0 ||
+      g.hatGhostProbability > 1 ||
+      g.supportingAcidProbability < 0 ||
+      g.supportingAcidProbability > 1 ||
+      g.densityScale <= 0 ||
+      g.densityScale > 2 ||
+      [g.bassSteps, g.percussionSteps, g.chordSteps].some(
+        (steps) =>
+          !Array.isArray(steps) ||
+          steps.some((n) => !Number.isInteger(n) || n < 0 || n > 15),
+      )
+    )
+      throw new Error("SONG_PLAN_GROOVE: invalid persisted rhythm");
+  }
   const total = plan.durationBars * 4;
   for (const key of ["sections", "phrases", "harmony"] as const) {
     if (!Array.isArray(plan[key]) || !plan[key].length)
@@ -468,6 +578,7 @@ export function materializeSongPlanTrack(
 ): AbletonMidiClip[] {
   assertSongPlan(plan);
   const role = track.archetype;
+  const groove = plan.groove ?? STYLE_GROOVES.hypnotic_evolving!;
   const r = plan.roles.find((r) => r.role === role);
   if (!r || track.type !== "midi") return track.clips;
   const motif = plan.motifs.find((m) => m.role === role)!;
@@ -493,6 +604,9 @@ export function materializeSongPlanTrack(
         duration: Math.min(duration, span.toBeat - time),
         pitch,
         velocity,
+        ...(plan.version >= 2 && ["synth", "pad"].includes(role)
+          ? { harmonicOwner: "voiced-midi" as const }
+          : {}),
         isGhost: velocity < 45,
         probability: 1,
         isSlide: slide,
@@ -540,7 +654,10 @@ export function materializeSongPlanTrack(
         if (role === "kick") {
           if (step % 4 === 0) add(at, 36, 0.22, 100 + (bar % 4 === 0 ? 7 : 0));
         } else if (role === "rumble") {
-          if (motif.steps.includes(step) && step % 4 !== 0)
+          if (
+            (plan.groove ? groove.bassSteps : motif.steps).includes(step) &&
+            step % 4 !== 0
+          )
             add(
               at,
               h.rootMidi + (step === 14 && bar % 4 === 3 ? 12 : 0),
@@ -550,7 +667,9 @@ export function materializeSongPlanTrack(
         } else if (role === "hats") {
           if (
             step % 4 === 2 ||
-            (span.density > 0.6 && step % 2 === 1 && hash < 0.55)
+            (span.density > 0.6 &&
+              step % 2 === 1 &&
+              hash < groove.hatGhostProbability)
           )
             add(
               at,
@@ -563,7 +682,8 @@ export function materializeSongPlanTrack(
           if (
             (role === "ride"
               ? step % 4 === 2
-              : step % 4 === 3 || step === 6 || (fill && step >= 12)) &&
+              : groove.percussionSteps.includes(step) ||
+                (fill && step >= 12)) &&
             (hash < span.density || fill)
           )
             add(
@@ -578,7 +698,7 @@ export function materializeSongPlanTrack(
             motif.steps.includes(
               (step + (phrase.variation === 3 ? 2 : 0)) % 16,
             ) &&
-            hash < (span.featured ? 0.9 : 0.63)
+            hash < (span.featured ? 0.9 : groove.supportingAcidProbability)
           ) {
             const v = span.featured ? 87 : 68;
             const previous = notes.at(-1);
@@ -601,7 +721,7 @@ export function materializeSongPlanTrack(
           }
         } else if (role === "synth") {
           if (
-            [0, 6, 11].includes(step) &&
+            groove.chordSteps.includes(step) &&
             (bar % 2 === 0 || step === 6) &&
             hash < span.density
           ) {
@@ -658,6 +778,8 @@ export function materializeSongPlanTrack(
             duration: 0.4,
             velocity: 68,
             isGhost: false,
+            harmonicOwner:
+              plan.version >= 2 ? ("voiced-midi" as const) : undefined,
             motifRole: "fill",
           })),
         });

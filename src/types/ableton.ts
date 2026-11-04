@@ -139,6 +139,7 @@ export type MidiToolTransformationId =
   | 'quantize';
 
 export interface MidiNoteEvent {
+  harmonicOwner?: 'voiced-midi'; // Explicit chord ownership: MIDI pitches bypass further Chord expansion.
   id: string;
   sourceNoteId?: string; // Native note template for preservation during duplication.
   time: number; // In beats (e.g., 1.012 with micro-timing shift)

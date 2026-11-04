@@ -1,3 +1,4 @@
+import { evaluateTrackMidiDeviceChain } from "../engine/abletonCapabilityMatrix";
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import {
@@ -114,5 +115,45 @@ describe("Persisted complete composition", () => {
         .map((n) => n.id)
         .sort(),
     ).toEqual(expected);
+  });
+  it("produces distinct style ensembles at an identical seed rather than renaming one score", () => {
+    const p = fixture();
+    const styles = [
+      "hypnotic_evolving",
+      "asymmetric_industrial",
+      "minimal_groove",
+      "dub_space",
+      "detroit_funk",
+      "raw_warehouse",
+      "acid_modulation",
+      "peak_rolling",
+    ] as const;
+    const fingerprints = styles.map((style) => {
+      const q = composeSongPlan(p, createSongPlan(p, 777, style));
+      return JSON.stringify(
+        q.tracks.map((t) =>
+          t.clips.flatMap((c) =>
+            c.notes.map((n) => [n.time, n.pitch, n.velocity]),
+          ),
+        ),
+      );
+    });
+    expect(new Set(fingerprints).size).toBeGreaterThanOrEqual(7);
+  });
+  it("gives voiced MIDI explicit ownership so the starter Chord device cannot harmonize it twice", () => {
+    const p = fixture();
+    const q = composeSongPlan(p, createSongPlan(p, 777, "hypnotic_evolving"));
+    const pad = q.tracks.find((t) => t.archetype === "pad")!;
+    const notes = pad.clips.flatMap((c) => c.notes);
+    expect(notes.length).toBeGreaterThan(0);
+    expect(
+      evaluateTrackMidiDeviceChain(pad, notes).map((n) => n.pitch),
+    ).toEqual(notes.map((n) => n.pitch));
+    expect(
+      evaluateTrackMidiDeviceChain(
+        pad,
+        notes.map((n) => ({ ...n, harmonicOwner: undefined })),
+      ).length,
+    ).toBeGreaterThan(notes.length);
   });
 });

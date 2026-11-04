@@ -1629,12 +1629,20 @@ export default function App() {
   const handleGenerateClipInRange = useCallback(
     (trackId: string, startBar: number, endBar: number, mode: RangeClipGeneratorMode) => {
       handleExecuteProjectCommand(
-        `Generate ${mode.toUpperCase()} Clip (Bars ${startBar}–${endBar - 1})`,
+        mode==='voiced-midi'||mode==='chord-device' ? `Set ${mode} harmonic ownership (Bars ${startBar}–${endBar-1})` : `Generate ${mode.toUpperCase()} Clip (Bars ${startBar}–${endBar - 1})`,
         'clip_edit',
         (draft) => {
           const targetTrack = draft.tracks.find((t) => t.id === trackId);
           if (!targetTrack) return draft;
           if(targetTrack.locked) throw new Error('SONG_PLAN_TARGET: track is locked');
+          if(mode==='voiced-midi'||mode==='chord-device') {
+            if(mode==='chord-device'&&!targetTrack.devices.some(d=>d.xmlTag==='MidiChord'&&!d.bypassed))throw new Error('HARMONIC_OWNER: enable a Chord MIDI device first');
+            return transformTrackArrangementNotes(draft,trackId,notes=>notes.map(note=>{
+              if(note.time<(startBar-1)*4||note.time>=(endBar-1)*4)return note;
+              const next={...note};if(mode==='voiced-midi')next.harmonicOwner='voiced-midi';else delete next.harmonicOwner;return next;
+            }));
+          }
+
           if(mode !== 'empty') {
             const plan=draft.songPlan??createSongPlan(draft,draft.generationSeed??1,activeStrategyId);
             return composeSongPlan(draft,plan,{fromBeat:(startBar-1)*4,toBeat:(endBar-1)*4,trackId,roleOverride:mode==='chord'?'synth':mode==='bass'?'rumble':mode==='drum'?'kick':'percussion'});

@@ -2142,6 +2142,7 @@ export function parseAbletonXmlDom(
               pitch,
               velocity,
               probability: Number(nEl.getAttribute('Probability') ?? 1),
+              ...(nEl.getAttribute('Data-Parametric-HarmonicOwner')==='voiced-midi'?{harmonicOwner:'voiced-midi' as const}:{}),
               isGhost: velocity <= 48,
               isAccent: nEl.hasAttribute('Data-Parametric-Accent') ? nEl.getAttribute('Data-Parametric-Accent') === 'true' : velocity >= 110,
               isSlide: nEl.getAttribute('Data-Parametric-Slide') === 'true',
@@ -2166,6 +2167,7 @@ export function parseAbletonXmlDom(
             pitch,
             velocity,
             probability: Number(nEl.getAttribute('Probability') ?? 1),
+            ...(nEl.getAttribute('Data-Parametric-HarmonicOwner')==='voiced-midi'?{harmonicOwner:'voiced-midi' as const}:{}),
             isGhost: velocity <= 48,
             isAccent: nEl.hasAttribute('Data-Parametric-Accent') ? nEl.getAttribute('Data-Parametric-Accent') === 'true' : velocity >= 110,
             isSlide: nEl.getAttribute('Data-Parametric-Slide') === 'true',
@@ -2464,7 +2466,7 @@ export function parseAbletonXmlDom(
       ? savedRequestedBars
       : undefined;
   const songPlanNode=xmlDoc.querySelector('LiveSet > ParametricSongPlan');
-  if(songPlanNode&&songPlanNode.getAttribute('Version')!=='1') throw new Error('SONG_PLAN_VERSION: unsupported metadata; original preserved');
+  if(songPlanNode&&!['1','2'].includes(songPlanNode.getAttribute('Version')||'')) throw new Error('SONG_PLAN_VERSION: unsupported metadata; original preserved');
   const parsedProject: AbletonProjectState = {
     audioSettings,
     ...(xmlDoc.querySelector('LiveSet > ParametricSongPlan') ? {songPlan: JSON.parse(xmlDoc.querySelector('LiveSet > ParametricSongPlan')!.textContent || 'null')} : {}),
@@ -2794,6 +2796,8 @@ export function syncTrackClipsToXml(
       const destination = ensure(keyTrack, 'Notes');
       if (note.parentElement !== destination) destination.appendChild(note);
       putNumber(note, 'Time', n.time); putNumber(note, 'Duration', n.duration);
+      if(n.harmonicOwner) note.setAttribute('Data-Parametric-HarmonicOwner',n.harmonicOwner);
+      else note.removeAttribute('Data-Parametric-HarmonicOwner');
       if(n.isSlide !== undefined) note.setAttribute('Data-Parametric-Slide',String(n.isSlide));
       if(n.isAccent !== undefined) note.setAttribute('Data-Parametric-Accent',String(n.isAccent));
       if (note.hasAttribute('Data-Parametric-QuantizedTime') || n.quantizedTime !== Math.round(n.time * 8) / 8) putNumber(note, 'Data-Parametric-QuantizedTime', n.quantizedTime);
@@ -3336,7 +3340,7 @@ export function synchronizeProjectStateToXml(
   const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
     id: c.id, name: c.name, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
     notes: c.notes.map(n => ({ id: n.id, time: n.time, quantizedTime: n.quantizedTime,
-      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1, isSlide:n.isSlide??false, isAccent:n.isAccent??(n.velocity>=110) })),
+      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1, harmonicOwner:n.harmonicOwner, isSlide:n.isSlide??false, isAccent:n.isAccent??(n.velocity>=110) })),
   }));
   for (const track of project.tracks) {
     if (track.type !== 'midi') continue;
