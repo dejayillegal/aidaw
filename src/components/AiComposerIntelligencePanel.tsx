@@ -292,7 +292,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
             className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded flex items-center justify-center gap-1.5 transition-colors shadow-sm"
           >
             <Wand2 className="w-3.5 h-3.5" />
-            <span>Compose Full 8-Track Suite ({totalBars} Bars · Unlocked)</span>
+            <span>Compose Complete Arrangement ({totalBars} Bars · Unlocked)</span>
           </button>
         </div>
 
@@ -338,7 +338,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
               </div>
             ) : (
               <div className="text-[11px] text-slate-400 p-2 bg-[#0B0E15] rounded border border-[#1E2636]">
-                Click Compose or Regenerate on any layer to compute multi-candidate novelty &amp; Jaccard distance metrics.
+                Compose creates a seeded song plan with shared harmony and independent role phrases. Musical quality requires listening.
               </div>
             )}
           </div>

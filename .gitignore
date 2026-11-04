@@ -12,3 +12,5 @@ recovery-browser-evidence/
 __pycache__/
 *.keystore
 *.jks
+
+.evidence/

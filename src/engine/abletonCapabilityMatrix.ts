@@ -69,7 +69,7 @@ export interface AbletonCapabilityEntry {
 }
 
 export const MAX_EXECUTABLE_INSERT_DEVICES = 10;
-export const CURRENT_DEVICE_CONVERSION_VERSION = 1;
+export const CURRENT_DEVICE_CONVERSION_VERSION = 2;
 export const LEGACY_CONVERSION_MIGRATION_V1 = 'legacy_missing_conversion_record_v1';
 
 export const ABLETON_DEVICE_REGISTRY: Record<string, AbletonDeviceContract> = {
@@ -995,10 +995,24 @@ export function classifyAbletonDeviceTag(xmlTag: string): AbletonCapabilityStatu
   return 'unsupported';
 }
 
+/** Convert declared source units to contract units before any range clamp. */
+export function normalizeDeviceParameterUnit(value: number, sourceUnit = '', targetUnit = ''): number {
+  const source = sourceUnit.trim().toLowerCase();
+  const target = targetUnit.trim().toLowerCase();
+  if (source === 'ms' && target === 's') return value / 1000;
+  if (source === 's' && target === 'ms') return value * 1000;
+  if (source === 'khz' && target === 'hz') return value * 1000;
+  if (source === 'hz' && target === 'khz') return value / 1000;
+  if ((source === 'normalized' || source === 'ratio') && target === '%') return value * 100;
+  if (source === '%' && target === '') return value / 100;
+  return value;
+}
+
 export function readDeviceParamNumber(
   device: Pick<AbletonDevice, 'xmlTag' | 'parameters'>,
   canonicalName: string,
-  fallback?: number
+  fallback?: number,
+  normalizeUnits = true
 ): number {
   const contract = ABLETON_DEVICE_REGISTRY[device.xmlTag];
   const spec = contract?.parameterSpecs.find(
@@ -1015,7 +1029,8 @@ export function readDeviceParamNumber(
     if (candidateNames.includes(pName)) {
       const rawVal = param.value;
       if (typeof rawVal === 'number' && Number.isFinite(rawVal)) {
-        return spec ? Math.max(spec.min, Math.min(spec.max, rawVal)) : rawVal;
+        const normalized = normalizeUnits ? normalizeDeviceParameterUnit(rawVal, param.unit, spec?.unit) : rawVal;
+        return spec ? Math.max(spec.min, Math.min(spec.max, normalized)) : normalized;
       }
       if (typeof rawVal === 'string') {
         const trimmed = rawVal.trim();
@@ -1025,7 +1040,9 @@ export function readDeviceParamNumber(
         if (trimmed === '1/32') return 0.125;
         const parsed = Number.parseFloat(trimmed.replace(/[^0-9.+-]/g, ''));
         if (Number.isFinite(parsed)) {
-          return spec ? Math.max(spec.min, Math.min(spec.max, parsed)) : parsed;
+          const suffix = trimmed.match(/[a-zA-Z%]+$/)?.[0];
+          const normalized = normalizeUnits ? normalizeDeviceParameterUnit(parsed, param.unit || suffix, spec?.unit) : parsed;
+          return spec ? Math.max(spec.min, Math.min(spec.max, normalized)) : normalized;
         }
       }
     }
@@ -1080,7 +1097,8 @@ export function computeDeviceParameterHash(device: Pick<AbletonDevice, 'xmlTag' 
 /**
  * Builds an explicit, inspectable per-instance DeviceConversionRecord for a converted Ableton device.
  */
-export function buildDeviceConversionRecord(device: AbletonDevice): DeviceConversionRecord {
+export function buildDeviceConversionRecord(device: AbletonDevice, legacyV1 = false): DeviceConversionRecord {
+  const read = (d:AbletonDevice,name:string,fallback:number) => readDeviceParamNumber(d,name,fallback,!legacyV1);
   const contract = ABLETON_DEVICE_REGISTRY[device.xmlTag];
   const sourceParameterHash = computeDeviceParameterHash(device);
   const conversionKind: DeviceConversionRecord['conversionKind'] =
@@ -1097,38 +1115,38 @@ export function buildDeviceConversionRecord(device: AbletonDevice): DeviceConver
   };
 
   if (device.xmlTag === 'MidiChord') {
-    generatedDescriptor.shift1Semitones = readDeviceParamNumber(device, 'Shift1', 3);
-    generatedDescriptor.shift2Semitones = readDeviceParamNumber(device, 'Shift2', 7);
-    generatedDescriptor.shift3Semitones = readDeviceParamNumber(device, 'Shift3', 12);
-    generatedDescriptor.velocityPct = readDeviceParamNumber(device, 'VelocityPct', 88);
+    generatedDescriptor.shift1Semitones = read(device, 'Shift1', 3);
+    generatedDescriptor.shift2Semitones = read(device, 'Shift2', 7);
+    generatedDescriptor.shift3Semitones = read(device, 'Shift3', 12);
+    generatedDescriptor.velocityPct = read(device, 'VelocityPct', 88);
   } else if (device.xmlTag === 'MidiArpeggiator') {
-    generatedDescriptor.rateBeats = readDeviceParamNumber(device, 'Rate', 0.25);
-    generatedDescriptor.gatePct = readDeviceParamNumber(device, 'Gate', 75);
-    generatedDescriptor.steps = Math.round(readDeviceParamNumber(device, 'Steps', 3));
-    generatedDescriptor.distanceSemitones = Math.round(readDeviceParamNumber(device, 'Distance', 7));
+    generatedDescriptor.rateBeats = read(device, 'Rate', 0.25);
+    generatedDescriptor.gatePct = read(device, 'Gate', 75);
+    generatedDescriptor.steps = Math.round(read(device, 'Steps', 3));
+    generatedDescriptor.distanceSemitones = Math.round(read(device, 'Distance', 7));
     generatedDescriptor.style = readDeviceParamString(device, 'Style', 'Up');
   } else if (device.xmlTag === 'DrumBuss') {
-    generatedDescriptor.drivePct = readDeviceParamNumber(device, 'Drive', 35);
-    generatedDescriptor.boomPct = readDeviceParamNumber(device, 'Boom', 25);
-    generatedDescriptor.crunchPct = readDeviceParamNumber(device, 'Crunch', 20);
-    generatedDescriptor.dampHz = readDeviceParamNumber(device, 'Damp', 11000);
-    generatedDescriptor.dryWetPct = readDeviceParamNumber(device, 'DryWet', 100);
+    generatedDescriptor.drivePct = read(device, 'Drive', 35);
+    generatedDescriptor.boomPct = read(device, 'Boom', 25);
+    generatedDescriptor.crunchPct = read(device, 'Crunch', 20);
+    generatedDescriptor.dampHz = read(device, 'Damp', 11000);
+    generatedDescriptor.dryWetPct = read(device, 'DryWet', 100);
   } else if (device.xmlTag === 'Reverb' || device.xmlTag === 'HybridReverb') {
-    generatedDescriptor.decaySec = readDeviceParamNumber(device, 'DecayTime', device.xmlTag === 'HybridReverb' ? 3.2 : 2.4);
-    generatedDescriptor.preDelayMs = readDeviceParamNumber(device, 'PreDelay', device.xmlTag === 'HybridReverb' ? 24 : 18);
-    generatedDescriptor.dampingHz = readDeviceParamNumber(device, 'HighCut', 4800);
-    generatedDescriptor.dryWetPct = readDeviceParamNumber(device, 'DryWet', 35);
+    generatedDescriptor.decaySec = read(device, 'DecayTime', device.xmlTag === 'HybridReverb' ? 3.2 : 2.4);
+    generatedDescriptor.preDelayMs = read(device, 'PreDelay', device.xmlTag === 'HybridReverb' ? 24 : 18);
+    generatedDescriptor.dampingHz = read(device, 'HighCut', 4800);
+    generatedDescriptor.dryWetPct = read(device, 'DryWet', 35);
   } else if (device.xmlTag === 'AutoPan') {
-    generatedDescriptor.rateHz = readDeviceParamNumber(device, 'Rate', 1.5);
-    generatedDescriptor.amountPct = readDeviceParamNumber(device, 'Amount', 65);
+    generatedDescriptor.rateHz = read(device, 'Rate', 1.5);
+    generatedDescriptor.amountPct = read(device, 'Amount', 65);
     generatedDescriptor.shape = readDeviceParamString(device, 'Shape', 'Sine');
   } else if (device.xmlTag === 'Erosion') {
-    generatedDescriptor.frequencyHz = readDeviceParamNumber(device, 'Frequency', 2400);
-    generatedDescriptor.amountPct = readDeviceParamNumber(device, 'Amount', 40);
-    generatedDescriptor.widthQ = readDeviceParamNumber(device, 'Width', 2.0);
+    generatedDescriptor.frequencyHz = read(device, 'Frequency', 2400);
+    generatedDescriptor.amountPct = read(device, 'Amount', 40);
+    generatedDescriptor.widthQ = read(device, 'Width', 2.0);
   } else if (device.xmlTag === 'Lfo') {
-    generatedDescriptor.rateHz = readDeviceParamNumber(device, 'Rate', 0.12);
-    generatedDescriptor.depth = readDeviceParamNumber(device, 'Depth', 0.42);
+    generatedDescriptor.rateHz = read(device, 'Rate', 0.12);
+    generatedDescriptor.depth = read(device, 'Depth', 0.42);
     generatedDescriptor.waveform = readDeviceParamString(device, 'Waveform', 'Sine');
   }
 
@@ -1136,7 +1154,7 @@ export function buildDeviceConversionRecord(device: AbletonDevice): DeviceConver
     sourceDeviceId: device.id,
     xmlTag: device.xmlTag,
     sourceParameterHash,
-    conversionVersion: CURRENT_DEVICE_CONVERSION_VERSION,
+    conversionVersion: legacyV1 ? 1 : CURRENT_DEVICE_CONVERSION_VERSION,
     conversionKind,
     generatedDescriptor,
     supportedSemantics: contract
@@ -1145,6 +1163,22 @@ export function buildDeviceConversionRecord(device: AbletonDevice): DeviceConver
     limitations: contract ? [contract.limitations] : ['Converted browser approximation.'],
     status: 'valid',
   };
+}
+
+/** V1 -> V2 unit semantics: only an exact, reproducible old record is eligible. */
+export function migrateCompatibleUnitConversion(device:AbletonDevice):{device:AbletonDevice;migrated:boolean} {
+  const rec=device.conversionRecord;
+  if(!rec||rec.conversionVersion!==1||rec.status!=='valid'||!CONVERTED_DEVICE_TAGS.has(device.xmlTag))return {device,migrated:false};
+  const expected=buildDeviceConversionRecord(device,true);
+  const ordered=(value:unknown):unknown => Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)])):value;
+  const canonical=(value:unknown)=>JSON.stringify(ordered(value));
+  if(canonical(rec)!==canonical(expected))return {device,migrated:false};
+  return {device:{...device,conversionRecord:buildDeviceConversionRecord(device)},migrated:true};
+}
+export function migrateCompatibleProjectUnitConversions(project:AbletonProjectState):{project:AbletonProjectState;migrated:boolean} {
+  let migrated=false;
+  const tracks=project.tracks.map(track=>({...track,devices:track.devices.map(device=>{const result=migrateCompatibleUnitConversion(device);migrated ||= result.migrated;return result.device;})}));
+  return {project:migrated?{...project,tracks,conversionSchemaVersion:CURRENT_DEVICE_CONVERSION_VERSION}:project,migrated};
 }
 
 export function verifyDeviceConversionRecord(device: AbletonDevice): {

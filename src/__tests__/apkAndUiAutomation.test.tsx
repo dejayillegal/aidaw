@@ -598,7 +598,7 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(fresh.tracks.find(t => t.id === '99')?.type).toBe('audio');
 
     // Exercise the actual full-suite UI handler, XML round trip and undo/redo.
-    const compose = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.includes('Compose Full 8-Track Suite'))!;
+    const compose = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.includes('Compose Complete Arrangement'))!;
     expect(compose).toBeDefined();
     await act(async () => { compose.click(); });
     const composed = projectQueueService.getItem(newId)!.workingProjectState;

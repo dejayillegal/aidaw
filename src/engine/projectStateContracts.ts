@@ -1,3 +1,4 @@
+import { assertSongPlan } from './songPlanEngine';
 import { assertAudioSettings } from './audioSettingsContracts';
 import {
   classifyAbletonDeviceTag,
@@ -47,6 +48,7 @@ export function assertStructuralProjectState(project: AbletonProjectState): void
   ) {
     fail('invalid requested duration bars');
   }
+  if (project.songPlan) assertSongPlan(project.songPlan);
   if (project.ppq !== undefined) {
     try {
       assertValidPpq(project.ppq);

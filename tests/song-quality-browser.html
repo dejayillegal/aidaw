@@ -1,0 +1,64 @@
+<!doctype html><title>SongPlan native audio qualification</title><script type="module">
+import {buildStarterAbletonXml,parseAbletonXmlDom,synchronizeProjectStateToXml,compressXmlToAlsBlob,decompressAlsFile} from '/src/engine/alsXmlEngine.ts';
+import {generateSectionArrangementPlan,decomposeNotesIntoSectionClips,generateContextualAutomationPoints} from '/src/engine/compositionIntelligenceEngine.ts';
+import {createSongPlan,composeSongPlan} from '/src/engine/songPlanEngine.ts';
+import {buildAudioBusGraph,getOrCreateTrackChannelRuntime,renderArrangementToWavBlob,synthesizeProjectToStereoFloatBuffers} from '/src/engine/webAudioSynth.ts';
+import {encodeProjectSnapshot,decodeProjectSnapshot} from '/src/services/projectSnapshotService.ts';
+import {StudioCommandBus} from '/src/services/commandBus.ts';
+const humanization={microTimingMaxShiftBeats:.012,swingStrength:0,velocityVariancePct:.08,ghostVelocityMin:20,ghostVelocityMax:45,lfoRateHz:.1,lfoDepth:.3,cutoffHz:145,macroTransition:42};
+const masterBus={masterVolumeDb:0,glueCompressionDrive:.35,reverbDecaySec:3.2,reverbReturnLevel:.3,delayFeedback:.42,delayReturnLevel:.28,subBassMonoCutoffHz:120};
+const transport={loopEnabled:false,loopStartBar:1,loopLengthBars:64,metronomeEnabled:false,followPlayhead:true,showAutomationLanes:true,arrangementMode:'arrangement'};
+const assert=(v,m)=>{if(!v)throw new Error(m);};
+const metric=(data)=>{let peak=0,sum=0,dc=0;for(const x of data){assert(Number.isFinite(x),'nonfinite PCM');peak=Math.max(peak,Math.abs(x));sum+=x*x;dc+=x;}return {peak,rms:Math.sqrt(sum/data.length),dc:dc/data.length};};
+const setup=(ctx,devices,amplitude=.005)=>{
+ const {xml}=buildStarterAbletonXml('berghain-134',777,1);const p=parseAbletonXmlDom(xml,'calibration',xml);
+ const t={...p.tracks[0],devices,mixer:{...p.tracks[0].mixer,volumeDb:-18,reverbSend:0,delaySend:0,pan:0},muted:false,soloed:false,vcaGroupId:undefined};p.tracks=[t];
+ const bus=buildAudioBusGraph(ctx,120,masterBus,false);const channel=getOrCreateTrackChannelRuntime(ctx,bus,t,p);bus.masterGain.disconnect();channel.panner.disconnect();channel.panner.connect(ctx.destination);
+ const source=ctx.createOscillator(),gain=ctx.createGain();source.frequency.value=440;gain.gain.value=amplitude;source.connect(gain);gain.connect(channel.inputNode);return {source,output:channel.panner};
+};
+const utility=(db,bypass=false)=>({id:'u',xmlTag:'Utility',displayName:'Utility',category:'audio_effect',parameters:[{name:'Gain',value:db,unit:'dB'}],bypassed:bypass});
+async function offline(devices,amplitude=.005){const ctx=new OfflineAudioContext(2,44100,44100);const {source:src}=setup(ctx,devices,amplitude);src.start(0);src.stop(.9);const out=await ctx.startRendering();return metric(out.getChannelData(0).slice(4410,35280));}
+async function live(devices){
+ const ctx=new AudioContext({sampleRate:44100});await ctx.resume();
+ const {source,output}=setup(ctx,devices);output.disconnect();
+ const collector=ctx.createScriptProcessor(1024,2,2);output.connect(collector);collector.connect(ctx.destination);
+ const values=[];const start=ctx.currentTime+.05;
+ collector.onaudioprocess=e=>{if(e.playbackTime>=start+.15&&e.playbackTime<start+.65)values.push(...e.inputBuffer.getChannelData(0));};
+ source.start(start);source.stop(start+.8);await new Promise(resolve=>setTimeout(resolve,1100));
+ collector.disconnect();await ctx.close();assert(values.length>10000,'live capture missing');return metric(values);
+}
+window.songQuality={
+ async calibrate(){const ref=await offline([]),boost=await offline([utility(6)]),bypass=await offline([utility(6,true)]),twice=await offline([utility(6),{...utility(-6),id:'u2'}]);const db=20*Math.log10(boost.rms/ref.rms);assert(Math.abs(db-6)<.02,'Utility is not +6 dB');assert(Math.abs(bypass.rms/ref.rms-1)<1e-5,'bypass reference');assert(Math.abs(twice.rms/ref.rms-1)<1e-4,'ordered gain cancellation');const makeComp=db=>({id:'comp',xmlTag:'Compressor2',displayName:'Compressor',category:'audio_effect',parameters:[{name:'Threshold',value:-6},{name:'MakeupGain',value:db}]});
+ const compRef=await offline([makeComp(0)]),compBoost=await offline([makeComp(6)]);const makeupDb=20*Math.log10(compBoost.rms/compRef.rms);assert(Math.abs(makeupDb-6)<.02,'makeup duplicated');
+ const sat={id:'sat',xmlTag:'Saturator',displayName:'Saturator',category:'audio_effect',parameters:[{name:'Drive',value:6},{name:'Output',value:0},{name:'DryWet',value:100}]};
+ const orderA=await offline([utility(6),sat],.2),orderB=await offline([sat,utility(6)],.2);assert(Math.abs(orderA.rms-orderB.rms)>.005,'nonlinear insert order ignored');
+ const liveRef=await live([]),liveBoost=await live([utility(6)]),liveBypass=await live([utility(6,true)]);const liveDb=20*Math.log10(liveBoost.rms/liveRef.rms);assert(Math.abs(liveDb-db)<.05,'live/offline calibrated gain disagrees');assert(Math.abs(liveBypass.rms/liveRef.rms-1)<.01,'live bypass failed');
+ return {reference:ref,boost,utilityDb:db,bypass,oppositeGains:twice,makeupDb,nonlinearOrder:{orderA,orderB},live:{reference:liveRef,boost:liveBoost,bypass:liveBypass,utilityDb:liveDb},scope:'Native production channel calibration and captured live signal; full-song captured PCM parity remains open'};},
+ async pitchContract(){
+  const results=[];
+  for(const pitches of [[60],[60,63,67],[60,63,67,70],[60,63,67,70,74],[63,66,70]]){
+    const {xml}=buildStarterAbletonXml('berghain-134',17,1);const p=parseAbletonXmlDom(xml,'pitch',xml);const original=p.tracks.find(t=>t.archetype==='synth');
+    const track={...original,devices:[],muted:false,soloed:false,instrumentDeleted:false,vcaGroupId:undefined,mixer:{...original.mixer,volumeDb:-18,sidechainDepth:0,reverbSend:0,delaySend:0,filterCutoffHz:18000,filterResonance:0,transposeSemitones:0,fineTuneCents:0},automationPoints:[],clips:[{id:'pitch',name:'Pitch contract',startTime:0,length:4,notes:pitches.map((pitch,i)=>({id:`pitch_${i}`,time:0,quantizedTime:0,pitch,duration:1,velocity:85,isGhost:false}))}]};p.tracks=[track];
+    const pcm=await synthesizeProjectToStereoFloatBuffers(p,{...humanization,lfoDepth:0,macroTransition:0},{...masterBus,reverbReturnLevel:0,delayReturnLevel:0},44100,1);
+    const samples=pcm.left.slice(256,8448);const energy=freq=>{let re=0,im=0;for(let i=0;i<samples.length;i++){const w=.5-.5*Math.cos(2*Math.PI*i/(samples.length-1));re+=samples[i]*w*Math.cos(2*Math.PI*freq*i/44100);im+=samples[i]*w*Math.sin(2*Math.PI*freq*i/44100);}return Math.hypot(re,im)/samples.length;};
+    const fundamentals=pitches.map(pitch=>({pitch,amplitude:energy(440*2**((pitch-69)/12))}));assert(fundamentals.every(x=>x.amplitude>1e-5),'supplied chord pitch absent in rendered PCM');
+    let unintendedThirdRatio=null;if(pitches.length===1){unintendedThirdRatio=energy(440*2**((63-69)/12))/fundamentals[0].amplitude;assert(unintendedThirdRatio<.04,'implicit minor third remains in rendered audio');}
+    results.push({pitches,fundamentals,unintendedThirdRatio});
+  }return {executedVia:'native production synthesis PCM spectrum',results};
+ },
+ async generate({seed=777,bars=64,style='hypnotic_evolving',before=false,stem=null}){
+  const {xml}=buildStarterAbletonXml('berghain-134',seed,before?bars:4,before?'full-track':'sketch');let p=parseAbletonXmlDom(xml,'Audition',xml);p={...p,arrangementLengthBars:bars,audioSettings:{humanization,masterBus,transport:{...transport,loopLengthBars:bars}}};
+  if(!before)p=composeSongPlan(p,createSongPlan(p,seed,style));
+  else {const sections=generateSectionArrangementPlan('hypnotic_longform',bars,seed);p={...p,tracks:p.tracks.map((t,i)=>t.type!=='midi'?t:{...t,clips:decomposeNotesIntoSectionClips(t.name,t.archetype,t.clips.flatMap(c=>c.notes),bars,sections),automationPoints:generateContextualAutomationPoints(t.archetype,'hypnotic_longform',seed+i*53,bars,sections)})};}
+  if(stem)p={...p,tracks:p.tracks.map(t=>({...t,muted:t.archetype!==stem}))};
+  const bus=new StudioCommandBus();const edited=bus.executeMutation('quality','edit chord velocity','clip_edit',p,d=>{const track=d.tracks.find(t=>t.archetype==='synth');const note=track?.clips.flatMap(c=>c.notes)[0];if(note)note.velocity=Math.max(1,note.velocity-1);return d;});
+  assert(bus.undo('quality').tracks[0].clips.length===p.tracks[0].clips.length,'undo failed');assert(bus.redo('quality').tracks.length===p.tracks.length,'redo failed');
+  const saved=encodeProjectSnapshot(p,humanization,masterBus,transport);const reopened=decodeProjectSnapshot(saved).project;assert(JSON.stringify(reopened.tracks)===JSON.stringify(p.tracks),'native snapshot changed score');
+  const projected=synchronizeProjectStateToXml(reopened);const compressed=await compressXmlToAlsBlob(projected);const imported=parseAbletonXmlDom((await decompressAlsFile(new File([compressed.blob],'quality.als'))).xml,'roundtrip',projected);assert(imported.songPlan?.seed===p.songPlan?.seed,'plan ALS roundtrip');
+  console.log('SONG_STAGE render',before,stem,style);
+  const result=await renderArrangementToWavBlob(reopened,humanization,masterBus,bars,16,pct=>{if(pct%25===0)console.log('SONG_STAGE progress',pct);});const bytes=new Uint8Array(await result.blob.arrayBuffer());const ctx=new AudioContext();const decoded=await ctx.decodeAudioData(bytes.buffer.slice(0));await ctx.close();const data=decoded.getChannelData(0);const full=metric(data);const last=metric(data.slice(Math.floor((bars-4)*4*60/p.tempo*44100),Math.floor(bars*4*60/p.tempo*44100)));
+  const base64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(result.blob);});
+  return {base64,snapshot:saved,arrangement:p.tracks.map(t=>({role:t.archetype,clips:t.clips.map(c=>({start:c.startTime,end:c.startTime+c.length,notes:c.notes.length})),gain:t.mixer.volumeDb})),metrics:{seed,bars,style,stem,before,duration:decoded.duration,frames:data.length,full,last},plan:p.songPlan};
+ }
+};
+</script>

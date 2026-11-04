@@ -2015,7 +2015,9 @@ describe('G1–G8 Strengthening Contracts', () => {
       const ch = getOrCreateTrackChannelRuntime(testCtx, bus, project.tracks[0], project);
 
       // 1. Rapid structural edits (> MAX_CONCURRENT_RETIRING_CHAINS) bound retiringChains to 4 and flush oldest immediately
-      let workingProject = project;
+      // This is the DSP resource lifecycle test. XML insert/remove persistence is
+      // covered separately; serializing the whole score 80 times hid the resource assertion.
+      let workingProject: typeof project = {...project, rawXmlModified:'', rawXmlOriginal:'', rawXml:''};
       for (let i = 0; i < 10; i++) {
         const revDev = workingProject.tracks[0].devices.find((d) => d.xmlTag === 'Reverb')!;
         workingProject = removeChannelInsertDevice(workingProject, trackId, revDev.id);
@@ -2128,3 +2130,21 @@ describe('G1–G8 Strengthening Contracts', () => {
 });
 
 
+
+
+describe('Calibrated signal path regressions', () => {
+  it('normalizes explicit reverb time units before clamping and descriptor generation', () => {
+    const device: AbletonDevice = { id: '202', xmlTag: 'Reverb', displayName: 'Reverb', category: 'audio_effect', parameters: [{name:'DecayTime',value:3600,unit:'ms'}] };
+    expect(buildDeviceConversionRecord(device).generatedDescriptor.decaySec).toBeCloseTo(3.6, 8);
+  });
+  it('applies Utility gain exactly once and bypass restores the channel reference', () => {
+    const {xml,meta} = buildStarterAbletonXml('berghain-134', 123, 1);
+    const p = parseAbletonXmlDom(xml,meta.name,xml);
+    const track = {...p.tracks[0], mixer:{...p.tracks[0].mixer,volumeDb:-18}, devices:[{id:'util',xmlTag:'Utility',displayName:'Utility',category:'audio_effect' as const,parameters:[{name:'Gain',value:6}]}]};
+    const ctx = createTestAudioContext();
+    const bus = buildAudioBusGraph(ctx,p.tempo,DEFAULT_MASTER_BUS,false);
+    const channel = getOrCreateTrackChannelRuntime(ctx,bus,track,{...p,tracks:[track]});
+    const reference = Math.pow(10,(track.mixer?.volumeDb || 0)/20);
+    expect(channel.faderGain.gain.value).toBeCloseTo(reference,6);
+  });
+});

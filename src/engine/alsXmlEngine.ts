@@ -34,6 +34,7 @@ import {
   CONVERTED_DEVICE_TAGS,
   EXECUTABLE_DEVICE_TAGS,
   migrateLegacyDeviceConversionRecord,
+  migrateCompatibleUnitConversion,
   syncDeviceConversionRecord,
 } from './abletonCapabilityMatrix';
 
@@ -2142,8 +2143,8 @@ export function parseAbletonXmlDom(
               velocity,
               probability: Number(nEl.getAttribute('Probability') ?? 1),
               isGhost: velocity <= 48,
-              isAccent: velocity >= 110,
-              isSlide: duration > 0.27 && archetype === 'acid',
+              isAccent: nEl.hasAttribute('Data-Parametric-Accent') ? nEl.getAttribute('Data-Parametric-Accent') === 'true' : velocity >= 110,
+              isSlide: nEl.getAttribute('Data-Parametric-Slide') === 'true',
             });
             totalNotesCount++;
             pitchCounts[pitch % 12] = (pitchCounts[pitch % 12] || 0) + 1;
@@ -2166,8 +2167,8 @@ export function parseAbletonXmlDom(
             velocity,
             probability: Number(nEl.getAttribute('Probability') ?? 1),
             isGhost: velocity <= 48,
-            isAccent: velocity >= 110,
-            isSlide: duration > 0.27 && archetype === 'acid',
+            isAccent: nEl.hasAttribute('Data-Parametric-Accent') ? nEl.getAttribute('Data-Parametric-Accent') === 'true' : velocity >= 110,
+            isSlide: nEl.getAttribute('Data-Parametric-Slide') === 'true',
           });
           totalNotesCount++;
           pitchCounts[pitch % 12] = (pitchCounts[pitch % 12] || 0) + 1;
@@ -2379,6 +2380,7 @@ export function parseAbletonXmlDom(
       appState = Object.fromEntries(Object.entries(appState).filter(([key]) =>
         ['devices', 'mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb', 'sessionClips', 'activeSessionSlot'].includes(key)));
     }
+    if(appState.devices) appState.devices=appState.devices.map(device=>migrateCompatibleUnitConversion(device).device);
     tracks.push({
       id: trackId,
       name: effectiveName,
@@ -2461,8 +2463,11 @@ export function parseAbletonXmlDom(
     Number.isSafeInteger(savedRequestedBars) && savedRequestedBars > 0
       ? savedRequestedBars
       : undefined;
+  const songPlanNode=xmlDoc.querySelector('LiveSet > ParametricSongPlan');
+  if(songPlanNode&&songPlanNode.getAttribute('Version')!=='1') throw new Error('SONG_PLAN_VERSION: unsupported metadata; original preserved');
   const parsedProject: AbletonProjectState = {
     audioSettings,
+    ...(xmlDoc.querySelector('LiveSet > ParametricSongPlan') ? {songPlan: JSON.parse(xmlDoc.querySelector('LiveSet > ParametricSongPlan')!.textContent || 'null')} : {}),
     humanizationSeed: abletonRoot?.hasAttribute('Data-Parametric-HumanizationSeed') ? Number(abletonRoot.getAttribute('Data-Parametric-HumanizationSeed')) : undefined,
     ...(creationMode ? { creationMode } : {}),
     ...(requestedDurationBars ? { requestedDurationBars } : {}),
@@ -2789,6 +2794,8 @@ export function syncTrackClipsToXml(
       const destination = ensure(keyTrack, 'Notes');
       if (note.parentElement !== destination) destination.appendChild(note);
       putNumber(note, 'Time', n.time); putNumber(note, 'Duration', n.duration);
+      if(n.isSlide !== undefined) note.setAttribute('Data-Parametric-Slide',String(n.isSlide));
+      if(n.isAccent !== undefined) note.setAttribute('Data-Parametric-Accent',String(n.isAccent));
       if (note.hasAttribute('Data-Parametric-QuantizedTime') || n.quantizedTime !== Math.round(n.time * 8) / 8) putNumber(note, 'Data-Parametric-QuantizedTime', n.quantizedTime);
       putNumber(note, 'Velocity', Math.max(1, Math.min(127, Math.round(n.velocity))), 0);
       if (note.hasAttribute('Pitch')) putNumber(note, 'Pitch', n.pitch, 0);
@@ -3216,7 +3223,7 @@ export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: s
   parsed.tracks = parsed.tracks.map(track => ({ ...track, devices: [
     ...(projected.get(track.id) || [])
       .filter(device => !track.devices.some(native => native.id === device.id))
-      .map(device => migrateLegacyDeviceConversionRecord(device).device),
+      .map(device => migrateCompatibleUnitConversion(migrateLegacyDeviceConversionRecord(device).device).device),
     ...track.devices,
   ] }));
   return parsed;
@@ -3283,6 +3290,7 @@ export function synchronizeProjectStateToXml(
     tracksNode.replaceChild(node, slots[index]);
   });
   const root = doc.querySelector('Ableton')!;
+  if (project.generationSeed !== undefined) root.setAttribute('Data-Parametric-GenerationSeed',String(project.generationSeed));
   if (project.humanizationSeed !== undefined) root.setAttribute('Data-Parametric-HumanizationSeed', String(project.humanizationSeed));
   if (project.creationMode !== undefined) root.setAttribute('Data-Parametric-CreationMode', project.creationMode);
   if (project.requestedDurationBars !== undefined) root.setAttribute('Data-Parametric-RequestedDurationBars', String(project.requestedDurationBars));
@@ -3291,6 +3299,11 @@ export function synchronizeProjectStateToXml(
   if (tempo) tempo.setAttribute('Value', String(project.tempo));
   else if (project.tempo !== (previous?.tempo ?? parseAbletonXmlDom(xml, project.fileName).tempo)) {
     throw new Error('PROJECT_XML: missing tempo target for tempo edit');
+  }
+  if (project.songPlan) {
+    let node = doc.querySelector('LiveSet > ParametricSongPlan');
+    if (!node) { node = doc.createElement('ParametricSongPlan'); doc.querySelector('LiveSet')!.appendChild(node); }
+    node.setAttribute('Version', String(project.songPlan.version)); node.textContent = JSON.stringify(project.songPlan);
   }
   if (project.audioSettings) {
     let node = doc.querySelector('LiveSet > ParametricAudioSettings');
@@ -3323,7 +3336,7 @@ export function synchronizeProjectStateToXml(
   const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
     id: c.id, name: c.name, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
     notes: c.notes.map(n => ({ id: n.id, time: n.time, quantizedTime: n.quantizedTime,
-      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1 })),
+      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1, isSlide:n.isSlide??false, isAccent:n.isAccent??(n.velocity>=110) })),
   }));
   for (const track of project.tracks) {
     if (track.type !== 'midi') continue;

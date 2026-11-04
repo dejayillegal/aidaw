@@ -1,3 +1,4 @@
+import type { SongPlan } from '../engine/songPlanEngine';
 export type TechnoArchetype =
   | 'kick'
   | 'rumble'
@@ -865,6 +866,7 @@ export interface MeterChangeEvent {
 export type ProjectCreationMode = 'sketch' | 'full-track';
 
 export interface AbletonProjectState {
+  songPlan?: SongPlan;
   session?: SessionPerformanceState;
   audioSettings?: ProjectAudioSettings;
   compatibilityWarnings?: string[];
