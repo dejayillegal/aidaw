@@ -1,0 +1,407 @@
+{
+  "date": "2026-11-04",
+  "baseMain": "1ff8a718f9dd4d11343503a9311d70ae9b46ee42",
+  "implementationRemoteCommit": "1a42ffb60626a4d24f21973df6f843dd61437312",
+  "implementationLocalCommit": "be5f7b5270b25dacaaf7dff8461bdcfb4c05dc46",
+  "implementationTree": "8f670ec37317940699f0b583c4dd83a874c4bcc0",
+  "deployedPreview": "No candidate deployment identified or changed; local native-browser verification only",
+  "node": "v24.22.1",
+  "checks": {
+    "vitest": {
+      "status": "PASS",
+      "tests": 260,
+      "files": 28,
+      "seconds": 87.28,
+      "command": "npm test -- --maxWorkers=2"
+    },
+    "focusedFinal": {
+      "status": "PASS",
+      "tests": 26,
+      "files": 2
+    },
+    "typescript": "PASS",
+    "productionBuild": "PASS, existing large-bundle warning retained",
+    "pythonApkVerifier": {
+      "status": "PASS",
+      "tests": 12
+    },
+    "qodo": "Unavailable; no managed review claimed"
+  },
+  "artifacts": {
+    "dist/assets/index-CBSGey3j.js": {
+      "bytes": 1091506,
+      "sha256": "a0575a5b9d84cbda7aa2f08e05c70d98aefbe1c1e718d454317d2d531d1673ad"
+    },
+    ".evidence/editing-core/editor-qualified/edited.aidaw.json": {
+      "bytes": 106947,
+      "sha256": "2c1601c68ad211cd41522046a1b032b3398f2599dcc6bd1ba75eb45e91805593"
+    },
+    ".evidence/editing-core/editor-qualified/edited.als": {
+      "bytes": 2445,
+      "sha256": "3339c9bdca6ec48ec393075d5a38426b6d58babb18ec4051ee27b2358a112ecb"
+    },
+    ".evidence/editing-core/editor-qualified/edited.wav": {
+      "bytes": 6350444,
+      "sha256": "8f796405b15d5fa3a5a973383dc304ca079b99b02450adcc6ef6dfe7e362548f"
+    },
+    ".evidence/editing-core/editor-qualified/selected-later.mid": {
+      "bytes": 90,
+      "sha256": "75c3f9b6edd55b8506f85cf8602b79f40d3a5a0fc3b0c34d721e171d788dc564"
+    }
+  },
+  "editedWavIndependentDecode": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_raw_sample": "24"
+      }
+    ],
+    "format": {
+      "duration": "24.000000",
+      "size": "6350444"
+    }
+  },
+  "editedWavMeasurement": {
+    "scope": "Sparse functional editing fixture, not a musical quality score",
+    "integratedLufs": -26.8,
+    "loudnessRangeLu": 6.0,
+    "truePeakDbfs": -11.5,
+    "tool": "FFmpeg ebur128"
+  },
+  "editingBrowser": {
+    "browser": "153.0.8010.0",
+    "steps": [
+      "Opened canonical two-layer fixture",
+      "Edited the selected later clip, preserving other clips/layers",
+      "Moved a clip and its notes by an exact fractional beat",
+      "Duplicated selected clip through canonical history",
+      "Deleted only bars 2\u20133, retaining prefix/suffix and sustained continuation",
+      "Dragged and resized the selected note; Escape cancelled without a history entry",
+      "Moved/resized the selected arrangement clip and verified undo/redo",
+      "Saved and reopened exact edited layer state",
+      "Regenerated a selected phrase without overwriting protected edits or the other layer, then undid it",
+      "Exported selected later MIDI, reimported edited ALS and rendered complete WAV",
+      "Live edit retired the edited layer while the other sustained and master level stayed constant"
+    ],
+    "errors": [],
+    "live": {
+      "before": {
+        "playing": true,
+        "beat": 0.5985487528344671,
+        "master": 1,
+        "voices": [
+          1,
+          1
+        ],
+        "meters": [
+          {
+            "peakDb": -24.1,
+            "rmsDb": -31.3,
+            "faderLinear": 1,
+            "gateLinear": 1,
+            "pan": 0
+          },
+          {
+            "peakDb": -24.1,
+            "rmsDb": -29.6,
+            "faderLinear": 0.8413951416451951,
+            "gateLinear": 1,
+            "pan": 0
+          }
+        ]
+      },
+      "after": {
+        "playing": true,
+        "beat": 2.299410430839002,
+        "master": 1,
+        "voices": [
+          0,
+          1
+        ],
+        "meters": [
+          {
+            "peakDb": -60,
+            "rmsDb": -60,
+            "faderLinear": 1,
+            "gateLinear": 1,
+            "pan": 0
+          },
+          {
+            "peakDb": -36.1,
+            "rmsDb": -40.3,
+            "faderLinear": 0.8413951416451951,
+            "gateLinear": 1,
+            "pan": 0
+          }
+        ]
+      }
+    },
+    "status": "PASS"
+  },
+  "nativeRegression": {
+    "engine": "Chromium real Web Audio",
+    "scope": "Browser; Android device qualification remains separate",
+    "responsive": [
+      {
+        "name": "compact",
+        "width": 360,
+        "height": 640,
+        "topClose": {
+          "x": 307,
+          "y": 33,
+          "width": 24,
+          "height": 24
+        },
+        "bottomClose": {
+          "x": 215.640625,
+          "y": 587,
+          "width": 115.359375,
+          "height": 28
+        },
+        "screenshot": ".evidence/editing-core/native-candidate/settings-compact.png"
+      },
+      {
+        "name": "unfolded",
+        "width": 900,
+        "height": 720,
+        "topClose": {
+          "x": 745,
+          "y": 181.84375,
+          "width": 24,
+          "height": 24
+        },
+        "bottomClose": {
+          "x": 653.640625,
+          "y": 510.15625,
+          "width": 115.359375,
+          "height": 28
+        },
+        "screenshot": ".evidence/editing-core/native-candidate/settings-unfolded.png"
+      },
+      {
+        "name": "landscape",
+        "width": 800,
+        "height": 360,
+        "topClose": {
+          "x": 695,
+          "y": 25,
+          "width": 24,
+          "height": 24
+        },
+        "bottomClose": {
+          "x": 603.640625,
+          "y": 307,
+          "width": 115.359375,
+          "height": 28
+        },
+        "screenshot": ".evidence/editing-core/native-candidate/settings-landscape.png"
+      }
+    ],
+    "pageErrors": [],
+    "consoleErrors": [],
+    "warnings": [],
+    "browserVersion": "153.0.8010.0",
+    "playwrightVersion": "1.62.1",
+    "transport": {
+      "status": "PASS",
+      "nativeAudioContext": true,
+      "sampleRate": 44100,
+      "seed": 777,
+      "tempoBefore": 120,
+      "tempoAfter": 90,
+      "beforePause": 0.3024943310657596,
+      "paused": 0.41859410430839006,
+      "tempoPosition": 0.6398185941043084,
+      "retiredOldVoices": 4,
+      "endpoint": 16,
+      "visualCallbackSuspended": true
+    },
+    "projectRecovery": {
+      "scope": "Real Chromium IndexedDB, not Android lifecycle qualification",
+      "status": "PASS",
+      "projectBars": 1024,
+      "stressTrackNotes": 4096,
+      "repeatedCycles": 20,
+      "removedRecordNotResurrected": true,
+      "abortedWritePreserved": true,
+      "corruptPrimaryFallback": true,
+      "futureVersionRejected": true,
+      "wallTimeMs": 6311.4000000003725
+    },
+    "futureRecoveryUi": {
+      "blocked": true,
+      "futureRecordPreserved": true
+    },
+    "probabilityOffline": {
+      "scope": "Offline probability eligibility oracle; not live-loop audio capture or listening approval",
+      "results": [
+        {
+          "sampleRate": 44100,
+          "frames": 430056,
+          "eligibleIds": [
+            "p1",
+            "p2"
+          ],
+          "peak": 0.769932210445404,
+          "maxError": 0,
+          "rmsError": 0
+        },
+        {
+          "sampleRate": 48000,
+          "frames": 468088,
+          "eligibleIds": [
+            "p1",
+            "p2"
+          ],
+          "peak": 0.7703852653503418,
+          "maxError": 0,
+          "rmsError": 0
+        }
+      ]
+    },
+    "fullTrackWorkflow": {
+      "creation": "visible File \u2192 New Full Track 64",
+      "seed": 9415521,
+      "planVersion": 2,
+      "tracks": 8,
+      "saveReopen": "exact score/plan match",
+      "fullJourneyQualified": false
+    },
+    "trackWorkflows": {
+      "status": "PASS",
+      "scope": "track velocity/quantize, undo/redo, native save/reload, action reachability",
+      "transactions": 2,
+      "arrangementClips": 2,
+      "restoredTracks": 2,
+      "viewports": [
+        {
+          "width": 360,
+          "height": 640
+        },
+        {
+          "width": 900,
+          "height": 720
+        },
+        {
+          "width": 800,
+          "height": 360
+        },
+        {
+          "width": 1440,
+          "height": 900
+        }
+      ],
+      "deviceQualification": false,
+      "fullUiCoverage": false
+    },
+    "sessionWorkflows": {
+      "status": "PASS",
+      "scope": "Visible Session slots/launch/capture/stop/return, native track meters, undo/redo, save/reopen and insert-limit error",
+      "audibleTracks": [
+        true,
+        true
+      ],
+      "stoppedPeak": -60,
+      "otherPeak": -19.9,
+      "stopAt": 6,
+      "capturedCyclesPerTrack": 4,
+      "nativeProjectVersion": 3,
+      "realJournalRecovery": true,
+      "deviceQualification": false,
+      "liveOfflineCaptureParity": false
+    },
+    "timeoutGuard": {
+      "timedOut": true,
+      "retryBlocked": true,
+      "allocations": 1
+    },
+    "status": "PASS",
+    "shortRepeatedAudio": {
+      "count": 20,
+      "maxAbsoluteError": 0,
+      "maxRmsError": 0,
+      "thresholds": {
+        "maxAbsoluteError": 0.001,
+        "rmsError": 0.0001
+      },
+      "fixture": {
+        "bars": 4,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 3970976,
+        "frames": 661822,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 15.007301587301587,
+        "peak": 0.8647929430007935,
+        "nonzero": 1320037,
+        "lastMusicalQuarterPeak": 0.8627810478210449,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "d4428f1edc2bcd16ca324cbd360d2dccb813681732774b924ebb9f8187bc4d1c",
+        "progressEvents": 22,
+        "wallTimeMs": 3876
+      }
+    },
+    "otherAudio": [
+      {
+        "bars": 64,
+        "seed": 777,
+        "master": false,
+        "projectSignature": "7bdaa36884b2f0777ce8d2cabdabe465e361e436ddbad8967d9c8aadeaa20cc5",
+        "musicalDuration": 112.11678832116789,
+        "sizeBytes": 31782950,
+        "frames": 5297151,
+        "sampleRate": 44100,
+        "bitDepth": 24,
+        "durationSeconds": 120.11680272108843,
+        "peak": 0.887704610824585,
+        "nonzero": 10589773,
+        "lastMusicalQuarterPeak": 0.8667563199996948,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "01fe91d001bf55c8e34e89643ae470160014459caf11c463e9565bfbf2125e4e",
+        "progressEvents": 144,
+        "wallTimeMs": 55216
+      },
+      {
+        "bars": 4,
+        "seed": 777,
+        "master": true,
+        "projectSignature": "82d83f3d41d22965cb68cbbe67095fdf386e480e5a58e5a69b92ccf6b295a493",
+        "musicalDuration": 7.007299270072993,
+        "sizeBytes": 4322150,
+        "frames": 720351,
+        "sampleRate": 48000,
+        "bitDepth": 24,
+        "durationSeconds": 15.0073125,
+        "peak": 0.8778821229934692,
+        "nonzero": 1435795,
+        "lastMusicalQuarterPeak": 0.8778821229934692,
+        "repeatMaxAbsoluteError": 0,
+        "repeatRmsError": 0,
+        "repeatMaxFrame": 0,
+        "sha256": "1d20623ce9aded5dc78e754861902ed654aa2f5635c5124c9a5bf5090c632019",
+        "progressEvents": 0,
+        "wallTimeMs": 5242
+      }
+    ]
+  },
+  "gates": {
+    "G1": "FAIL",
+    "G2": "FAIL",
+    "G3": "FAIL",
+    "G4": "FAIL",
+    "G5": "BLOCKED",
+    "G6": "BLOCKED",
+    "G7": "BLOCKED",
+    "G8": "FAIL"
+  }
+}
