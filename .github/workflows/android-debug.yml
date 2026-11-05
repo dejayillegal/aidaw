@@ -2,10 +2,17 @@ name: Android Debug APK Build & Verification
 
 on:
   push:
-    branches: [ main, fix/android-debug-apk, "remediation/**", "repair/**" ]
+    branches: [ main, fix/android-debug-apk, "remediation/**" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-apk:
@@ -52,6 +59,9 @@ jobs:
       - name: Test SDK signature output parsing
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
+      - name: Install independent audio decoder
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+
       - name: Install isolated browser test runtime
         run: |
           browser_runtime="$RUNNER_TEMP/aidaw-browser-runtime"
@@ -60,6 +70,8 @@ jobs:
           echo "CODEX_PRIMARY_RUNTIME_NODE_MODULES=$browser_runtime/node_modules" >> "$GITHUB_ENV"
 
       - name: Verify real audio rendering and responsive settings
+        id: browser-check
+        continue-on-error: true
         env:
           RECOVERY_BROWSER_OUTPUT: recovery-browser-evidence
         run: |
@@ -113,3 +125,9 @@ jobs:
             android/app/build/outputs/apk/debug/verification.json
           retention-days: 30
 
+
+      - name: Enforce browser qualification result
+        if: always() && steps.browser-check.outcome != 'success'
+        run: |
+          echo "Browser acceptance failed; any debug APK is unqualified."
+          exit 1
