@@ -468,6 +468,10 @@ try {
     "Exported selected later MIDI, reimported edited ALS and rendered complete WAV",
   );
   const beforeChain = await read();
+  // Export remounts the timeline. Reveal its controls through the visible UI.
+  const clipActions = page.getByTestId("clip-actions");
+  if (await clipActions.getAttribute("open") === null)
+    await clipActions.locator("summary").click();
   await page.getByTestId("bar-range-start-input").fill("4");
   await page.getByTestId("bar-range-end-input").fill("7");
   await page.getByTestId("range-consolidate-clip-btn").click();

@@ -37,7 +37,15 @@ try{
  after=await state();assert.equal(after.tracks.at(-1).devices.length,added.devices.length+1);
  await page.getByRole('button',{name:'Edit',exact:true}).click();await page.getByRole('button',{name:'Undo Cmd+Z',exact:true}).click();assert.deepEqual((await state()).tracks.at(-1).devices,added.devices);
  await page.getByRole('button',{name:'Edit',exact:true}).click();await page.getByRole('button',{name:'Redo Cmd+Y',exact:true}).click();
- const committed=await state();await page.evaluate(async()=>{const{projectQueueService:q}=await import('/src/services/projectQueueService.ts');await q.flushPersistence();});await page.reload();await page.getByTestId('arrangement-clips-canvas').waitFor();assert.deepEqual(await state(),committed);
+ const committed=await state();await page.evaluate(async()=>{const{projectQueueService:q}=await import('/src/services/projectQueueService.ts');await q.flushPersistence();});await page.reload();await page.getByTestId('arrangement-clips-canvas').waitFor();
+// The canvas also renders the initial project while IndexedDB recovery is pending.
+// Wait for the same saved queue item; a missing/different project still times out.
+await page.waitForFunction(async expectedId=>{
+ const {projectQueueService:q}=await import('/src/services/projectQueueService.ts');
+ await q.restorePersistedProjects();
+ return q.getActiveQueueId()===expectedId && !!q.getActiveItem()?.workingProjectState;
+},committed.id);
+assert.deepEqual(await state(),committed);
  report.cases.push({name:'browser-edit-undo-redo-save-reopen',status:'PASS',trackAdded:true,deviceAdded:true});
  const readTempo=()=>page.evaluate(async()=>{const{projectQueueService:q}=await import('/src/services/projectQueueService.ts');const p=q.getActiveItem().workingProjectState;return {tempo:p.tempo,map:p.tempoMap};});
  const originalTempo=await readTempo();await page.getByLabel('Tempo BPM',{exact:true}).fill('143.25');await page.keyboard.press('Tab');
