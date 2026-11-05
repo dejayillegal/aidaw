@@ -19,8 +19,10 @@ Baseline: e6de7f3. Status is complete capability qualification, not compilation.
 | Assets / audio tracks | reference resolution → decode → routing/render | Unsupported/missing media may block; portable asset manifests/relink workflow incomplete: PARTIAL |
 | AI assistant | model response → validated command and persistence | Requires service availability, reproducible scoped preview and complete supported-device constraints: PARTIAL |
 | Reference analysis / mastering | measured audio → suggested settings → render | No independent producer/standards certification: PARTIAL |
-| Clear Arrangement / File | should open clear workflow | Still routes to queue in current App: FAIL; remains explicitly inventoried for separate correction |
+| Clear Arrangement / File and sidebar | isolated accessible dialog → command bus → preserved XML/history/queue | Repaired in PR19; cancel, locked tracks, device/source preservation, undo/redo and native reopen checked at desktop/phone sizes; broader media/Session/device coverage: PARTIAL |
 | PWA offline/update | service worker → versioned app/assets → recovery | Multiple-tab/cache/schema compatibility not fully exercised: PARTIAL |
 | Physical Android | Gradle artifact → install → real touch/audio/lifecycle/export | No attached hardware: BLOCKED |
 
 Legacy-flow decisions in this correction: MIGRATE the modal's direct replacement of the active project to canonical project installation; MIGRATE initial XML queue reparse to native state journaling; REMOVE the unsupported independent form selector and misleading14–19-layer descriptions; RETAIN sketch/template and existing generation engines; RETAIN prior recovery evidence and original plugin XML. No core engine was deleted. Full obsolete-navigation removal remains incomplete.
+
+Timing update (baseline ac0a140): runtime map validation now permits supported step/beat-linear tempo and meter maps. Existing AudioContext anchors remain authoritative. Native synthetic ramp onset/duration checks supplement mathematical integration tests. Session UI launch prediction, continuous automation curve/captured-output parity and all audible device paths remain PARTIAL. Procedural waveform analysis is now explicitly approximate and keyed by timing maps.

@@ -427,11 +427,8 @@ export function hasNonConstantTimingMap(
 export function assertRuntimeTimingMapSupport(
   project: Pick<AbletonProjectState, 'tempo' | 'tempoMap' | 'meterMap'>
 ): void {
-  if (hasNonConstantTimingMap(project)) {
-    throw new Error(
-      'TIMING_MAP_UNSUPPORTED: Non-constant tempoMap or non-4/4 meterMap is preserved in project state and XML, but variable-tempo/meter DSP scheduling is not yet enabled for live playback or offline WAV export.'
-    );
-  }
+  validateAndNormalizeTempoMap(project.tempo,project.tempoMap);
+  validateAndNormalizeMeterMap(project.meterMap);
 }
 
 export function noteProbabilityPasses(note: MidiNoteEvent): boolean {

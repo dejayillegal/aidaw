@@ -255,7 +255,8 @@ describe('Parametric ALS Studio Workstation & SoundCraft Architecture v1.1 Gates
     expect(secondPass).toBe(firstPass);
     expect(firstPass.midiHeatmapBins.length).toBe(16 * 16);
     expect(firstPass.waveformPeaksMax.length).toBe(256);
-    expect(firstPass.isMeasuredAudio).toBe(true);
+    expect(firstPass.isMeasuredAudio).toBe(false);
+    expect(firstPass.waveformModeLabel).toContain('approximate');
   });
 
   it('Scenario 7 (Gate 2): Master Export Presets & Binary Verification — 16-bit, 24-bit, and 32-bit IEEE Float WAV headers at 44.1, 48, and 96 kHz', async () => {

@@ -1200,7 +1200,8 @@ describe('G1–G8 Strengthening Contracts', () => {
           { beat: 16, bpm: 140, curve: 'step' as const },
         ],
       };
-      expect(() => assertExecutableInsertLimits(dynamicTempoProject)).toThrow(/TIMING_MAP_UNSUPPORTED/);
+      expect(() => assertExecutableInsertLimits(dynamicTempoProject)).not.toThrow();
+      expect(() => assertExecutableInsertLimits({ ...dynamicTempoProject, tempoMap: [{ beat: 0, bpm: 0 }] })).toThrow();
     });
 
     it('verifies Section 1: Reverb/HybridReverb/Delay/Echo independent comb & feedback loop stability across parameter extremes', () => {

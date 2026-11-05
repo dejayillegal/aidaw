@@ -1,0 +1,134 @@
+{
+  "source": "da38f86a3f65e518b3f90b7125a88e7c32fc0400",
+  "fixture": "SYNTHETIC",
+  "status": "BLOCKED",
+  "cases": [
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Operator",
+      "role": "instrument",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.14467203934337086,
+        "peak": 0.40236610174179077
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Operator.wav",
+        "sha256": "8560563319da09ed3466a8036a205c56eb36c9c118d5773367b1a3a6fbf85f8c",
+        "decodedSamples": 1372836,
+        "rms": 0.09663428022152495,
+        "peak": 0.47590315341949463,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Analog",
+      "role": "instrument",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.022303232883504425,
+        "peak": 0.11525289714336395
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Analog.wav",
+        "sha256": "ae2c8f50291a004454cceccee992fd354e90e3f32c4da7c902e87eef88367f4d",
+        "decodedSamples": 1372836,
+        "rms": 0.015866838974500808,
+        "peak": 0.131361722946167,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Wavetable",
+      "role": "instrument",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.046213615420367796,
+        "peak": 0.3412783443927765
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Wavetable.wav",
+        "sha256": "6d1ca313af1fc9ac6165d6fbbce067c4c59e4cbbcfda65a37c5eb41e8ea377a3",
+        "decodedSamples": 1372836,
+        "rms": 0.03074691107712599,
+        "peak": 0.38505399227142334,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "EQEight",
+      "role": "audio_effect",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.1547288591375958,
+        "peak": 0.7402051091194153
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "EQEight.wav",
+        "sha256": "d54c0b8fa12ddfd7eab2dd9eefef513443f44df33304f5d92cfaf0393473eb25",
+        "decodedSamples": 1372836,
+        "rms": 0.09946883999625505,
+        "peak": 0.7731107473373413,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Reverb",
+      "role": "audio_effect",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.17744981297345558,
+        "peak": 0.6291553974151611
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Reverb.wav",
+        "sha256": "dc0bf0f7682909b0030eadec7e9bfbf4809f8cfded4ac5ba9777c059473f2353",
+        "decodedSamples": 1372836,
+        "rms": 0.11705640098334509,
+        "peak": 0.6556181907653809,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Compressor2",
+      "role": "audio_effect",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.19962095138380687,
+        "peak": 0.7645524740219116
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Compressor2.wav",
+        "sha256": "a6c29306061279726505272fb1f27424307580de58bcbb4c15311e066f7a95bf",
+        "decodedSamples": 1372836,
+        "rms": 0.12903502067180198,
+        "peak": 0.8134148120880127,
+        "decoder": "FFmpeg f32le"
+      }
+    }
+  ],
+  "error": "Error: page.evaluate: Error: NATIVE_SOURCE_PLACEMENT_DRIFT\n    at window.runP0Audio (http://127.0.0.1:37997/tests/p0-audio-browser.html?html-proxy&index=0.js:103:56)\n    at async <anonymous>:337:30"
+}

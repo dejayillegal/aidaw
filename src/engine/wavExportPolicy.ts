@@ -13,7 +13,7 @@ export function estimateArrangementTailSeconds(
       ? seconds * (Math.log(0.0001) / Math.log(feedback) + 1)
       : seconds;
   const masterDelay =
-    Math.max(0.08, Math.min(0.9, (60 / Math.max(90, project.tempo)) * 0.75)) *
+    Math.max(0.08, Math.min(0.9, (60 / Math.max(90, (project.tempoMap || []).reduce((minimum, point) => Math.min(minimum, point.bpm), project.tempo))) * 0.75)) *
     2;
   const returnDelay =
     master.delayReturnLevel > 0
