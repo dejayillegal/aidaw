@@ -4,23 +4,43 @@ import {buildStarterAbletonXml,parseAlsXmlString} from '/src/engine/alsXmlEngine
 import {substituteUnsupportedDevice} from '/src/services/commandBus.ts';
 import {synthEngine,renderArrangementToWavBlob} from '/src/engine/webAudioSynth.ts';
 import {DEFAULT_HUMANIZATION as h,DEFAULT_MASTER_BUS as m,DEFAULT_TRANSPORT as transport} from '/src/engine/projectDefaults.ts';
-window.runP0Audio=async(replacement,role)=>{
+window.runP0Audio=async(replacement,role,dynamic=false)=>{
   let p=parseAlsXmlString(buildStarterAbletonXml('berghain-134',19,4).xml);
+  if(dynamic){p.tempo=60;p.tempoMap=[{beat:0,bpm:60,curve:'linear'},{beat:4,bpm:120,curve:'step'}];p.meterMap=[{bar:1,beat:0,numerator:3,denominator:4},{bar:3,beat:6,numerator:5,denominator:8}];p.arrangementLengthBars=4;}
   p.tracks=p.tracks.slice(0,1);const t=p.tracks[0];t.archetype='synth';t.muted=false;t.soloed=false;t.vcaGroupId=undefined;
   const plugin={id:'external31',xmlTag:'PluginDevice',displayName:'SYNTHETIC external plugin',category:role,isUserCreated:true,bypassed:false,browserDspSupported:false,parameters:[],opaqueSubtreeXml:'<PluginDevice Id="external31"/>'};
   t.devices=role==='instrument'?[plugin]:[...t.devices.filter(d=>d.category==='instrument'),plugin];
-  t.clips=[{id:'synthetic-clip',name:'Synthetic repeated notes',startTime:0,length:16,notes:Array.from({length:16},(_,i)=>({id:`n${i}`,time:i,quantizedTime:i,pitch:48,duration:.5,velocity:100,isGhost:false}))}];
+  t.clips=[{id:'synthetic-clip',name:'Synthetic repeated notes',startTime:0,length:dynamic?11:16,notes:Array.from({length:dynamic?11:16},(_,i)=>({id:`n${i}`,time:i,quantizedTime:i,pitch:48,duration:.5,velocity:100,isGhost:false}))}];
   p=substituteUnsupportedDevice(p,t.id,plugin.id,replacement,role);
-  let samples=0,energy=0,peak=0;
+  const master=dynamic?{...m,reverbReturnLevel:0,delayReturnLevel:0}:m;
+  let samples=0,energy=0,peak=0,clockEvidence;
   try {
-    synthEngine.setState(p,h,{...transport,loopEnabled:false},m);synthEngine.start(true);
+    synthEngine.setState(p,h,{...transport,loopEnabled:false},master);
+    const starts=[];
+    // Prepare the production context before installing the native source observer,
+    // so the first note cannot race observer installation after resume().
+    if(dynamic){synthEngine.ensureContext();const ctx=synthEngine.getAudioContext(),create=ctx.createOscillator.bind(ctx);ctx.createOscillator=(...args)=>{const node=create(...args),start=node.start.bind(node);node.start=(at=0)=>{starts.push(at);start(at)};return node};}
+    synthEngine.start(true);
     await synthEngine.getAudioContext().resume();
     const analyser=synthEngine.getAnalyser(),values=new Float32Array(analyser.fftSize);
-    for(let i=0;i<75;i++) {await new Promise(resolve=>setTimeout(resolve,20));analyser.getFloatTimeDomainData(values);for(const x of values){if(!Number.isFinite(x))throw new Error('NONFINITE_LIVE');energy+=x*x;peak=Math.max(peak,Math.abs(x));samples++;}}
+    for(let i=0;i<(dynamic?225:75);i++) {await new Promise(resolve=>setTimeout(resolve,20));analyser.getFloatTimeDomainData(values);for(const x of values){if(!Number.isFinite(x))throw new Error('NONFINITE_LIVE');energy+=x*x;peak=Math.max(peak,Math.abs(x));samples++;}}
+    if(dynamic){
+      const elapsed=Math.max(0,synthEngine.getAudioContext().currentTime-synthEngine.anchorAudioTime),rampEnd=4*Math.log(2);
+      const expected=Math.min(11,elapsed<=rampEnd?4*Math.expm1(elapsed/4):4+2*(elapsed-rampEnd)),actual=synthEngine.getCurrentBeat();
+      const upperElapsed=Math.max(0,synthEngine.getAudioContext().currentTime-synthEngine.anchorAudioTime);
+      const upperExpected=Math.min(11,upperElapsed<=rampEnd?4*Math.expm1(upperElapsed/4):4+2*(upperElapsed-rampEnd));
+      if(actual<expected-1e-6||actual>upperExpected+1e-6)throw new Error('LIVE_TEMPO_MAP_DRIFT');
+      const anchor=synthEngine.anchorAudioTime;
+      const expectedStarts=Array.from({length:7},(_,beat)=>beat<=4?4*Math.log(1+beat/4):rampEnd+(beat-4)/2);
+      const startErrors=expectedStarts.map(sec=>Math.min(...starts.map(at=>Math.abs(at-anchor-sec))));
+      if(startErrors.some(error=>error>.02))throw new Error('NATIVE_SOURCE_PLACEMENT_DRIFT '+JSON.stringify({startErrors,starts,anchor,elapsed}));
+      clockEvidence={elapsedSeconds:elapsed,expectedBeat:expected,upperExpectedBeat:upperExpected,actualBeat:actual,sourcePlacementMaxSeconds:Math.max(...startErrors),checkedNoteOnsets:expectedStarts.length};
+    }
   } finally {synthEngine.stop();}
   const rms=Math.sqrt(energy/samples);if(!(rms>1e-6))throw new Error('SILENT_LIVE');
-  const {blob}=await renderArrangementToWavBlob(p,h,m,4,24);
+  const {blob}=await renderArrangementToWavBlob(p,h,master,4,24);
   await window.saveP0Wav(Array.from(new Uint8Array(await blob.arrayBuffer())));
-  return {fixture:'SYNTHETIC',replacement,role,live:{samples,rms,peak},scope:'Captured live browser signal; human listening and Android qualification remain separate'};
+  if(dynamic)window.repeatP0Wav=async()=>{const {blob}=await renderArrangementToWavBlob(p,h,master,4,24);await window.saveP0Wav(Array.from(new Uint8Array(await blob.arrayBuffer())))};
+  return {fixture:'SYNTHETIC',replacement,role,dynamic,clockEvidence,expectedTotalSeconds:dynamic?4*Math.log(2)+3.5+8:undefined,expectedMusicalSeconds:dynamic?4*Math.log(2)+3.5:16*60/p.tempo,live:{samples,rms,peak},scope:'Captured live browser signal; human listening and Android qualification remain separate'};
 };
 </script>

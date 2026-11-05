@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "numTotalTestSuites": 92,
+  "numPassedTestSuites": 92,
+  "numFailedTestSuites": 0,
+  "numTotalTests": 325,
+  "numPassedTests": 325,
+  "numFailedTests": 0,
+  "command": "npm test -- --maxWorkers=2 --reporter=json --outputFile=/tmp/timing-qualified-suite.json",
+  "exitCode": 0,
+  "scope": "Local candidate on ac0a140, before final commit; final exact-source CI is required."
+}

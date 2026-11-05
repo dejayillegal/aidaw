@@ -1,3 +1,4 @@
+import { projectSeconds, projectBeat, runtimeClockPosition, runtimeAudioTime, runtimeWindowEnd, metronomeEvents, runtimeNoteDuration, tempoAtBeat, scheduleTempoSyncedReturns } from './runtimeTiming';
 import { assertPluginExecutable } from './pluginDependencies';
 import { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
 import { estimateArrangementTailSeconds, estimateContinuousExportMemory } from './wavExportPolicy';
@@ -1898,7 +1899,8 @@ function scheduleTrackVoiceAtTime(
   beatsPerSecond: number,
   humanization: HumanizationConfig,
   project?: AbletonProjectState,
-  stopAtSeconds?: number
+  stopAtSeconds?: number,
+  durationSecondsOverride?: number
 ) {
   const instSpec = resolveTrackInstrumentSynthesis(track);
   if (!instSpec.active) {
@@ -1921,7 +1923,8 @@ function scheduleTrackVoiceAtTime(
   const time = Math.max(ctx.currentTime, whenSec);
   const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
   const velGain = Math.pow(velNorm, 1.35) * instSpec.driveScale;
-  const durSec = Math.max(0.045, (note.duration / beatsPerSecond) * instSpec.decayScale);
+  const musicalDuration = durationSecondsOverride ?? (project ? MusicalTimeService.noteDurationSeconds(note.time,note.duration,project.tempo,project.tempoMap) : note.duration / beatsPerSecond);
+  const durSec = Math.max(0.045, musicalDuration * instSpec.decayScale);
 
   const rawMixer = track.mixer || {
     volumeDb: 0,
@@ -1950,15 +1953,15 @@ function scheduleTrackVoiceAtTime(
     ? readDeviceParamNumber(activeLfoDev, 'Depth', humanization.lfoDepth)
     : humanization.lfoDepth;
 
-  const autoNorm = evaluateAutomationAtBeat(track.automationPoints, note.time, (project?.arrangementLengthBars || 16) * 4);
+  const autoNorm = evaluateAutomationAtBeat(track.automationPoints, note.time, project ? MusicalTimeService.arrangementTotalBeats(project) : 64);
   const lfoPhase = Math.sin(2 * Math.PI * effLfoRate * time);
   const lfoModFactor = 1 + lfoPhase * effLfoDepth * 0.45;
 
   const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
   const kickBeats = project && instSpec.synthesisRole !== 'kick'
-    ? routedKickBeats(project,track,Math.max(0,note.time-.5),note.time+durSec*beatsPerSecond) : [];
+    ? routedKickBeats(project,track,projectBeat(project,projectSeconds(project,note.time)-.18),projectBeat(project,projectSeconds(project,note.time)+durSec)) : [];
   const recent=kickBeats.filter(beat=>beat<=note.time).at(-1);
-  const elapsed=recent===undefined?Infinity:(note.time-recent)/beatsPerSecond;
+  const elapsed=recent===undefined?Infinity:(project ? projectSeconds(project,note.time)-projectSeconds(project,recent) : (note.time-recent)/beatsPerSecond);
   const isNearKick=elapsed<.18;
   const trackChannel = getOrCreateTrackChannelRuntime(ctx, bus, track, project);
   const voiceEnvelopeGain = own(ctx.createGain());
@@ -1966,7 +1969,7 @@ function scheduleTrackVoiceAtTime(
   const startDuck=1-reduction*Math.max(0,1-elapsed/.18);
   voiceEnvelopeGain.gain.setValueAtTime(startDuck,time);
   if(isNearKick)voiceEnvelopeGain.gain.linearRampToValueAtTime(1,time+.18-elapsed);
-  for(const beat of kickBeats){if(beat<note.time)continue;const at=time+(beat-note.time)/beatsPerSecond;
+  for(const beat of kickBeats){if(beat<note.time)continue;const at=time+(project ? projectSeconds(project,beat)-projectSeconds(project,note.time) : (beat-note.time)/beatsPerSecond);
     voiceEnvelopeGain.gain.setValueAtTime(1,Math.max(time,at-.004));
     voiceEnvelopeGain.gain.linearRampToValueAtTime(1-reduction,at+.004);
     voiceEnvelopeGain.gain.linearRampToValueAtTime(1,at+.18);
@@ -2450,7 +2453,7 @@ function scheduleTrackVoiceAtTime(
     const targetHz=midiToFreq(note.pitch,mixer.transposeSemitones,mixer.fineTuneCents);
     const previous=bus.acidMonoVoices?.get(track.id);
     const startHz=resolveAcidSlideStart(Boolean(note.isSlide),time,targetHz,previous);
-    const state:AcidMonoVoiceState={start:time,end:time+note.duration/beatsPerSecond,startHz,targetHz,glideEnd:time+.062,retire:(at=ctx.currentTime)=>{retire(at);state.end=Math.min(state.end,at);}};
+    const state:AcidMonoVoiceState={start:time,end:time+musicalDuration,startHz,targetHz,glideEnd:time+.062,retire:(at=ctx.currentTime)=>{retire(at);state.end=Math.min(state.end,at);}};
     bus.acidMonoVoices?.set(track.id,state);
   }
   bus.activeVoices.add(retire);
@@ -2478,7 +2481,8 @@ function scheduleMetronomeClick(
   ctx: BaseAudioContext,
   destination: AudioNode,
   whenSec: number,
-  isDownbeatBar: boolean
+  isDownbeatBar: boolean,
+  activeVoices?: Set<() => void>
 ) {
   const time = Math.max(ctx.currentTime, whenSec);
   const osc = ctx.createOscillator();
@@ -2491,6 +2495,9 @@ function scheduleMetronomeClick(
   gain.connect(destination);
   osc.start(time);
   osc.stop(time + 0.032);
+  const retire = () => { gain.gain.cancelScheduledValues(ctx.currentTime); gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.002); try { osc.stop(ctx.currentTime + 0.01); } catch {} };
+  activeVoices?.add(retire);
+  osc.onended = () => { activeVoices?.delete(retire); osc.disconnect(); gain.disconnect(); };
 }
 
 /**
@@ -3296,7 +3303,7 @@ export function synthesizeDeterministicStereoPcm(
       const startFrame = Math.max(0, Math.floor(startSec * sampleRate));
       const durSec = Math.max(
         0.05,
-        Math.min(2.5, (note.duration / beatsPerSecond) * instSpec.decayScale + 0.08)
+        Math.min(2.5, evt.durationSeconds * instSpec.decayScale + 0.08)
       );
       const noteFrames = Math.min(totalFrames - startFrame, Math.ceil(durSec * sampleRate));
       if (noteFrames <= 0) continue;
@@ -3473,6 +3480,7 @@ async function renderContinuousAudioBuffer(
   try {
     const activeBus = buildAudioBusGraph(ctx, project.tempo, masterBus, false);
     bus = activeBus;
+    if(project.tempoMap?.length)scheduleTempoSyncedReturns(activeBus,project,0,0);
     const noise = createNoiseBuffer(ctx);
     const masterPoints = [...(masterBus.masterAutomationPoints || [])].sort(
       (a, b) => a.beat - b.beat,
@@ -3489,7 +3497,7 @@ async function renderContinuousAudioBuffer(
         if (point.beat > 0 && point.beat <= totalBeats) {
           activeBus.masterGain.gain.linearRampToValueAtTime(
             dbToGain(masterBus.masterVolumeDb + (point.value - 0.55) * 8),
-            (point.beat * 60) / project.tempo,
+            projectSeconds(project,point.beat),
           );
         }
     }
@@ -3879,7 +3887,7 @@ export interface SelectedTrackAnalysisData {
   waveformPeaksMin: Float32Array;
   waveformPeaksMax: Float32Array;
   waveformRms: Float32Array;
-  waveformModeLabel: 'Measured Audio Waveform (Offline PCM)' | 'Estimated Synthesis Envelope';
+  waveformModeLabel: 'Procedural waveform preview (approximate)';
   isMeasuredAudio: boolean;
 }
 
@@ -3920,8 +3928,8 @@ export function computeSelectedTrackAnalysisData(
   resolutionBins = 256
 ): SelectedTrackAnalysisData {
   const effectiveBars = Math.max(1, Math.min(4096, totalBars || project.arrangementLengthBars || 16));
-  const totalBeats = effectiveBars * 4;
-  const totalSixteenths = effectiveBars * 16;
+  const totalBeats = MusicalTimeService.arrangementTotalBeats({ ...project, arrangementLengthBars: effectiveBars });
+  const totalSixteenths = Math.ceil(totalBeats * 4);
 
   // Build deterministic revision key for caching
   const notesSignature = track.clips
@@ -3948,7 +3956,8 @@ export function computeSelectedTrackAnalysisData(
     devices: (track.devices || []).map((d) => `${d.type}:${d.bypassed ? 0 : 1}`),
   });
 
-  const cacheKey = `${project.projectRevision ?? 1}_${track.id}_${computeDeterministicHash(
+  const timingSignature = JSON.stringify([project.tempo, project.tempoMap, project.meterMap]);
+  const cacheKey = `${computeDeterministicHash(timingSignature)}_${project.projectRevision ?? 1}_${track.id}_${computeDeterministicHash(
     notesSignature
   )}_${computeDeterministicHash(dspSignature)}_${effectiveBars}_${resolutionBins}`;
 
@@ -4036,7 +4045,7 @@ export function computeSelectedTrackAnalysisData(
   );
 
   const beatsPerSecond = Math.max(40, project.tempo) / 60;
-  const arrangementSeconds = totalBeats / beatsPerSecond;
+  const arrangementSeconds = projectSeconds(project, totalBeats);
   const arrangementFrames = Math.min(
     pcm.left.length,
     Math.max(resolutionBins, Math.floor(arrangementSeconds * waveformSampleRate))
@@ -4049,8 +4058,8 @@ export function computeSelectedTrackAnalysisData(
   const framesPerBin = Math.max(1, Math.floor(arrangementFrames / resolutionBins));
 
   for (let b = 0; b < resolutionBins; b++) {
-    const startFrame = b * framesPerBin;
-    const endFrame = Math.min(arrangementFrames, startFrame + framesPerBin);
+    const startFrame = Math.min(arrangementFrames, Math.floor(projectSeconds(project, b * totalBeats / resolutionBins) * waveformSampleRate));
+    const endFrame = Math.min(arrangementFrames, Math.floor(projectSeconds(project, (b + 1) * totalBeats / resolutionBins) * waveformSampleRate));
     let minVal = 0;
     let maxVal = 0;
     let sumSq = 0;
@@ -4080,8 +4089,8 @@ export function computeSelectedTrackAnalysisData(
     waveformPeaksMin,
     waveformPeaksMax,
     waveformRms,
-    waveformModeLabel: 'Measured Audio Waveform (Offline PCM)',
-    isMeasuredAudio: true,
+    waveformModeLabel: 'Procedural waveform preview (approximate)',
+    isMeasuredAudio: false,
   };
 
   waveformCacheService.set(cacheKey, result);
@@ -4612,10 +4621,8 @@ export class ParametricWebAudioEngine {
     const maxBeats =
       candidateProject.audioSettings?.transport.arrangementMode === 'session'
         ? Number.MAX_SAFE_INTEGER
-        : Math.max(
-            1,
-            candidateProject.arrangementLengthBars || effTransport.arrangementLengthBars || 16
-          ) * 4;
+        : MusicalTimeService.arrangementTotalBeats({ ...candidateProject,
+            arrangementLengthBars: candidateProject.arrangementLengthBars || effTransport.arrangementLengthBars || 16 });
     playbackRegion(
       maxBeats,
       candidateProject.audioSettings?.transport.arrangementMode === 'session'
@@ -4623,6 +4630,11 @@ export class ParametricWebAudioEngine {
         : effTransport,
       candidateProject.meterMap
     );
+
+    const candidateLoop = playbackRegion(maxBeats, candidateProject.audioSettings?.transport.arrangementMode === 'session' ? { ...effTransport, loopEnabled: false } : effTransport, candidateProject.meterMap);
+    if (candidateLoop.enabled && projectSeconds(candidateProject, candidateLoop.end) - projectSeconds(candidateProject, candidateLoop.start) < 0.12) {
+      throw new Error('LOOP_WINDOW_UNSUPPORTED: loop shorter than the 120ms lookahead; choose a longer region');
+    }
 
     if (this.ctx && typeof this.ctx.createGain === 'function') {
       // Dry-run candidate device insert graph construction before touching active state
@@ -4789,6 +4801,7 @@ export class ParametricWebAudioEngine {
 
     this.pendingBlockError = null;
     const prevTempo = this.project?.tempo;
+    const timingMapChanged = JSON.stringify(this.project?.tempoMap) !== JSON.stringify(project.tempoMap) || JSON.stringify(this.project?.meterMap) !== JSON.stringify(project.meterMap);
     const modeChanged =
       this.project?.audioSettings?.transport.arrangementMode !==
       project.audioSettings?.transport.arrangementMode;
@@ -4830,7 +4843,7 @@ export class ParametricWebAudioEngine {
     const tempoChangedWhilePlaying =
       this.isPlaying &&
       prevTempo !== undefined &&
-      (prevTempo !== project.tempo || modeChanged);
+      (prevTempo !== project.tempo || timingMapChanged || modeChanged);
     if (tempoChangedWhilePlaying) {
       this.currentBeat = this.getCurrentBeat();
       if (this.bus) for (const retire of [...this.bus.activeVoices]) retire();
@@ -4892,8 +4905,7 @@ export class ParametricWebAudioEngine {
         for (const event of project.session?.events || [])
           if (!previousSessionIds.has(event.id)) {
             const at =
-              this.anchorAudioTime +
-              (event.atBeat - this.anchorBeat) / (project.tempo / 60);
+              runtimeAudioTime(project,this.anchorBeat,this.anchorAudioTime,event.atBeat);
             for (const retire of this.bus.trackVoices?.get(event.trackId) || [])
               retire(at);
           }
@@ -4944,7 +4956,7 @@ export class ParametricWebAudioEngine {
       );
       const threeSixteenthSec = Math.max(
         0.08,
-        Math.min(0.9, (60 / Math.max(90, project.tempo)) * 0.75),
+        Math.min(0.9, (60 / Math.max(90, tempoAtBeat(project,this.getCurrentBeat()))) * 0.75),
       );
       this.bus.delayNodeL.delayTime.setTargetAtTime(
         threeSixteenthSec,
@@ -4956,6 +4968,8 @@ export class ParametricWebAudioEngine {
         now,
         0.03,
       );
+
+      if(project.tempoMap?.length)scheduleTempoSyncedReturns(this.bus,project,this.getCurrentBeat(),now);
 
       // Immediately sync all persistent per-track channel strips in real time
       try {
@@ -5021,6 +5035,7 @@ export class ParametricWebAudioEngine {
 
     this.anchorBeat = this.currentBeat;
     this.anchorAudioTime = this.ctx.currentTime + 0.02;
+    if(this.bus&&this.project?.tempoMap?.length)scheduleTempoSyncedReturns(this.bus,this.project,this.anchorBeat,this.anchorAudioTime);
     this.lastSchedulerPerfMs = performance.now();
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
@@ -5112,11 +5127,9 @@ export class ParametricWebAudioEngine {
 
   public getCurrentBeat(): number {
     if (this.isPlaying && this.ctx && this.project) {
-      const bpm = this.project.tempo || 134;
-      const beatsPerSec = bpm / 60.0;
       const elapsedSec = Math.max(0, this.ctx.currentTime - this.anchorAudioTime);
       const maxBeats = this.getMaxArrangementBeats();
-      const rawBeat = this.anchorBeat + elapsedSec * beatsPerSec;
+      const rawBeat = runtimeClockPosition(this.project,this.anchorBeat,elapsedSec,this.getPlaybackRegion(maxBeats)).beat;
       this.currentBeat = positionAtBeat(rawBeat, maxBeats, this.getPlaybackRegion(maxBeats));
     }
     return this.currentBeat;
@@ -5299,19 +5312,20 @@ export class ParametricWebAudioEngine {
     const lookaheadSeconds = 0.12;
     const maxBeats = this.getMaxArrangementBeats();
 
-    let exactBeatNow = this.anchorBeat + (nowAudio - this.anchorAudioTime) * beatsPerSecond;
-
     const region = this.getPlaybackRegion(maxBeats);
+    const clock = runtimeClockPosition(this.project,this.anchorBeat,nowAudio-this.anchorAudioTime,region);
+    let exactBeatNow = clock.beat;
     const loopStartBeat = region.start;
     const loopEndBeat = region.end;
     const loopSpanBeats = region.span;
 
     if (region.enabled) {
-      if (exactBeatNow >= loopEndBeat) {
-        const completedCycles = Math.max(1, Math.floor((exactBeatNow - loopStartBeat) / loopSpanBeats));
-        const wrappedBeat = loopStartBeat + ((exactBeatNow - loopStartBeat) % loopSpanBeats);
+      if (clock.completedLoops > 0) {
+        const completedCycles = clock.completedLoops;
+        const wrappedBeat = exactBeatNow;
         this.anchorBeat = wrappedBeat;
         this.anchorAudioTime = nowAudio;
+        if(this.project.tempoMap?.length)scheduleTempoSyncedReturns(this.bus,this.project,wrappedBeat,nowAudio);
         exactBeatNow = wrappedBeat;
         this.loopGeneration += completedCycles;
         this.scheduledNoteKeys = new Set([...this.scheduledNoteKeys].filter(key =>
@@ -5332,21 +5346,29 @@ export class ParametricWebAudioEngine {
       }
     }
 
-    const windowEndBeat = exactBeatNow + lookaheadSeconds * beatsPerSecond;
+    const windowEndBeat = runtimeWindowEnd(this.project,exactBeatNow,lookaheadSeconds,region);
 
     if (this.transport.metronomeEnabled) {
-      const firstIntBeat = Math.ceil(exactBeatNow - 0.02);
-      const lastIntBeat = Math.floor(windowEndBeat);
-      for (let b = firstIntBeat; b <= lastIntBeat; b++) {
-        if (b < 0 || b >= maxBeats) continue;
+      for (const {beat:b,downbeat} of metronomeEvents(this.project,Math.max(0,exactBeatNow-.02),Math.min(windowEndBeat,loopEndBeat))) {
+        if (b >= maxBeats || (region.enabled && b >= region.end)) continue;
         const metroKey = `metro_${this.loopGeneration}_${b}`;
         if (!this.scheduledNoteKeys.has(metroKey)) {
-          const clickAudioTime = this.anchorAudioTime + (b - this.anchorBeat) / beatsPerSecond;
-          if (clickAudioTime >= nowAudio - 0.015) {
+          const clickAudioTime = runtimeAudioTime(this.project,this.anchorBeat,this.anchorAudioTime,b);
+          if (clickAudioTime >= nowAudio-.015) {
             this.scheduledNoteKeys.add(metroKey);
-            scheduleMetronomeClick(this.ctx, this.bus.masterGain, clickAudioTime, b % 4 === 0);
+            scheduleMetronomeClick(this.ctx,this.bus.masterGain,clickAudioTime,downbeat,this.bus.activeVoices);
           }
         }
+      }
+    }
+
+    if (this.transport.metronomeEnabled && region.enabled && windowEndBeat > region.end) {
+      for (const {beat, downbeat} of metronomeEvents(this.project, region.start, Math.min(region.end, region.start + windowEndBeat - region.end))) {
+        if (beat >= region.end) continue;
+        const key = `metro_${this.loopGeneration + 1}_${beat}`;
+        if (this.scheduledNoteKeys.has(key)) continue;
+        const at = runtimeAudioTime(this.project, this.anchorBeat, this.anchorAudioTime, beat, region, true);
+        if (at >= nowAudio - 0.015) { this.scheduledNoteKeys.add(key); scheduleMetronomeClick(this.ctx, this.bus.masterGain, at, downbeat, this.bus.activeVoices); }
       }
     }
 
@@ -5369,13 +5391,13 @@ export class ParametricWebAudioEngine {
         for (const event of sessionEvents) {
           const key = event.dedupKey;
           if (this.scheduledNoteKeys.has(key)) continue;
-          const at = this.anchorAudioTime + (event.beat - this.anchorBeat) / beatsPerSecond;
+          const at = runtimeAudioTime(this.project,this.anchorBeat,this.anchorAudioTime,event.beat);
           if (at < nowAudio - 0.015) continue;
           this.scheduledNoteKeys.add(key);
           this.sessionScheduledKeys.set(key, { trackId: event.trackId, beat: event.beat });
           const stop =
             event.stopBeat !== undefined && Number.isFinite(event.stopBeat)
-              ? this.anchorAudioTime + (event.stopBeat - this.anchorBeat) / beatsPerSecond
+              ? runtimeAudioTime(this.project,this.anchorBeat,this.anchorAudioTime,event.stopBeat)
               : Infinity;
           scheduleTrackVoiceAtTime(
             this.ctx,
@@ -5428,7 +5450,7 @@ export class ParametricWebAudioEngine {
           const key = `${this.loopGeneration}_${evt.trackId}_${clipId}_${note.id}`;
           if (!this.scheduledNoteKeys.has(key)) {
             const noteAudioTime =
-              this.anchorAudioTime + (note.time - this.anchorBeat) / beatsPerSecond;
+              runtimeAudioTime(this.project,this.anchorBeat,this.anchorAudioTime,note.time);
             if (noteAudioTime >= nowAudio - 0.015) {
               this.scheduledNoteKeys.add(key);
               this.arrangementScheduledKeys.set(key, evt.trackId);
@@ -5441,7 +5463,9 @@ export class ParametricWebAudioEngine {
                 noteAudioTime,
                 beatsPerSecond,
                 this.humanization!,
-                this.project!
+                this.project!,
+                Infinity,
+                runtimeNoteDuration(this.project!,note.time,note.duration,region)
               );
             }
           }
@@ -5456,7 +5480,7 @@ export class ParametricWebAudioEngine {
             if (!this.scheduledNoteKeys.has(wrapKey)) {
               const beatsUntilNote =
                 loopEndBeat - this.anchorBeat + (note.time - loopStartBeat);
-              const noteAudioTime = this.anchorAudioTime + beatsUntilNote / beatsPerSecond;
+              const noteAudioTime = runtimeAudioTime(this.project,this.anchorBeat,this.anchorAudioTime,note.time,region,true);
               if (noteAudioTime >= nowAudio - 0.01) {
                 this.scheduledNoteKeys.add(wrapKey);
                 this.arrangementScheduledKeys.set(wrapKey, evt.trackId);
@@ -5469,7 +5493,9 @@ export class ParametricWebAudioEngine {
                   noteAudioTime,
                   beatsPerSecond,
                   this.humanization!,
-                  this.project!
+                  this.project!,
+                  Infinity,
+                  runtimeNoteDuration(this.project!,note.time,note.duration,region)
                 );
               }
             }
@@ -5510,7 +5536,7 @@ export class ParametricWebAudioEngine {
 
     const nowAudio = this.ctx.currentTime;
     const beatsPerSecond = this.project.tempo / 60;
-    const beat = this.anchorBeat + Math.max(0, nowAudio - this.anchorAudioTime) * beatsPerSecond;
+    const beat = this.getCurrentBeat();
     const maxBeats = this.getMaxArrangementBeats();
 
     this.currentBeat = positionAtBeat(beat, maxBeats, this.getPlaybackRegion(maxBeats));

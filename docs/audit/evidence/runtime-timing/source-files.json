@@ -1,0 +1,9 @@
+{
+  "src/engine/runtimeTiming.ts": "787db2d693b9b937aba5205897c2405be511657fe8bd0784821925fa6478f71a",
+  "src/engine/webAudioSynth.ts": "0bcdb1a8b68738051c6b8a3497485fd560905a5f9400a246458cd83a285f2fde",
+  "src/engine/timelineCoordinates.ts": "ce16a88679f08bd1bd14ff22d8f660fe9c98aabc9d0743e119aa33e4588f658e",
+  "src/engine/wavExportPolicy.ts": "a6b133461ce0d4fc8f5052d4518a5d5c6e8f4de5ab0d00e4dadcffba212ae2b4",
+  "src/__tests__/runtimeTiming.test.ts": "dd51d6c6b7696b7d2302816c6af3be686862997362f0182f7db8dde22ce42340",
+  "tests/p0-audio-browser.html": "2988f15937028f04f9293dbf2fa7061493e3b27e253bd3868bd05223d6010e67",
+  "scripts/verify-p0-audio.mjs": "58cd468c884a43e014b0c26bcead487bc4076be0ec38407eb8e395dc32172926"
+}
