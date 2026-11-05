@@ -1,0 +1,7 @@
+{
+  "strictEnabled": true,
+  "defaultTypecheckRejectsImplicitAny": true,
+  "compilerProbeCode": "TS7006",
+  "eslintProbeRejectsUnreachableCode": true,
+  "eslintProbeRule": "no-unreachable"
+}

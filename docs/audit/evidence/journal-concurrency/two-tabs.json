@@ -1,0 +1,43 @@
+{
+  "scope": "Two independent JS tabs sharing native IndexedDB; normal current-format writer conflicts, no cross-device/cloud merge claim",
+  "cases": [
+    {
+      "name": "stale-writer",
+      "conflictPreservesLocalCopy": true,
+      "winningPrimary": 81,
+      "healthyProject": 72,
+      "status": "PASS"
+    },
+    {
+      "name": "unsaved-local-snapshot",
+      "velocity": 90,
+      "status": "PASS"
+    },
+    {
+      "name": "stale-delete",
+      "newerPrimaryPreserved": true,
+      "localRetained": true,
+      "status": "PASS"
+    },
+    {
+      "name": "simultaneous-writers",
+      "winners": 1,
+      "losers": 1,
+      "primaryMatchesWinner": true,
+      "status": "PASS"
+    },
+    {
+      "name": "future-envelope-replaced-externally",
+      "writeRejected": true,
+      "originalPreserved": true,
+      "status": "PASS"
+    },
+    {
+      "name": "acknowledged-delete",
+      "memoryAndPrimaryRemoved": true,
+      "status": "PASS"
+    }
+  ],
+  "browser": "153.0.8010.0",
+  "status": "PASS"
+}

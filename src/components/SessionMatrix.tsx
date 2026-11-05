@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { AbletonProjectState } from '../types/ableton';
+import { MusicalTimeService } from '../engine/timelineCoordinates';
 
 export interface SessionMatrixProps {
   project: AbletonProjectState;
@@ -15,7 +16,7 @@ export interface SessionMatrixProps {
 }
 
 export function SessionMatrix({project,beat,isPlaying,onLaunch,onStop,onStore,onReturn,onClear,onQuantization,onCapture}:SessionMatrixProps) {
-  const [from,setFrom]=useState(0),[to,setTo]=useState(16),[destination,setDestination]=useState((project.arrangementLengthBars || 16)*4);
+  const [from,setFrom]=useState(0),[to,setTo]=useState(16),[destination,setDestination]=useState(()=>MusicalTimeService.arrangementTotalBeats(project));
   const session=project.audioSettings?.transport.arrangementMode==='session';
   const control='min-h-11 px-3 py-2 rounded border border-slate-700 bg-slate-900 text-slate-100 disabled:opacity-40';
   return <section aria-label="Session clip matrix" className="min-w-0 w-full space-y-4 text-sm text-slate-200">

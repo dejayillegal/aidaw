@@ -15,7 +15,8 @@ import {
   Undo2,
   Volume2,
 } from 'lucide-react';
-import { TimelineEditMode, TransportConfig } from '../types/ableton';
+import { AbletonProjectState, TimelineEditMode, TransportConfig } from '../types/ableton';
+import { beatToBarBeatTick, CANONICAL_PPQ } from '../engine/timelineCoordinates';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface StudioTransportBarProps {
@@ -23,6 +24,8 @@ interface StudioTransportBarProps {
   playheadBeat: number;
   tempo: number;
   meter?: string;
+  meterMap?: AbletonProjectState['meterMap'];
+  ppq?: number;
   transport: TransportConfig;
   masterPeakDb: number;
   masterTruePeakDbtp?: number;
@@ -45,6 +48,8 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
   playheadBeat,
   tempo,
   meter = '4/4',
+  meterMap,
+  ppq = CANONICAL_PPQ,
   transport,
   masterPeakDb,
   masterTruePeakDbtp,
@@ -68,9 +73,11 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
 
   // Calculate Bar.Beat.Sixteenth counter from playheadBeat
   const safeBeat = Math.max(0, playheadBeat);
-  const currentBar = Math.floor(safeBeat / 4) + 1;
-  const currentBeatInBar = Math.floor(safeBeat % 4) + 1;
-  const currentSixteenth = Math.floor((safeBeat % 1) * 4) + 1;
+  const position=beatToBarBeatTick(safeBeat,meterMap,ppq);
+  const currentBar = position.bar;
+  const currentBeatInBar = position.beatInBar;
+  const currentSixteenth = Math.floor(position.tickInBeat/ppq*4)+1;
+  const meterLabel=meterMap?.length?`${position.numerator}/${position.denominator}`:meter;
 
   const barStr = String(currentBar).padStart(3, '0');
   const beatStr = String(currentBeatInBar);
@@ -192,7 +199,7 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
         {/* Ableton/SoundCraft Bar.Beat.Tick Display */}
         <div className="bg-[#07090C] border border-[#222B38] px-3 py-1 rounded flex items-baseline gap-1.5 shadow-inner">
           <span className="text-zinc-500 text-[10px]">LOC</span>
-          <span className="text-amber-400 text-base font-bold tracking-widest tabular-nums">
+          <span data-testid="transport-position" className="text-amber-400 text-base font-bold tracking-widest tabular-nums">
             {barStr}.{beatStr}.{sixteenthStr}
           </span>
         </div>
@@ -234,7 +241,7 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
         {/* Meter & Metronome */}
         <div className="hidden md:flex items-center gap-1.5 text-xs text-zinc-400">
           <span className="px-1.5 py-0.5 rounded bg-[#12161E] border border-[#222B38] text-zinc-300 font-semibold text-[11px]">
-            {meter}
+            {meterLabel}
           </span>
           <button
             type="button"

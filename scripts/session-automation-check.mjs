@@ -53,7 +53,7 @@ try {
     const e=new ParametricWebAudioEngine();
     e.setState(p,DEFAULT_HUMANIZATION,{...DEFAULT_TRANSPORT,loopEnabled:false},{...DEFAULT_MASTER_BUS,...master});
     try {
-      e.seek(6);e.start();await new Promise(resolve=>setTimeout(resolve,90));
+      e.seek(6);e.start();await new Promise(resolve=>{setTimeout(resolve,90)});
       const beat=e.getCurrentBeat(),expected=10**(((beat/8-.55)*8)/20);
       const actual=e.bus.masterGain.gain.value;
       const error=Math.abs(actual-expected);
@@ -62,6 +62,56 @@ try {
       const launchError=Math.abs(predicted-(e.getCurrentBeat()+.3));
       cases.push({name:'actual-live-mapped-launch',launchError,budget:.01,status:launchError<.01?'PASS':'FAIL'});
     } finally {e.stop();await e.getAudioContext()?.close();}
+    // Freeze JS scheduling before the seam. Native AudioParam events must apply
+    // the restart tempo without waiting for another main-thread scheduler tick.
+    p.tempoMap=[{beat:0,bpm:120},{beat:2,bpm:240}];
+    const loopEngine=new ParametricWebAudioEngine();
+    loopEngine.setState(p,DEFAULT_HUMANIZATION,{...DEFAULT_TRANSPORT,loopEnabled:true,loopStartBar:1,loopLengthBars:1},DEFAULT_MASTER_BUS);
+    try {
+      loopEngine.seek(3.8);loopEngine.start();clearInterval(loopEngine.schedulerTimerId);
+      await new Promise(resolve=>{setTimeout(resolve,100)});
+      const delay=loopEngine.bus.delayNodeL.delayTime.value;
+      cases.push({name:'native-return-loop-seam-without-js-tick',delay,expected:.375,status:Math.abs(delay-.375)<1e-6?'PASS':'FAIL'});
+      loopEngine.setState({...p,tempo:90,tempoMap:undefined},DEFAULT_HUMANIZATION,undefined,DEFAULT_MASTER_BUS);
+      await new Promise(resolve=>{setTimeout(resolve,30)});
+      const staticDelay=loopEngine.bus.delayNodeL.delayTime.value;
+      cases.push({name:'native-return-map-removal',delay:staticDelay,expected:.5,status:Math.abs(staticDelay-.5)<1e-6?'PASS':'FAIL'});
+    } finally {loopEngine.stop();await loopEngine.getAudioContext()?.close();}
+
+    const {insertDeviceIntoChannelStrip}=await import('/src/engine/channelStripEngine.ts');
+    const {storeArrangementClipInSession,queueSessionLaunch,captureSessionPerformance}=await import('/src/services/commandBus.ts');
+    const {evaluatePlayableSessionEvents}=await import('/src/engine/timelineCoordinates.ts');
+    const {synthesizeProjectToStereoFloatBuffers}=await import('/src/engine/webAudioSynth.ts');
+    let session=parseAlsXmlString(buildStarterAbletonXml('berghain-134',777,4).xml);
+    session.tracks=session.tracks.slice(0,1);session.tempo=120;
+    const track=session.tracks[0],template=track.clips[0].notes[0];
+    track.devices=track.devices.filter(d=>!['MidiChord','MidiArpeggiator'].includes(d.xmlTag));
+    track.clips=[{...track.clips[0],length:4,endTime:4,notes:[
+      {...template,id:'pass',time:0,quantizedTime:0,duration:3,probability:1},
+      {...template,id:'fail',time:1,quantizedTime:1,duration:1,probability:0},
+    ]}];
+    track.mixer={...track.mixer,sidechainDepth:0,reverbSend:0,delaySend:0};track.automationPoints=[];
+    session=insertDeviceIntoChannelStrip(session,track.id,'MidiArpeggiator').project;
+    session=storeArrangementClipInSession(session,track.id,0,track.clips[0].id);
+    session=queueSessionLaunch(session,track.id,0,0,1);session.tracks[0].clips=[];
+    const expectedEvents=evaluatePlayableSessionEvents(session,0,4);
+    const captured=captureSessionPerformance(session,0,4,0);
+    captured.audioSettings.transport.arrangementMode='arrangement';
+    const reference=structuredClone(captured);
+    reference.tracks[0].devices=reference.tracks[0].devices.filter(d=>d.xmlTag!=='MidiArpeggiator');
+    reference.tracks[0].clips=[{id:'expected',name:'Expected performed MIDI',startTime:0,length:4,endTime:4,
+      notes:expectedEvents.map((e,i)=>({...e.note,id:`expected-${i}`,probability:1}))}];
+    const dry={...DEFAULT_MASTER_BUS,masterAutomationPoints:[],reverbReturnLevel:0,delayReturnLevel:0};
+    const h={...DEFAULT_HUMANIZATION,lfoDepth:0};
+    const actualPcm=await synthesizeProjectToStereoFloatBuffers(captured,h,dry,44100,1);
+    const expectedPcm=await synthesizeProjectToStereoFloatBuffers(reference,h,dry,44100,1);
+    let maxError=0,squares=0;
+    for(const channel of ['left','right'])for(let i=0;i<actualPcm[channel].length;i++){
+      const delta=actualPcm[channel][i]-expectedPcm[channel][i];maxError=Math.max(maxError,Math.abs(delta));squares+=delta*delta;
+    }
+    const rmsError=Math.sqrt(squares/(2*actualPcm.left.length));
+    cases.push({name:'session-capture-probability-pcm',events:expectedEvents.length,maxError,rmsError,
+      status:expectedEvents.length>4&&actualPcm.left.length===expectedPcm.left.length&&maxError<.001&&rmsError<.0001?'PASS':'FAIL'});
     return cases;
   });
   assert.equal(report.errors.length,0);

@@ -17,7 +17,7 @@ function encodeVariableLengthQuantity(value: number): number[] {
   const bytes: number[] = [];
   let buffer = value & 0x7f;
 
-  while ((value >>= 7)) {
+  for (value >>= 7; value !== 0; value >>= 7) {
     buffer <<= 8;
     buffer |= (value & 0x7f) | 0x80;
   }

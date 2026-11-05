@@ -9,7 +9,7 @@ import { createServer } from 'vite';
 
 async function poll(read,predicate,message) {
   const end=Date.now()+10000;
-  while(Date.now()<end) { const result=await read(); if(predicate(result)) return result; await new Promise(resolve=>setTimeout(resolve,30)); }
+  while(Date.now()<end) { const result=await read(); if(predicate(result)) return result; await new Promise(resolve=>{setTimeout(resolve,30)}); }
   throw new Error(message);
 }
 
@@ -43,7 +43,7 @@ export async function runSessionWorkflows(page,origin,output) {
   assert(live.project.session.events.every(e=>e.atBeat===0));
   let audible=[false,false];
   const audibleUntil=Date.now()+1300;
-  while(Date.now()<audibleUntil) {const v=await read();v.meters.forEach((m,i)=>{if(m.peakDb>-55)audible[i]=true;});await new Promise(r=>setTimeout(r,20));}
+  while(Date.now()<audibleUntil) {const v=await read();v.meters.forEach((m,i)=>{if(m.peakDb>-55)audible[i]=true;});await new Promise(r=>{setTimeout(r,20)});}
   assert(audible.every(Boolean),'Both launched Session tracks must produce native meter activity');
   await poll(read,v=>v.playing&&v.beat>4.5,'Session incorrectly stopped at the one-bar Arrangement end');
   await page.getByLabel('Capture from beat',{exact:true}).fill('0');
@@ -58,7 +58,7 @@ export async function runSessionWorkflows(page,origin,output) {
   await poll(read,v=>v.beat>stopAt+1,'Quantized track stop boundary not reached');
   let stoppedPeak=-60,otherPeak=-60;
   const silenceUntil=Date.now()+800;
-  while(Date.now()<silenceUntil){const v=await read();stoppedPeak=Math.max(stoppedPeak,v.meters[0].peakDb);otherPeak=Math.max(otherPeak,v.meters[1].peakDb);await new Promise(r=>setTimeout(r,20));}
+  while(Date.now()<silenceUntil){const v=await read();stoppedPeak=Math.max(stoppedPeak,v.meters[0].peakDb);otherPeak=Math.max(otherPeak,v.meters[1].peakDb);await new Promise(r=>{setTimeout(r,20)});}
   assert(stoppedPeak<=-55 && otherPeak>-55,`Independent stop failed: ${JSON.stringify({stoppedPeak,otherPeak})}`);
   await page.getByRole('button',{name:'Return to Arrangement',exact:true}).click();
   const returned=await poll(read,v=>!v.playing&&v.beat===0&&v.project.audioSettings.transport.arrangementMode==='arrangement','Return did not reset ownership');
@@ -90,7 +90,7 @@ export async function runSessionWorkflows(page,origin,output) {
   await poll(read,v=>v.playing&&v.beat>0.25&&v.meters.some(m=>m.peakDb>-50),'Sustaining Session test did not produce audio');
   await page.getByRole('button',{name:'Clear performance',exact:true}).click();
   await poll(read,v=>v.project.session.events.length===0,'Performance was not cleared');
-  await new Promise(resolve=>setTimeout(resolve,120));
+  await new Promise(resolve=>{setTimeout(resolve,120)});
   const cleared=await read();assert(cleared.meters.every(m=>m.peakDb<=-55),`Cleared Session retained scheduled voices: ${JSON.stringify(cleared.meters)}`);
   const overLimit=JSON.parse(fixture);const t=overLimit.project.tracks[0];
   t.devices=Array.from({length:11},(_,i)=>({id:`over-${i}`,xmlTag:'Utility',displayName:'Utility',category:'audio_effect',parameters:[]}));
@@ -172,7 +172,7 @@ export async function runTrackWorkflows(page, origin, output) {
   for (let count=0;count<50;count++) {
     const current = await transportState();
     if(current.playing && current.beat>0.25) { started=true; break; }
-    await new Promise(resolve=>setTimeout(resolve,50));
+    await new Promise(resolve=>{setTimeout(resolve,50)});
   }
   assert(started,'visible Play control must advance the real audio clock');
   await page.getByLabel('Open saved DAW project',{exact:true}).setInputFiles(destination);

@@ -454,7 +454,7 @@ export function sessionEventsInWindow(
   project: AbletonProjectState,
   fromBeat: number,
   toBeat: number,
-  options?: { evaluateMidiChain?: boolean }
+  options?: { evaluateMidiChain?: boolean; includeProbability?: boolean }
 ): SessionScheduledNote[] {
   if (!Number.isFinite(fromBeat) || !Number.isFinite(toBeat) || fromBeat < 0 || toBeat <= fromBeat) {
     throw new Error('SESSION_RANGE: invalid window');
@@ -494,6 +494,9 @@ export function sessionEventsInWindow(
             );
           }
           if (!noteIsInsideClip(sourceNote, clip)) continue;
+          // Match Arrangement: a failed source cannot truncate an earlier
+          // arpeggiator group or influence any other generated MIDI event.
+          if (options?.includeProbability && !noteProbabilityPasses(sourceNote)) continue;
           const time = periodStart + sourceNote.time - clip.startTime;
           if (time >= stop) continue;
           sourceMap.set(sourceNote.id, sourceNote);
@@ -685,6 +688,7 @@ export function evaluatePlayableSessionEvents(
   const evalMidi = options?.evaluateMidiChain !== false;
   const rawWindowEvents = sessionEventsInWindow(project, fromBeat, toBeat, {
     evaluateMidiChain: evalMidi,
+    includeProbability: checkProb,
   });
 
   const events: EvaluatedPlayableEvent[] = [];
@@ -767,6 +771,17 @@ export function evaluatePlayableProjectEvents(
 }
 
 /** Compatibility boundary for the existing absolute-beat domain. No second clock or stored time state. */
+/** Shared Arrangement/Piano Roll window in bars, projected to quarter-note beats. */
+export function musicalBarViewport(beat: number,totalBars: number,visibleBars: number,scrollBar: number,follow: boolean,meterMap?: MeterChangeEvent[],ppq=CANONICAL_PPQ) {
+  const count=Math.max(1,Math.min(totalBars,Math.round(visibleBars)));
+  const maxStart=Math.max(0,totalBars-count);
+  const currentBar=beatToBarBeatTick(Math.max(0,beat),meterMap,ppq).bar-1;
+  const startBar=Math.max(0,Math.min(maxStart,follow?Math.floor(currentBar/count)*count:Math.floor(scrollBar)));
+  const startBeat=barBeatTickToBeat(startBar+1,1,0,meterMap,ppq);
+  const endBeat=barBeatTickToBeat(startBar+count+1,1,0,meterMap,ppq);
+  return {startBar,startBeat,endBeat,visibleBeats:endBeat-startBeat};
+}
+
 export function noteIsInsideClip(note: MidiNoteEvent, clip: AbletonMidiClip): boolean {
   return Number.isFinite(note.time) && clip.length > 0 && note.time >= clip.startTime && note.time < clip.startTime + clip.length;
 }
@@ -817,6 +832,13 @@ export const MusicalTimeService = {
   canonicalPpq: CANONICAL_PPQ,
   supportedPpqResolutions: SUPPORTED_PPQ_RESOLUTIONS,
   maxSupportedBars: MAX_SUPPORTED_TIMELINE_BARS,
+
+  /** Number of whole meter-aware bars covering an exclusive end beat. */
+  barsCoveringBeat(endBeat: number, meterMap?: MeterChangeEvent[], ppq = CANONICAL_PPQ): number {
+    const end = beatToBarBeatTick(endBeat, meterMap, ppq);
+    const start = barBeatTickToBeat(end.bar, 1, 0, meterMap, ppq);
+    return Math.max(0, end.bar - (endBeat <= start + 1e-9 ? 1 : 0));
+  },
 
   barsToBeats(
     bars: number,

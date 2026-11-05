@@ -10,6 +10,9 @@ interface NativeFileExport {
 }
 const nativeExport = registerPlugin<NativeFileExport>("FileExport");
 let saving = false;
+// File destinations must reject path separators and ASCII control bytes.
+// eslint-disable-next-line no-control-regex -- This range deliberately sanitizes control bytes in filenames.
+const unsafeFilenameCharacters = /[\\/\x00-\x1f]/g;
 
 /** Native success means closed, reopened and SHA-256 verified. Browser success means download requested. */
 export async function saveExportBlob(
@@ -20,7 +23,7 @@ export async function saveExportBlob(
   if (!blob.size) throw new Error("SAVE_EMPTY: no output to save");
   saving = true;
   try {
-    const safeName = filename.replace(/[\\/\x00-\x1f]/g, "_");
+    const safeName = filename.replace(unsafeFilenameCharacters, "_");
     if (Capacitor.isNativePlatform()) {
       if (Capacitor.getPlatform() !== "android")
         throw new Error(
@@ -118,7 +121,7 @@ export async function saveExportStream(
     if (signal?.aborted)
       throw new DOMException("Export cancelled", "AbortError");
   };
-  const safeName = filename.replace(/[\\/\x00-\x1f]/g, "_");
+  const safeName = filename.replace(unsafeFilenameCharacters, "_");
   saving = true;
   let opened = false,
     written = 0;

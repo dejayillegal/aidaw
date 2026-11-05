@@ -42,19 +42,20 @@ export function tempoAtBeat(p:TimingProject,beat:number){
  return b&&a.curve==='linear'?a.bpm+(b.bpm-a.bpm)*(beat-a.beat)/(b.beat-a.beat):a.bpm;
 }
 /** Beat-linear BPM ramps become exponential delay-time ramps in elapsed seconds. */
-export function scheduleTempoSyncedReturns(bus:{delayNodeL:{delayTime:AudioParam};delayNodeR:{delayTime:AudioParam}},p:TimingProject,fromBeat:number,atSeconds:number){
+export function scheduleTempoSyncedReturns(bus:{delayNodeL:{delayTime:AudioParam};delayNodeR:{delayTime:AudioParam}},p:TimingProject,fromBeat:number,atSeconds:number,toBeat=Infinity,cancel=true){
  const points=validateAndNormalizeTempoMap(p.tempo,p.tempoMap),knots=new Set([fromBeat]);
+ if(Number.isFinite(toBeat)&&toBeat>fromBeat)knots.add(toBeat);
  for(let i=0;i<points.length;i++){
-  const a=points[i],b=points[i+1];if(a.beat>fromBeat)knots.add(a.beat);
+  const a=points[i],b=points[i+1];if(a.beat>fromBeat&&a.beat<toBeat)knots.add(a.beat);
   if(b&&a.curve==='linear'&&b.bpm!==a.bpm)for(const bpm of [90,562.5]){
    const beat=a.beat+(bpm-a.bpm)*(b.beat-a.beat)/(b.bpm-a.bpm);
-   if(beat>fromBeat&&beat>a.beat&&beat<b.beat)knots.add(beat);
+   if(beat>fromBeat&&beat<toBeat&&beat>a.beat&&beat<b.beat)knots.add(beat);
   }
  }
  const delay=(beat:number)=>Math.max(.08,Math.min(.9,45/Math.max(90,tempoAtBeat(p,beat))));
  const beats=[...knots].sort((a,b)=>a-b);
  for(const [param,multiplier] of [[bus.delayNodeL.delayTime,1],[bus.delayNodeR.delayTime,2]] as const){
-  param.cancelScheduledValues(atSeconds);param.setValueAtTime(delay(fromBeat)*multiplier,atSeconds);
+  if(cancel)param.cancelScheduledValues(atSeconds);param.setValueAtTime(delay(fromBeat)*multiplier,atSeconds);
   for(let i=1;i<beats.length;i++){
    const before=beats[i-1],beat=beats[i],sec=atSeconds+projectSeconds(p,beat)-projectSeconds(p,fromBeat);
    const segment=[...points].reverse().find(pt=>pt.beat<=before)!,value=delay(beat)*multiplier;

@@ -96,6 +96,22 @@ function cloneQueueRecord(record: QueuedProjectRecord): QueuedProjectRecord {
   return { ...JSON.parse(JSON.stringify(record)), exportedWavBlob: record.exportedWavBlob, exportedMidiBlob: record.exportedMidiBlob };
 }
 
+/** Current writers checksum every record. Keep only its revision token in memory,
+ * not another complete XML/score copy. Cursor-only changes are not score edits. */
+function journalWriteToken(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const row=value as Record<string,unknown>;
+  const record=(row.record && typeof row.record==='object' ? row.record : row) as Record<string,unknown>;
+  return JSON.stringify([row.queueId,row.recoveryVersion,row.identitySchemaVersion,row.conversionSchemaVersion,
+    row.checksum,record.workingProjectRevision,record.updatedAt]);
+}
+
+function recoveryEnvelope(record: QueuedProjectRecord,checksum: string,active: boolean) {
+  const recoveryVersion=record.workingProjectState.session || record.workingProjectState.audioSettings?.transport.arrangementMode==='session' ? 2 : 1;
+  return {queueId:record.queueId,recoveryVersion,identitySchemaVersion:1,
+    conversionSchemaVersion:CURRENT_DEVICE_CONVERSION_VERSION,record,checksum,active};
+}
+
 export class ProjectQueueService {
   private items = new Map<string, QueuedProjectRecord>();
   private activeQueueId: string | null = null;
@@ -106,6 +122,7 @@ export class ProjectQueueService {
   private persistenceError: string | undefined;
   private pendingRecoveryWrites = 0;
   private persistenceFailures = new Map<string, string>();
+  private recoveryWriteTokens = new Map<string,string|null>();
   private artifactMeasurements = new Map<string, Promise<void>>();
   private removedQueueIds = new Set<string>();
   private recoveryPromise: Promise<AbletonProjectState | null> | null = null;
@@ -182,31 +199,31 @@ export class ProjectQueueService {
         if (!snapshot.workingProjectState) throw new Error('RECOVERY_NO_PROJECT: no validated project state to journal');
         assertProjectState(snapshot.workingProjectState);
         const checksum = await computeSha256Hex(JSON.stringify(snapshot));
+        const envelope=recoveryEnvelope(snapshot,checksum,active);
+        const expected=this.recoveryWriteTokens.get(snapshot.queueId) ?? null;
         db = await this.openRecoveryDb();
         await new Promise<void>((resolve, reject) => {
+          let conflict=false;
           const tx = db!.transaction(IDB_STORE, 'readwrite');
           tx.oncomplete = () => resolve();
           // Settle failed writes only after the atomic transaction has actually aborted.
           tx.onerror = () => {};
-          tx.onabort = () => reject(tx.error || new Error('RECOVERY_ABORT: transaction aborted'));
+          tx.onabort = () => reject(new Error(conflict
+            ? 'RECOVERY_CONFLICT: Another tab changed this project. Local edits are retained; save a project copy before reopening.'
+            : tx.error?.message || 'RECOVERY_ABORT: transaction aborted'));
           const store = tx.objectStore(IDB_STORE);
           const prior = store.get(snapshot.queueId);
           prior.onsuccess = () => {
             try {
+              // Compare and write in ONE transaction. A read before opening this
+              // transaction leaves a race between independent browser tabs.
+              if (journalWriteToken(prior.result)!==expected) {conflict=true;tx.abort();return;}
               if (prior.result) store.put({ ...prior.result, queueId: `backup:${snapshot.queueId}`, originalQueueId: snapshot.queueId });
-              const recoveryVersion=snapshot.workingProjectState.session || snapshot.workingProjectState.audioSettings?.transport.arrangementMode==='session' ? 2 : 1;
-              store.put({
-                queueId: snapshot.queueId,
-                recoveryVersion,
-                identitySchemaVersion: 1,
-                conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
-                record: snapshot,
-                checksum,
-                active,
-              });
+              store.put(envelope);
             } catch { tx.abort(); }
           };
         });
+        this.recoveryWriteTokens.set(snapshot.queueId,journalWriteToken(envelope));
         this.persistenceStatus = 'saved'; this.persistenceError = undefined; this.persistenceFailures.delete(snapshot.queueId);
       } catch (error) {
         this.persistenceStatus = 'error';
@@ -276,6 +293,7 @@ export class ProjectQueueService {
     } finally {
       db.close();
     }
+    this.recoveryWriteTokens.set(queueId,journalWriteToken(recoveryEnvelope(snapshot,checksum,active)));
   }
 
   public getStorageStatus(queueId?: string): StorageStatus {
@@ -692,6 +710,7 @@ export class ProjectQueueService {
             }
           }
 
+          if (!wasMigrated) this.recoveryWriteTokens.set(id,journalWriteToken(candidates[0]));
           if (!this.items.has(id)) this.items.set(id, copy);
           restored.push({ record: this.items.get(id)!, active: !!row.active });
           recovered = true;
@@ -1271,30 +1290,50 @@ export class ProjectQueueService {
     return this.getItem(queueId);
   }
 
-  private removeRecoveryRecord(queueId: string): void {
+  private removeRecoveryRecord(queueId: string): Promise<boolean> {
     this.removedQueueIds.add(queueId);
-    if (typeof indexedDB === 'undefined') return;
-    this.persistenceTail = this.persistenceTail.then(async () => {
+    if (typeof indexedDB === 'undefined') return Promise.resolve(true);
+    this.pendingRecoveryWrites++;
+    this.persistenceStatus='pending';
+    const deletion=this.persistenceTail.then(async () => {
       let db: IDBDatabase | undefined;
       try {
+        const expected=this.recoveryWriteTokens.get(queueId) ?? null;
         db = await this.openRecoveryDb();
         await new Promise<void>((resolve, reject) => {
+          let conflict=false;
           const tx = db!.transaction(IDB_STORE, 'readwrite');
-          tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error || new Error('RECOVERY_DELETE_ABORT'));
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(new Error(conflict
+            ? 'RECOVERY_CONFLICT: Another tab changed this project; removal was cancelled and local edits retained.'
+            : tx.error?.message || 'RECOVERY_DELETE_ABORT'));
           tx.onerror = () => {};
-          const store = tx.objectStore(IDB_STORE); store.delete(queueId); store.delete(`backup:${queueId}`);
+          const store = tx.objectStore(IDB_STORE),prior=store.get(queueId);
+          prior.onsuccess=()=>{
+            if(journalWriteToken(prior.result)!==expected){conflict=true;tx.abort();return;}
+            store.delete(queueId);store.delete(`backup:${queueId}`);
+          };
         });
         this.persistenceFailures.delete(queueId);
+        this.persistenceStatus='saved';
+        return true;
       } catch (error) {
+        this.removedQueueIds.delete(queueId);
         this.persistenceStatus = 'error'; this.persistenceError = String(error); this.persistenceFailures.set(queueId, this.persistenceError); this.notify();
-      } finally { db?.close(); }
+        return false;
+      } finally { this.pendingRecoveryWrites--;db?.close(); }
     });
+    this.persistenceTail=deletion.then(()=>{});
+    return deletion;
   }
 
-  public removeQueueItem(queueId: string): void {
+  public async removeQueueItem(queueId: string): Promise<void> {
+    if(!this.items.has(queueId))return;
     this.cancelQueueItem(queueId);
+    // Do not discard the last local copy until durable removal succeeds.
+    if(!await this.removeRecoveryRecord(queueId)){this.notify();return;}
     this.items.delete(queueId);
-    this.removeRecoveryRecord(queueId);
+    this.recoveryWriteTokens.delete(queueId);
     if (this.activeQueueId === queueId) {
       const remaining = this.getAllItems();
       this.activeQueueId = remaining.length > 0 ? remaining[0].queueId : null;

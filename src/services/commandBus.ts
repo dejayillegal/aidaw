@@ -11,6 +11,8 @@ import {
   MemoryLocationMarker,
   MidiGhostPruningConfig,
   MidiNoteEvent,
+  MeterChangeEvent,
+  TempoAutomationPoint,
   TimelineEditMode,
   TrackTakeRecord,
 } from '../types/ableton';
@@ -20,6 +22,7 @@ import {
   MusicalTimeService,
   beatToBarBeatTick,
   barBeatTickToBeat,
+  secondsToBeatWithTempoMap,
   noteProbabilityPasses,
   sessionEventsInWindow,
 } from '../engine/timelineCoordinates';
@@ -79,9 +82,7 @@ export function captureSessionPerformance(project: AbletonProjectState, fromBeat
     return {...track,clips};
   });
   const destinationEnd=destinationBeat+toBeat-fromBeat;
-  const end=beatToBarBeatTick(destinationEnd,project.meterMap,project.ppq);
-  const barStart=barBeatTickToBeat(end.bar,1,0,project.meterMap,project.ppq);
-  const requiredBars=end.bar-(destinationEnd<=barStart+1e-9 ? 1 : 0);
+  const requiredBars=MusicalTimeService.barsCoveringBeat(destinationEnd,project.meterMap,project.ppq);
   return {...project,tracks,arrangementLengthBars:Math.max(project.arrangementLengthBars || 1,requiredBars)};
 }
 import {
@@ -266,19 +267,22 @@ export const studioCommandBus = new StudioCommandBus();
 /**
  * Converts a 1-indexed Bar.Beat.Sixteenth coordinate (e.g. Bar 5, Beat 1, 16th 1) into 0-indexed beats.
  */
-export function spotPositionToBeat(bar: number, beat = 1, sixteenth = 1): number {
+export function spotPositionToBeat(bar: number, beat = 1, sixteenth = 1, meterMap?: MeterChangeEvent[], ppq=960): number {
   const safeBar = Math.max(1, Math.floor(bar));
-  const safeBeat = Math.max(1, Math.min(4, Math.floor(beat)));
-  const safeSixteenth = Math.max(1, Math.min(4, Math.floor(sixteenth)));
-  return (safeBar - 1) * 4 + (safeBeat - 1) + (safeSixteenth - 1) * 0.25;
+  const start=barBeatTickToBeat(safeBar,1,0,meterMap,ppq);
+  const meter=beatToBarBeatTick(start,meterMap,ppq);
+  const safeBeat = Math.max(1, Math.min(meter.numerator, Math.floor(beat)));
+  const subdivisions=Math.max(1,16/meter.denominator);
+  const safeSixteenth = Math.max(1, Math.min(subdivisions, Math.floor(sixteenth)));
+  return barBeatTickToBeat(safeBar,safeBeat,(safeSixteenth-1)*ppq/4,meterMap,ppq);
 }
 
 /**
  * Converts a timestamp in milliseconds to exact beat position at a given BPM.
  */
-export function spotMillisecondsToBeat(milliseconds: number, tempoBpm: number): number {
+export function spotMillisecondsToBeat(milliseconds: number, tempoBpm: number, tempoMap?: TempoAutomationPoint[]): number {
   if (!Number.isFinite(milliseconds) || !Number.isFinite(tempoBpm) || tempoBpm <= 0) throw new Error('TIMELINE_INPUT: invalid timestamp or tempo');
-  return Math.max(0, milliseconds * tempoBpm / 60000);
+  return secondsToBeatWithTempoMap(Math.max(0,milliseconds)/1000,tempoBpm,tempoMap);
 }
 
 /**
@@ -322,7 +326,7 @@ export function applyNoteEditWithMode(
   targetDurationBeats?: number
 ): AbletonProjectState {
   const draft = deepCloneProject(project);
-  const maxBeats = (draft.arrangementLengthBars || 16) * 4;
+  const maxBeats = MusicalTimeService.arrangementTotalBeats(draft);
   const track = draft.tracks.find((t) => t.id === trackId);
   if (!track || !track.clips[clipIndex]) throw new Error(`Target track/clip ${trackId}/${clipIndex} not found`);
 
@@ -468,7 +472,7 @@ export function applyClipPositionWithEditMode(
 
   let latestEnd = 0;
   for (const t of draft.tracks) for (const c of t.clips) latestEnd = Math.max(latestEnd, c.startTime + c.length);
-  draft.arrangementLengthBars = Math.max(draft.arrangementLengthBars || 1, Math.ceil(latestEnd / 4));
+  draft.arrangementLengthBars = Math.max(draft.arrangementLengthBars || 1, MusicalTimeService.barsCoveringBeat(latestEnd,draft.meterMap,draft.ppq));
   return draft;
 }
 
@@ -562,7 +566,7 @@ export function createTrackTakeSnapshot(
       {
         id: `seg_${takeId}`,
         startBeat: 0,
-        endBeat: (draft.arrangementLengthBars || 16) * 4,
+        endBeat: MusicalTimeService.arrangementTotalBeats(draft),
         takeId,
       },
     ],

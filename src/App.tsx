@@ -5,7 +5,7 @@ import {editArrangementClip,editArrangementNote,toggleArrangementNote} from './e
 import type {ArrangementClipEdit,ArrangementNoteEdit} from './engine/arrangementEditing';
 import {createSongPlan,composeSongPlan,materializeSongPlanTrack,songPlanAutomation} from './engine/songPlanEngine';
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT, projectAudioSettings } from './engine/projectDefaults';
-import { CANONICAL_PPQ, MAX_SUPPORTED_TIMELINE_BARS } from './engine/timelineCoordinates';
+import { beatToBarBeatTick, CANONICAL_PPQ, MAX_SUPPORTED_TIMELINE_BARS } from './engine/timelineCoordinates';
 import { decodeProjectSnapshot, encodeProjectSnapshot } from './services/projectSnapshotService';
 import { saveExportBlob, saveExportStream, supportsStreamingFileExport, usesNativeStreamingFileExport } from './services/fileExportService';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -635,13 +635,13 @@ export default function App() {
   const handleDropMemoryLocationAtPlayhead = useCallback(() => {
     const existing = project.memoryLocations || [];
     const nextSlot = existing.length < 9 ? existing.length + 1 : ((existing.length % 9) + 1);
-    const barNum = Math.floor(playheadBeat / 4) + 1;
+    const barNum = beatToBarBeatTick(playheadBeat,project.meterMap,project.ppq).bar;
     handleExecuteProjectCommand(
       `Drop Memory Location [${nextSlot}] at Bar ${barNum}`,
       'locator',
       (draft) => upsertMemoryLocationMarker(draft, nextSlot, `Bar ${barNum}`, playheadBeat)
     );
-  }, [project.memoryLocations, playheadBeat, handleExecuteProjectCommand]);
+  }, [project.memoryLocations, project.meterMap, project.ppq, playheadBeat, handleExecuteProjectCommand]);
 
   useEffect(() => {
     synthEngine.setState(
@@ -2129,6 +2129,8 @@ export default function App() {
         isPlaying={isPlaying}
         playheadBeat={playheadBeat}
         tempo={project.tempo}
+        meterMap={project.meterMap}
+        ppq={project.ppq}
         transport={transport}
         masterPeakDb={masterPeakDb}
         masterTruePeakDbtp={masterTruePeakDbtp}

@@ -103,7 +103,7 @@ export async function* encodeAudioBufferToWavChunks(
       }
     yield new Uint8Array(block);
     onProgress?.((end / frames) * 100);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {setTimeout(resolve, 0)});
   }
   if (peak <= 1e-8)
     throw new Error(
