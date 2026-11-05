@@ -71,6 +71,14 @@ try {
   assert.match(staleDelete.error || '',/RECOVERY_CONFLICT/);assert(staleDelete.localRetained);
   assert.equal((await reopen()).find(r=>r.id===ids[0]).velocity,81);
   report.cases.push({name:'stale-delete',newerPrimaryPreserved:true,localRetained:true,status:'PASS'});
+  const bulk=await b.evaluate(async id=>{
+    await window.q.clearQueue();
+    let error;try{await window.q.flushPersistence(id);}catch(e){error=String(e);}
+    return {error,retained:window.q.getAllItems().map(r=>r.queueId)};
+  },ids[0]);
+  assert.match(bulk.error || '',/RECOVERY_CONFLICT/);assert.deepEqual(bulk.retained,[ids[0]]);
+  assert.equal(await readRow(ids[1]),null);assert.equal((await readRow(ids[0])).record.workingProjectState.tracks[0].clips[0].notes[0].velocity,81);
+  report.cases.push({name:'bulk-clear',conflictedLocalRetained:true,healthyProjectRemoved:true,status:'PASS'});
   const c=await context.newPage();await c.goto(url);
   await c.evaluate(async()=>{const {ProjectQueueService}=await import('/src/services/projectQueueService.ts');window.q=new ProjectQueueService();await window.q.restorePersistedProjects();});
   const race=await Promise.all([edit(a,ids[0],82),edit(c,ids[0],83)]);
@@ -93,7 +101,7 @@ try {
   const removed=await a.evaluate(async()=>{
     const p=window.q.getItem(window.q.getAllItems()[0].queueId).workingProjectState;
     const fresh=await window.q.enqueueProjectState({...p,fileName:'Delete_acknowledged'});
-    await window.q.removeQueueItem(fresh.queueId);await window.q.flushPersistence(fresh.queueId);
+    await Promise.all([window.q.removeQueueItem(fresh.queueId),window.q.removeQueueItem(fresh.queueId)]);await window.q.flushPersistence(fresh.queueId);
     return {id:fresh.queueId,localRemoved:!window.q.getItem(fresh.queueId)};
   });
   assert(removed.localRemoved);assert.equal(await readRow(removed.id),null);assert.equal(await readRow(`backup:${removed.id}`),null);

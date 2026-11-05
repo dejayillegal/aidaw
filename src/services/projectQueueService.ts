@@ -1408,14 +1408,11 @@ export class ProjectQueueService {
     return this.getItem(queueId)!;
   }
 
-  public clearQueue(): void {
-    for (const id of this.items.keys()) {
-      this.cancelQueueItem(id);
-      this.removeRecoveryRecord(id);
+  public async clearQueue(): Promise<void> {
+    const queueIds = [...this.items.keys()];
+    for (const id of queueIds) {
+      await this.removeQueueItem(id);
     }
-    this.items.clear();
-    this.activeQueueId = null;
-    this.notify();
   }
 }
 

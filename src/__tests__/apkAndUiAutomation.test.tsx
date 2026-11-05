@@ -856,7 +856,7 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(exportCalls[1].includeHumanization).toBe(false);
 
     // 2. Verify BulkQueueAndExportModal multi-project selection & sequential WAV exports
-    projectQueueService.clearQueue();
+    await projectQueueService.clearQueue();
     const { xml: xml1 } = buildStarterAbletonXml('berghain-134', 101, 4);
     const { xml: xml2 } = buildStarterAbletonXml('tresor-138', 202, 4);
     const { xml: xml3 } = buildStarterAbletonXml('ostgut-128', 303, 4);

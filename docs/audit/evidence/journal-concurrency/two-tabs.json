@@ -20,6 +20,12 @@
       "status": "PASS"
     },
     {
+      "name": "bulk-clear",
+      "conflictedLocalRetained": true,
+      "healthyProjectRemoved": true,
+      "status": "PASS"
+    },
+    {
       "name": "simultaneous-writers",
       "winners": 1,
       "losers": 1,
