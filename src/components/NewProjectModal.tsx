@@ -123,32 +123,40 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           {/* Target Duration */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Arrangement Span & Duration
+              Arrangement Span & Duration (4/4 @ {bpm} BPM)
             </label>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
               {[
-                { bars: 128, label: '128 Bars', badge: 'Recommended', desc: '~5:30 Full Track' },
-                { bars: 64, label: '64 Bars', badge: 'Extended', desc: '~2:45 Extended' },
-                { bars: 180, label: '180 Bars', badge: 'Reference', desc: '~5:10 Reference' },
-                { bars: 32, label: '32 Bars', badge: 'Sketch', desc: '~1:20 Sketch' },
-              ].map((dur) => (
-                <button
-                  type="button"
-                  key={dur.bars}
-                  onClick={() => setDurationBars(dur.bars)}
-                  className={`p-3 text-left rounded-lg border text-xs transition ${
-                    durationBars === dur.bars
-                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                      : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:border-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="font-bold text-white">{dur.label}</span>
-                    <span className="text-[9px] px-1.5 py-0.5 bg-slate-700/60 rounded text-slate-300">{dur.badge}</span>
-                  </div>
-                  <div className="text-[10px] text-slate-400">{dur.desc}</div>
-                </button>
-              ))}
+                { bars: 128, label: '128 Bars', badge: 'Recommended', role: 'Full Track' },
+                { bars: 64, label: '64 Bars', badge: 'Extended', role: 'Extended' },
+                { bars: 180, label: '180 Bars', badge: 'Reference', role: 'Reference' },
+                { bars: 32, label: '32 Bars', badge: 'Sketch', role: 'Sketch' },
+              ].map((dur) => {
+                const exactSeconds = (dur.bars * 240) / Math.max(20, bpm);
+                const mins = Math.floor(exactSeconds / 60);
+                const secs = Math.round(exactSeconds % 60);
+                const formattedTime = `${mins}:${secs.toString().padStart(2, '0')}`;
+                return (
+                  <button
+                    type="button"
+                    key={dur.bars}
+                    onClick={() => setDurationBars(dur.bars)}
+                    className={`p-3 text-left rounded-lg border text-xs transition ${
+                      durationBars === dur.bars
+                        ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-bold text-white">{dur.label}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-slate-700/60 rounded text-slate-300">{dur.badge}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {formattedTime} ({exactSeconds.toFixed(1)}s) · {dur.role}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
