@@ -1,0 +1,94 @@
+[
+  {
+    "command": "npm run lint",
+    "environment": {
+      "GOMAXPROCS": "2"
+    },
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "started_utc": "2026-11-05T01:12:27.244097+00:00",
+    "exit_code": 0,
+    "log": "typescript.log"
+  },
+  {
+    "command": "npm run build",
+    "environment": {
+      "GOMAXPROCS": "2"
+    },
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "started_utc": "2026-11-05T01:12:31.285285+00:00",
+    "exit_code": 0,
+    "log": "build.log"
+  },
+  {
+    "command": "npm test -- --maxWorkers=1",
+    "environment": {
+      "GOMAXPROCS": "2"
+    },
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "started_utc": "2026-11-05T01:12:35.824368+00:00",
+    "exit_code": 0,
+    "log": "full-regression.log"
+  },
+  {
+    "command": "npm test -- src/__tests__/p0Resume.test.ts src/__tests__/conversionUnits.test.ts src/__tests__/p0ReleaseBlockers.test.ts src/__tests__/legacyRecoveryAndSession.test.tsx src/__tests__/projectSnapshot.test.ts --maxWorkers=1",
+    "environment": {
+      "GOMAXPROCS": "2"
+    },
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "started_utc": "2026-11-05T01:16:28.835246+00:00",
+    "exit_code": 0,
+    "log": "focused.log"
+  },
+  {
+    "command": "node --import tsx docs/p0-resume/reference-validation.mjs",
+    "environment": {
+      "GOMAXPROCS": "2"
+    },
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "started_utc": "2026-11-05T01:17:07.548721+00:00",
+    "exit_code": -6,
+    "log": "reference-default-heap-failure.log"
+  },
+  {
+    "command": "node scripts/verify-p0-audio.mjs",
+    "environment": {
+      "GOMAXPROCS": "2"
+    },
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "started_utc": "2026-11-05T01:20:35.204338+00:00",
+    "exit_code": 1,
+    "log": "audio-run.log"
+  },
+  {
+    "command": "node --max-old-space-size=4096 --import tsx docs/p0-resume/reference-validation.mjs 'chlar 3.als'",
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "exit_code": 0,
+    "result": "PASS",
+    "log": "reference-validation.json",
+    "scope": "Isolated Node/JSDOM structural import/export; 4096 MiB V8 heap allowance per process. No browser/Android memory qualification."
+  },
+  {
+    "command": "node --max-old-space-size=4096 --import tsx docs/p0-resume/reference-validation.mjs 'hypno 1.als'",
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "exit_code": 0,
+    "result": "PASS",
+    "log": "reference-validation.json",
+    "scope": "Isolated Node/JSDOM structural import/export; 4096 MiB V8 heap allowance per process. No browser/Android memory qualification."
+  },
+  {
+    "command": "node --max-old-space-size=4096 --import tsx docs/p0-resume/reference-validation.mjs 'raw 3.als'",
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "exit_code": 0,
+    "result": "PASS",
+    "log": "reference-validation.json",
+    "scope": "Isolated Node/JSDOM structural import/export; 4096 MiB V8 heap allowance per process. No browser/Android memory qualification."
+  },
+  {
+    "command": "node --max-old-space-size=4096 --import tsx docs/p0-resume/reference-validation.mjs yanamste.als",
+    "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+    "exit_code": 0,
+    "result": "PASS",
+    "log": "reference-validation.json",
+    "scope": "Isolated Node/JSDOM structural import/export; 4096 MiB V8 heap allowance per process. No browser/Android memory qualification."
+  }
+]

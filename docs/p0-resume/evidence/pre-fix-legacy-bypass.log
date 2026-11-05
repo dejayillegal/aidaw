@@ -1,0 +1,39 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/p0Resume.test.ts --maxWorkers=1
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/p0Resume.test.ts (6 tests | 1 failed) 4509ms
+   ❯ P0 resume synthetic regression (6)
+     × blocks legacy automatic bypass flags without an explicit dependency action 509ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/p0Resume.test.ts > P0 resume synthetic regression > blocks legacy automatic bypass flags without an explicit dependency action
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/p0Resume.test.ts:59:62
+     57|   it('blocks legacy automatic bypass flags without an explicit depende…
+     58|     const p=fixture();p.tracks[0].devices[0].bypassed=true;
+     59|     expect(()=>resolveTrackInstrumentSynthesis(p.tracks[0])).toThrow(/…
+       |                                                              ^
+     60|   });
+     61|   it('does not steal a valid later note identity during repair', () =>…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  06:30:23
+   Duration  5.89s (tests 80%, environment 15%, transform 3%, import 2%)
+

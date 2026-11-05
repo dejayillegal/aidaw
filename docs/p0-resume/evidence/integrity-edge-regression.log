@@ -1,0 +1,17 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/legacyRecoveryAndSession.test.tsx src/__tests__/p0Resume.test.ts --maxWorkers=1 -t tampered bypassed|registered instrument count
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+
+ Test Files  2 passed (2)
+      Tests  2 passed | 25 skipped (27)
+   Start at  06:42:05
+   Duration  3.92s (environment 45%, tests 42%, transform 7%, import 5%, setup 1%)
+
+    Isolate  2 workers spawned · ~982ms startup each (spawn + environment, per file)
+             at least ~982ms faster with isolate: false — reuses workers across files instead of one per file
+

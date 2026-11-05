@@ -1,0 +1,14 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/p0Resume.test.ts --maxWorkers=1
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  06:37:12
+   Duration  5.56s (tests 79%, environment 12%, transform 7%, import 1%)
+

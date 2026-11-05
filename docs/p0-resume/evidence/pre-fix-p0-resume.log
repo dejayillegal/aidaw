@@ -1,0 +1,76 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/p0Resume.test.ts
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/p0Resume.test.ts (3 tests | 3 failed) 2040ms
+   ❯ P0 resume synthetic regression (3)
+     × requires evidence or explicit user role for ambiguous AU containers 811ms
+     × does not steal a valid later note identity during repair 711ms
+     × rejects duplicate identities inside a source scope as ambiguous 515ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/p0Resume.test.ts > P0 resume synthetic regression > requires evidence or explicit user role for ambiguous AU containers
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/p0Resume.test.ts:19:81
+     17|   it('requires evidence or explicit user role for ambiguous AU contain…
+     18|     const p = fixture();
+     19|     expect(() => substituteUnsupportedDevice(p,p.tracks[0].id,'31','Op…
+       |                                                                                 ^
+     20|   });
+     21|   it('does not steal a valid later note identity during repair', () =>…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/__tests__/p0Resume.test.ts > P0 resume synthetic regression > does not steal a valid later note identity during repair
+AssertionError: expected '1001_n1_p36_t1000' to be '1001_n0_p36_t0' // Object.is equality
+
+Expected: "1001_n0_p36_t0"
+Received: "1001_n1_p36_t1000"
+
+ ❯ src/__tests__/p0Resume.test.ts:27:26
+     25|     clip.notes = [{...note,id:''},{...note,id:reserved,time:1}];
+     26|     const result = repairProjectNoteIdentities(p).project.tracks[0].cl…
+     27|     expect(result[1].id).toBe(reserved);
+       |                          ^
+     28|     expect(result[0].id).not.toBe(reserved);
+     29|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/__tests__/p0Resume.test.ts > P0 resume synthetic regression > rejects duplicate identities inside a source scope as ambiguous
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/p0Resume.test.ts:33:50
+     31|     const p = fixture(), clip = p.tracks[0].clips[0];
+     32|     clip.notes = [{...clip.notes[0],id:'duplicate'},{...clip.notes[0],…
+     33|     expect(() => repairProjectNoteIdentities(p)).toThrow(/AMBIGUOUS/);
+       |                                                  ^
+     34|   });
+     35| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  06:13:51
+   Duration  3.77s (tests 61%, environment 32%, transform 4%, import 3%)
+

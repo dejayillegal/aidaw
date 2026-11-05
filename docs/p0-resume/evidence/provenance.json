@@ -1,0 +1,76 @@
+{
+  "recorded_utc": "2026-11-05T01:30:06.003311+00:00",
+  "baseline_main": "9522b6baaf000fef53f77c4d761ed8d38e6f728f",
+  "baseline_main_tree": "b9006fa2e5e084436287e0289af39561e90c93b3",
+  "comparison": {
+    "requested_commit": "9522b6baaf000fef53f77c4d761ed8d38e6f728f",
+    "status": "identical",
+    "ahead": 0,
+    "behind": 0
+  },
+  "source_sha": "565dad387af959e36f89003d489098c580e3bbbc",
+  "source_tree": "82f6637d06206d199062db321d93ce93347890b3",
+  "preserved_checkout": {
+    "path": "/workspace/scratch/742120232dee/aidaw",
+    "head": "91b9b26fe43548c0068cf7b2c25488a705b6d562",
+    "untracked_preserved": [
+      "scripts/check-workstation-journeys.mjs",
+      "tests/workstation-journeys.html"
+    ]
+  },
+  "repair_worktree": "/workspace/scratch/ff176f03ae55/aidaw",
+  "source_patch_sha256": "1d5741385ac032c58971988aa95dd4bae2ef9f7cff219d8f7eb345f7d87848b4",
+  "recovery": {
+    "exact_envelopes_available": false,
+    "blocked_projects": [
+      "Berghain_Core_133.5BPM_541.als",
+      "Tresor_Vault_138.5BPM_577.als"
+    ],
+    "synthetic_fixture_origin": "buildStarterAbletonXml plus explicitly constructed historical conversion records; never user envelopes",
+    "source_archive": "archive:<queueId>:<SHA256(original serialized envelope)> retains rawEnvelopeJson; backup and primary update in one IDB transaction",
+    "identity_scopes": "track / arrangement-or-Session / clip; missing arrangement IDs require a unique native source template; ambiguous collisions and unsupported Session identity repair reject",
+    "source_note_references": "native XML template identities remain distinct from edited event IDs"
+  },
+  "artifact_qualification": {
+    "apk_built": false,
+    "apk_sha256": null,
+    "hardware_qualified": false,
+    "browser_pcm_qualified": false
+  },
+  "duration_4_4": {
+    "formula": "seconds = bars * 240 / BPM",
+    "short_seconds": 111.30434782608695,
+    "long_seconds": 230.97744360902254,
+    "tails_excluded": true
+  },
+  "publication": {
+    "status": "BLOCKED_BY_AUTOMATIC_APPROVAL_REVIEW",
+    "action": "push repair/p0-resume to origin",
+    "reason": "External source-code disclosure and remote mutation require explicit publication approval; no alternate publication route attempted.",
+    "remote_branch_exists": false
+  },
+  "results": {
+    "typescript": "PASS",
+    "production_build": "PASS",
+    "full_regression": {
+      "files": 32,
+      "tests": 299,
+      "status": "PASS"
+    },
+    "focused_regression": {
+      "files": 5,
+      "tests": 37,
+      "status": "PASS"
+    },
+    "raw_repository_references": {
+      "count": 4,
+      "status": "PASS",
+      "scope": "Isolated Node/JSDOM structural import/export; 4096 MiB V8 heap allowance per process. No browser/Android memory qualification."
+    },
+    "combined_default_heap_reference_run": "FAIL: V8 heap exhaustion, exit -6",
+    "audio_qualification": "BLOCKED",
+    "exact_project_recovery": "BLOCKED",
+    "android_hardware": "BLOCKED",
+    "apk_built": false
+  }
+}

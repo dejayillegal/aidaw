@@ -1,0 +1,34 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/p0Resume.test.ts --maxWorkers=1
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/p0Resume.test.ts (7 tests | 1 failed) 4006ms
+   ❯ P0 resume synthetic regression (7)
+     × serializes imported GroupTrack state without dropping opaque group XML 599ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/p0Resume.test.ts > P0 resume synthetic regression > serializes imported GroupTrack state without dropping opaque group XML
+TypeError: Cannot read properties of undefined (reading 'querySelector')
+ ❯ src/engine/alsXmlEngine.ts:3333:21
+    3331|   project.tracks.forEach((track, index) => {
+    3332|     const node = byId.get(track.id)!;
+    3333|     let name = node.querySelector(':scope > Name');
+       |                     ^
+    3334|     if (!name) { name = doc.createElement('Name'); node.appendChild(na…
+    3335|     // Avoid rewriting an untouched native name representation on unre…
+ ❯ synchronizeProjectStateToXml src/engine/alsXmlEngine.ts:3331:18
+ ❯ src/__tests__/p0Resume.test.ts:32:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  06:36:44
+   Duration  5.03s (tests 83%, environment 13%, transform 2%, import 1%)
+
