@@ -2174,7 +2174,8 @@ export function parseAbletonXmlDom(
               velocity,
               probability: Number(nEl.getAttribute('Probability') ?? 1),
               ...(nEl.getAttribute('Data-Parametric-HarmonicOwner')==='voiced-midi'?{harmonicOwner:'voiced-midi' as const}:{}),
-              isGhost: velocity <= 48,
+              ...(['anchor','call','response','tension','fill'].includes(nEl.getAttribute('Data-Parametric-MotifRole') || '') ? { motifRole: nEl.getAttribute('Data-Parametric-MotifRole') as MidiNoteEvent['motifRole'] } : {}),
+              isGhost: nEl.hasAttribute('Data-Parametric-Ghost') ? nEl.getAttribute('Data-Parametric-Ghost') === 'true' : velocity <= 48,
               isAccent: nEl.hasAttribute('Data-Parametric-Accent') ? nEl.getAttribute('Data-Parametric-Accent') === 'true' : velocity >= 110,
               isSlide: nEl.getAttribute('Data-Parametric-Slide') === 'true',
             });
@@ -2199,7 +2200,8 @@ export function parseAbletonXmlDom(
             velocity,
             probability: Number(nEl.getAttribute('Probability') ?? 1),
             ...(nEl.getAttribute('Data-Parametric-HarmonicOwner')==='voiced-midi'?{harmonicOwner:'voiced-midi' as const}:{}),
-            isGhost: velocity <= 48,
+            ...(['anchor','call','response','tension','fill'].includes(nEl.getAttribute('Data-Parametric-MotifRole') || '') ? { motifRole: nEl.getAttribute('Data-Parametric-MotifRole') as MidiNoteEvent['motifRole'] } : {}),
+            isGhost: nEl.hasAttribute('Data-Parametric-Ghost') ? nEl.getAttribute('Data-Parametric-Ghost') === 'true' : velocity <= 48,
             isAccent: nEl.hasAttribute('Data-Parametric-Accent') ? nEl.getAttribute('Data-Parametric-Accent') === 'true' : velocity >= 110,
             isSlide: nEl.getAttribute('Data-Parametric-Slide') === 'true',
           });
@@ -2847,6 +2849,9 @@ export function syncTrackClipsToXml(
       putNumber(note, 'Time', n.time); putNumber(note, 'Duration', n.duration);
       if(n.harmonicOwner) note.setAttribute('Data-Parametric-HarmonicOwner',n.harmonicOwner);
       else note.removeAttribute('Data-Parametric-HarmonicOwner');
+      if(n.isGhost !== undefined) note.setAttribute('Data-Parametric-Ghost',String(n.isGhost));
+      if(n.motifRole) note.setAttribute('Data-Parametric-MotifRole',n.motifRole);
+      else note.removeAttribute('Data-Parametric-MotifRole');
       if(n.isSlide !== undefined) note.setAttribute('Data-Parametric-Slide',String(n.isSlide));
       if(n.isAccent !== undefined) note.setAttribute('Data-Parametric-Accent',String(n.isAccent));
       if (note.hasAttribute('Data-Parametric-QuantizedTime') || n.quantizedTime !== Math.round(n.time * 8) / 8) putNumber(note, 'Data-Parametric-QuantizedTime', n.quantizedTime);
@@ -3391,7 +3396,7 @@ export function synchronizeProjectStateToXml(
   const clipContent = (clips: AbletonMidiClip[] = []) => clips.map(c => ({
     id: c.id, name: c.name, userEdited:c.userEdited, startTime: c.startTime, length: c.length, loopEndBeats: c.loopEndBeats,
     notes: c.notes.map(n => ({ id: n.id, time: n.time, quantizedTime: n.quantizedTime,
-      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1, harmonicOwner:n.harmonicOwner, isSlide:n.isSlide??false, isAccent:n.isAccent??(n.velocity>=110) })),
+      duration: n.duration, pitch: n.pitch, velocity: n.velocity, probability: n.probability ?? 1, harmonicOwner:n.harmonicOwner, motifRole:n.motifRole, isGhost:n.isGhost??(n.velocity<=48), isSlide:n.isSlide??false, isAccent:n.isAccent??(n.velocity>=110) })),
   }));
   for (const track of project.tracks) {
     if (track.type !== 'midi') continue;

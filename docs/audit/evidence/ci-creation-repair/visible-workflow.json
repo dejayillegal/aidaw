@@ -1,0 +1,38 @@
+{
+  "pageErrors": [],
+  "scope": "Visible creation and persistence workflow; musical listening and Android qualification remain separate",
+  "browserVersion": "153.0.8010.0",
+  "workflow": {
+    "creation": "visible File → New Full Track 64 → dialog → Generate → new queue identity",
+    "seed": 778,
+    "planVersion": 2,
+    "tracks": 8,
+    "saveReopen": "exact score/plan match",
+    "nativePlayback": {
+      "peak": 0.40969961881637573,
+      "beat": 1.247109977324263,
+      "source": "native master analyser"
+    },
+    "responsive": [
+      {
+        "width": 360,
+        "height": 640,
+        "cancelPreservedProject": true
+      },
+      {
+        "width": 800,
+        "height": 360,
+        "cancelPreservedProject": true
+      }
+    ],
+    "visibleWavExport": {
+      "channels": 2,
+      "sampleRate": 44100,
+      "bits": 24,
+      "seconds": 28.422744,
+      "independentDecoder": "FFmpeg/ffprobe"
+    },
+    "fullJourneyQualified": false
+  },
+  "status": "PASS"
+}

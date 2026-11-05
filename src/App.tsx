@@ -109,7 +109,8 @@ import {
 } from './components/StudioEditorToolbar';
 import { StudioStatusBar } from './components/StudioStatusBar';
 import { SelectedTrackAnalysisStrip } from './components/SelectedTrackAnalysisStrip';
-import { NewProjectModal, NewProjectOptions } from './components/NewProjectModal';
+import { NewProjectModal } from './components/NewProjectModal';
+import { createEditableFullTrack, type NewProjectOptions } from './services/projectCreationService';
 import { UnsupportedPluginModal } from './components/UnsupportedPluginModal';
 import { TrackVelocityRandomizerConfig } from './components/AiComposerIntelligencePanel';
 import {
@@ -249,6 +250,7 @@ export default function App() {
   const [desktopBottomTab, setDesktopBottomTab] = useState<DesktopBottomTab>('composer');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('berghain-134');
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
+  const [newProjectBars, setNewProjectBars] = useState(128);
   const [isUnsupportedPluginModalOpen, setIsUnsupportedPluginModalOpen] = useState<boolean>(false);
 
   // Granular Clear Arrangement state
@@ -445,7 +447,7 @@ export default function App() {
           if (recovery.status === 'error') {
             setStatusMessage(`Recovery blocked: ${recovery.error}. Open a compatible saved project; stored records are unchanged.`);
           } else {
-            await projectQueueService.enqueueProjectFromXml(initial.fileName, initial.rawXmlModified || initial.rawXml || '');
+            await projectQueueService.enqueueProjectState(initial);
           }
         }
       }).catch(error => {
@@ -572,45 +574,31 @@ export default function App() {
     [currentProjectQueueKey, activeFormId, activeQueueId]
   );
 
-  const handleCreateNewProject = useCallback((options: NewProjectOptions) => {
+  const handleCreateNewProject = async (options: NewProjectOptions) => {
+    const loadRevision = ++projectLoadRevision.current;
     try {
-      const seed = Math.floor(Math.random() * 1000000) + 101;
-      const requestedBars = options.durationBars;
-      const templateId = options.subgenreId === 'berlin_industrial' ? 'berghain-134' : 'hypnotic-138';
-      const { xml } = buildStarterAbletonXml(templateId, seed);
-      const parsed = parseAbletonXmlDom(xml, options.title, xml);
-      parsed.tempo = options.bpm;
-      parsed.arrangementLengthBars = requestedBars;
-
-      const styleMap: Record<string, CompositionStrategyId> = {
-        raw_warehouse: 'raw_warehouse',
-        berlin_industrial: 'asymmetric_industrial',
-        hardgroove: 'minimal_groove',
-        acid_techno: 'acid_modulation',
-        dub_techno: 'dub_space',
-        driving_rolling: 'hypnotic_evolving',
-      };
-      const strategy = styleMap[options.subgenreId] || 'hypnotic_evolving';
-      const plan = createSongPlan(parsed, seed, strategy);
-      const composed = composeSongPlan(parsed, plan);
-
-      const formMap: Record<string, MacroArrangementFormId> = {
-        hypnotic_longform: 'hypnotic_longform',
-        industrial_assault: 'industrial_assault',
-        deep_dub_evolution: 'deep_dub_evolution',
-        subtractive_raw: 'hypnotic_longform',
-        acid_modulation: 'industrial_assault',
-      };
-      const macroForm = formMap[options.formFamily] || 'hypnotic_longform';
-      const enriched = enrichProjectWithAnalysis(composed, macroForm);
-
-      handleExecuteProjectCommand('Create Dynamic Full Track', 'clip_edit', () => enriched);
-      setSelectedTrackId(enriched.tracks[0]?.id || '1');
-      setStatusMessage(`Generated complete full track "${options.title}" (${requestedBars} bars, ${options.bpm} BPM).`);
-    } catch (err: any) {
-      setStatusMessage(`Project generation error: ${err.message}`);
+      const created = createEditableFullTrack(options);
+      // Native state is validated and journaled before active project/transport changes.
+      const record = await projectQueueService.enqueueProjectState(created);
+      if (loadRevision !== projectLoadRevision.current) return;
+      synthEngine.stop(); synthEngine.seek(0);
+      setIsPlaying(false); setPlayheadBeat(0);
+      projectQueueService.acknowledgeWorkspaceTransitionAfterBlockedRecovery();
+      syncRecoveryServiceState();
+      projectQueueService.switchActiveProject(record.queueId, projectRef.current);
+      const installed = enrichProjectWithAnalysis(created, 'hypnotic_longform');
+      projectQueueService.updateWorkingProjectState(record.queueId, installed);
+      projectRef.current = installed; setProject(installed);
+      setSelectedTrackId(installed.tracks[0]?.id || '1');
+      setActiveStrategyId(installed.songPlan!.style);
+      setStudioWorkspace('edit'); setActiveTab('workbench');
+      const persistence = projectQueueService.getPersistenceStatus();
+      setStatusMessage(`Created Full Track: ${installed.fileName} (${options.durationBars} bars, ${options.bpm} BPM, seed ${options.seed}).${persistence.status === 'error' ? ' Recovery storage failed; save a native project file.' : ''}`);
+    } catch (error) {
+      setStatusMessage(`Project creation failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
-  }, [handleExecuteProjectCommand]);
+  };
 
   const updateAudioSettings = <K extends keyof ProjectAudioSettings>(key: K, update: React.SetStateAction<ProjectAudioSettings[K]>) => {
     handleExecuteProjectCommand(`Update ${key}`, 'mixer', draft => {
@@ -2147,10 +2135,10 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onNewProject={() => setIsNewProjectModalOpen(true)}
+        onNewProject={() => { setNewProjectBars(128); setIsNewProjectModalOpen(true); }}
         onCreateProjectWithMode={(mode, bars) => {
           if (mode === 'full-track' || bars >= 32) {
-            setIsNewProjectModalOpen(true);
+            setNewProjectBars(bars); setIsNewProjectModalOpen(true);
           } else {
             void handleLoadStarterTemplate(selectedTemplateId, bars, mode);
           }
@@ -2565,6 +2553,7 @@ export default function App() {
       {/* Interactive Dynamic New Project Modal */}
       <NewProjectModal
         isOpen={isNewProjectModalOpen}
+        initialDurationBars={newProjectBars}
         onClose={() => setIsNewProjectModalOpen(false)}
         onCreateProject={handleCreateNewProject}
       />

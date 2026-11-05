@@ -1,0 +1,31 @@
+{
+  "baseline": "e6de7f320b6f6005a58be519dcfc1ee4bf74ab17",
+  "reportedFailureCommit": "1844666164b35a0a68b7ddb0ee31d1ab90765f23",
+  "failedRun": 41971030807,
+  "failedJob": 127059077024,
+  "downloadedArtifactId": 13390455704,
+  "downloadedArtifactSha256": "4f6408a2feb5d0580f44f21965c35463962298160f8d4e8f2e6625b40840f444",
+  "baselineTests": {
+    "passed": 302,
+    "failed": 0
+  },
+  "finalTests": {
+    "passed": 313,
+    "failed": 0
+  },
+  "typescript": "PASS",
+  "productionBuild": "PASS; existing bundle-size warning",
+  "cleanInstall": {
+    "before": "FAIL EUSAGE; absent optional platform dependencies",
+    "after": "PASS; npm ci --no-audit --no-fund",
+    "existingPackageVersionChanges": 0,
+    "restoredPlatformEntries": 94,
+    "node": "24.22.1",
+    "npm": "11.9.0"
+  },
+  "pythonVerifierTests": 16,
+  "sbomComponents": 661,
+  "scope": "Exact-commit CI evidence is added to PR after publication. No physical Android, exact user recovery envelopes, licensed Live runtime or producer listening approval.",
+  "nativeRegressionScope": "Final product source; native full suite passed with earlier minimal creation check. Enhanced responsive/playback/FFmpeg creation workflow independently passed afterward; exact-commit CI covers both.",
+  "visibleWavSha256": "f240d066110f65b12819bbae5e41211f0716f1a4988abfd578957a0d1a819562"
+}
