@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "scope": "Visible Session slots/launch/capture/stop/return, native track meters, undo/redo, save/reopen and insert-limit error",
+  "audibleTracks": [
+    true,
+    true
+  ],
+  "stoppedPeak": -60,
+  "otherPeak": -17.5,
+  "stopAt": 6,
+  "capturedCyclesPerTrack": 4,
+  "nativeProjectVersion": 3,
+  "realJournalRecovery": true,
+  "deviceQualification": false,
+  "liveOfflineCaptureParity": false,
+  "browser": "153.0.8010.0"
+}

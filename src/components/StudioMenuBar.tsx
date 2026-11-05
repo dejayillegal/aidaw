@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Activity,
   Check,
@@ -53,7 +53,10 @@ interface StudioMenuBarProps {
   onOpenClearModal: () => void;
   onOpenCommandPalette: () => void;
   onOpenCompingModal: () => void;
-  onSwitchWorkspace: (tab: 'edit' | 'mix' | 'session' | 'devices' | 'ai' | 'queue') => void;
+  onSwitchWorkspace: (tab: 'edit' | 'mix' | 'session' | 'devices' | 'browser' | 'ai' | 'queue') => void;
+  onToggleTracks?: () => void;
+  onToggleEditor?: () => void;
+  onToggleInspector?: () => void;
   onResetLayout: () => void;
   onOpenXmlInspector: () => void;
   onOpenPythonExporter: () => void;
@@ -86,6 +89,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
   onOpenCompingModal,
   onSwitchWorkspace,
   onResetLayout,
+  onToggleTracks, onToggleEditor, onToggleInspector,
   onOpenXmlInspector,
   onOpenPythonExporter,
   onOpenArchitectureModal,
@@ -93,24 +97,33 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
-  const closeMenu = () => setActiveMenu(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeMenu = () => {
+    menuRef.current?.querySelector<HTMLButtonElement>(`[data-studio-menu="${activeMenu}"]`)?.focus();
+    setActiveMenu(null);
+  };
 
   return (
     <div
-      className="min-h-12 sm:min-h-0 sm:h-7 bg-[#090B0E] border-b border-[#1E242E] px-2 flex items-center justify-between text-[11px] font-sans text-zinc-300 select-none shrink-0 z-[45] relative"
-      onMouseLeave={closeMenu}
+      className="studio-menu min-h-12 sm:min-h-0 sm:h-7 bg-[#090B0E] border-b border-[#1E242E] px-2 flex items-center justify-between text-[11px] font-sans text-zinc-300 select-none shrink-0 z-[45] relative"
+      ref={menuRef}
+      onMouseLeave={() => setActiveMenu(null)}
+      onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node|null))setActiveMenu(null);}}
+      onKeyDown={e=>{if(e.key==='Escape'&&activeMenu){e.preventDefault();e.stopPropagation();closeMenu();}}}
     >
       {/* Brand & Menu Items */}
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold tracking-tight text-[10px] mr-1">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-          <span>PARAMETRIC ALS</span>
+          <span><span className="hidden sm:inline">PARAMETRIC </span>ALS</span>
         </div>
 
         {/* FILE MENU */}
         <div className="relative">
           <button
             type="button"
+            data-studio-menu="file"
+            aria-expanded={activeMenu === 'file'}
             onClick={() => setActiveMenu(activeMenu === 'file' ? null : 'file')}
             onMouseEnter={() => activeMenu && setActiveMenu('file')}
             className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
@@ -232,6 +245,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
         <div className="relative">
           <button
             type="button"
+            data-studio-menu="edit"
+            aria-expanded={activeMenu === 'edit'}
             onClick={() => setActiveMenu(activeMenu === 'edit' ? null : 'edit')}
             onMouseEnter={() => activeMenu && setActiveMenu('edit')}
             className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
@@ -284,6 +299,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
         <div className="relative">
           <button
             type="button"
+            data-studio-menu="view"
+            aria-expanded={activeMenu === 'view'}
             onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
             onMouseEnter={() => activeMenu && setActiveMenu('view')}
             className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
@@ -334,6 +351,12 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
                 <span>AI Composer Studio</span>
                 <span className="text-[10px] text-zinc-500">5</span>
               </button>
+              <button type="button" onClick={() => { onSwitchWorkspace('browser'); closeMenu(); }} className="min-h-11 w-full px-3 text-left hover:bg-amber-500/20">Browser</button>
+              {[
+                {label:'Track list',action:onToggleTracks},
+                {label:'Clip / device editor',action:onToggleEditor},
+                {label:'Inspector',action:onToggleInspector},
+              ].map(({label,action})=>action && <button key={label} type="button" onClick={()=>{action();closeMenu();}} className="min-h-11 w-full px-3 text-left hover:bg-amber-500/20">{label}</button>)}
               <div className="h-px bg-[#1F2733] my-1" />
               <button
                 type="button"
@@ -350,6 +373,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
         <div className="relative">
           <button
             type="button"
+            data-studio-menu="tools"
+            aria-expanded={activeMenu === 'tools'}
             onClick={() => setActiveMenu(activeMenu === 'tools' ? null : 'tools')}
             onMouseEnter={() => activeMenu && setActiveMenu('tools')}
             className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
@@ -399,6 +424,8 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
         <div className="relative">
           <button
             type="button"
+            data-studio-menu="window"
+            aria-expanded={activeMenu === 'window'}
             onClick={() => setActiveMenu(activeMenu === 'window' ? null : 'window')}
             onMouseEnter={() => activeMenu && setActiveMenu('window')}
             className={`min-h-12 sm:min-h-0 px-2 py-1 rounded transition-colors ${
@@ -475,11 +502,9 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
         )}
 
         {/* PWA / APK Install Button */}
-        <PWAInstallButton />
 
-        <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[9px] text-zinc-400">
-          ALS 12.0
-        </span>
+
+
       </div>
     </div>
   );

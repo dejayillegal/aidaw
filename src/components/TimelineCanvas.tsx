@@ -1752,6 +1752,20 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-[#0D1015] select-none">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#232a33] bg-[#12161B] px-3 py-2 text-xs">
+        <span className="font-semibold">Arrangement · {totalBars} bars</span>
+        <div className="flex items-center gap-2">
+          <button type="button" aria-label="Zoom out timeline" onClick={()=>setArrangementZoom(z=>Math.max(1,z/2))} className="min-h-11 min-w-11 rounded bg-[#1B2128]">−</button>
+          <button type="button" onClick={()=>{setArrangementZoom(1);setArrangementScrollBar(0);}} className="min-h-11 rounded bg-[#1B2128] px-3">Fit</button>
+          <button type="button" aria-label="Zoom in timeline" onClick={()=>setArrangementZoom(z=>Math.min(16,z*2))} className="min-h-11 min-w-11 rounded bg-[#1B2128]">+</button>
+          <label className="sr-only" htmlFor="timeline-edit-mode">Edit mode</label>
+          <select id="timeline-edit-mode" value={editMode} onChange={e=>onChangeEditMode?.(e.target.value as TimelineEditMode)} className="min-h-11 rounded border border-[#2a333e] bg-[#12161B] px-2">
+            <option value="grid">Grid</option><option value="slip">Slip</option><option value="shuffle">Shuffle</option><option value="spot">Spot</option>
+          </select>
+        </div>
+      </div>
+      <details data-testid="timeline-settings" className="shrink-0 border-b border-[#232a33]">
+        <summary className="min-h-11 cursor-pointer px-3 py-3 text-xs text-zinc-400">Timeline settings · loop, markers and automation</summary>
       {/* Ableton Arrangement View Header Bar with Duration, Real-Time Zoom, Loop & Automation */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-1.5 bg-[#12161E] border-b border-[#232934] text-xs">
         <div className="flex flex-wrap items-center gap-2.5 text-slate-300 font-mono tabular-nums">
@@ -2088,6 +2102,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         </div>
       </div>
 
+      </details>
+
       {/* Timeline Overview Navigator (Full-Song Minimap) + Bar-Range Clip Generator & Editor Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-1 bg-[#0A0D13] border-b border-[#1E2634] text-[10px] font-mono">
         {/* Full-Song Overview Navigator Minimap */}
@@ -2147,6 +2163,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           />
         </div>
 
+        <details data-testid="clip-actions" className="w-full min-w-0">
+          <summary className="min-h-11 cursor-pointer py-3 text-xs text-zinc-300">Clip actions · {selectedTrack?.name || 'Select a track'}</summary>
         {/* Bar-Range Selection & Multi-Clip Creation / Generation Controls */}
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="flex items-center gap-1 bg-[#111621] border border-sky-500/35 rounded px-1.5 py-0.5">
@@ -2347,6 +2365,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
             </div>
           )}
         </div>
+        </details>
       </div>
 
       {/* Upper Arrangement Split: Left Ableton Track + Return Headers + Right Arrangement Canvas */}

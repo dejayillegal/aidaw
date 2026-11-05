@@ -1,0 +1,996 @@
+[
+  {
+    "archive": "ai-audio-workstation-specification.zip",
+    "archiveSha256": "efbc7e89f782093abd7756cdb22a606dcc7f3cde6ff3d86320f1e413fb4c2f6e",
+    "fileCount": 23,
+    "files": [
+      {
+        "path": "index.html",
+        "bytes": 1150,
+        "sha256": "7e22ca4cf113497f484a8dec6ffc4dee58ae000e0b3b50a1430fb2c5a3dbc89e",
+        "lines": 20,
+        "declarations": []
+      },
+      {
+        "path": "package-lock.json",
+        "bytes": 85602,
+        "sha256": "d5f78df2ae76afde1d07a2e30279de4bf0808cb83fe3286989f2d20256cfc7c6",
+        "lines": 2578,
+        "declarations": []
+      },
+      {
+        "path": "package.json",
+        "bytes": 629,
+        "sha256": "120a85258bae0ebae05d6096bb64cad2dd52b0229cdcafe875cedc6f51d99726",
+        "lines": 28,
+        "declarations": []
+      },
+      {
+        "path": "src/App.tsx",
+        "bytes": 19704,
+        "sha256": "a6cee6b7ddd3154e14cf5ca06f0ff4347dea7d940a1e56df16bf6b1484a31c14",
+        "lines": 487,
+        "declarations": [
+          "GenOptions",
+          "Mode",
+          "Project",
+          "Clip",
+          "Track",
+          "Modal",
+          "Toast",
+          "initialProject",
+          "App"
+        ]
+      },
+      {
+        "path": "src/audio/engine.ts",
+        "bytes": 16203,
+        "sha256": "c7a6a1c9bc31290631a711fc4fa107a5bb1c484e334acfc7af30bc1b9223c2a1",
+        "lines": 458,
+        "declarations": [
+          "Project",
+          "Track",
+          "Step",
+          "TrackChain",
+          "Diagnostics",
+          "Engine"
+        ]
+      },
+      {
+        "path": "src/audio/render.ts",
+        "bytes": 13678,
+        "sha256": "2f0a00d9fa96d621702a1502a30694803dc3389a90d39fcdb0f59f347db0c512",
+        "lines": 386,
+        "declarations": [
+          "Project",
+          "Step",
+          "Track",
+          "RenderOptions",
+          "RenderResult",
+          "chordSemitones",
+          "evalAutomation",
+          "renderProject",
+          "OffChain",
+          "encodeWav",
+          "1",
+          "encodeMidi",
+          "Ev",
+          "NoteEv",
+          "downloadBlob"
+        ]
+      },
+      {
+        "path": "src/audio/voices.ts",
+        "bytes": 15413,
+        "sha256": "40491acbf2e1035050cff343803da4ef4242203239ea01f5fd8077231b789703",
+        "lines": 447,
+        "declarations": [
+          "Ctx",
+          "noiseBuffer",
+          "shaperCurve",
+          "driveTail",
+          "VoiceCtx",
+          "voiceKick",
+          "voiceRumble",
+          "voiceAcid",
+          "voiceHat",
+          "voiceClap",
+          "voicePerc",
+          "voiceStab",
+          "voicePad",
+          "voiceFX",
+          "voiceClick"
+        ]
+      },
+      {
+        "path": "src/components/Arrangement.tsx",
+        "bytes": 12830,
+        "sha256": "7dcf3061163a202856e4b6b0b5b97162f3e90b254cca6a8fb487ec6930365559",
+        "lines": 305,
+        "declarations": [
+          "Clip",
+          "Project",
+          "SectionRole",
+          "Track",
+          "Props",
+          "Arrangement"
+        ]
+      },
+      {
+        "path": "src/components/ComposerPanel.tsx",
+        "bytes": 9323,
+        "sha256": "6678b7603236af06aa4261a7b3a8724f5a78d58239254f2f72fd15652b1a0f0b",
+        "lines": 201,
+        "declarations": [
+          "GenOptions",
+          "Mode",
+          "Props",
+          "ComposerPanel"
+        ]
+      },
+      {
+        "path": "src/components/Inspector.tsx",
+        "bytes": 10149,
+        "sha256": "793c5ab4219e520f0b3f70f3ac820ef1cc8af0d91ac3fb98b19ea5d75bdeb8ad",
+        "lines": 261,
+        "declarations": [
+          "AutoPoint",
+          "Project",
+          "Track",
+          "Props",
+          "Inspector",
+          "t_indexAfterInsert",
+          "TrackFacts"
+        ]
+      },
+      {
+        "path": "src/components/Mixer.tsx",
+        "bytes": 6334,
+        "sha256": "e7a1ce4ef2549b7a223b29a3466505dcb847e6394d80d929f38152c5a91d699e",
+        "lines": 127,
+        "declarations": [
+          "Props",
+          "Levels",
+          "Mixer"
+        ]
+      },
+      {
+        "path": "src/components/Modals.tsx",
+        "bytes": 18315,
+        "sha256": "7c351fad60e74af92bb8af923fa613a74073a8c9559e086778f80f2648a09fa0",
+        "lines": 365,
+        "declarations": [
+          "Project",
+          "SavedProject",
+          "Mode",
+          "Shell",
+          "NewProjectModal",
+          "LibraryModal",
+          "ExportModal",
+          "Stat",
+          "HelpModal"
+        ]
+      },
+      {
+        "path": "src/components/PatternEditor.tsx",
+        "bytes": 10370,
+        "sha256": "2fd814b646e8e6a8641777f4db1b4c5f9317f90ee25f7b76833399a46aaf1286",
+        "lines": 262,
+        "declarations": [
+          "Props",
+          "RowDef",
+          "rowsFor",
+          "PatternEditor"
+        ]
+      },
+      {
+        "path": "src/components/Transport.tsx",
+        "bytes": 7566,
+        "sha256": "2bdf5d425bbf82f99749f60865e09655dea45c7cb3c7e17010e03a9728d7d90c",
+        "lines": 173,
+        "declarations": [
+          "Props",
+          "Transport"
+        ]
+      },
+      {
+        "path": "src/components/ui.tsx",
+        "bytes": 8354,
+        "sha256": "d355d5040fbfbd2075b9153668c89e22595c387c83449eacba738362b0230a0e",
+        "lines": 245,
+        "declarations": [
+          "Knob",
+          "Fader",
+          "Meter",
+          "MiniToggle",
+          "Led"
+        ]
+      },
+      {
+        "path": "src/compose/generator.ts",
+        "bytes": 25710,
+        "sha256": "c3ea9c5c149dc154909e7f67150e762d9ca9da059c83d7e37065f471f798741b",
+        "lines": 572,
+        "declarations": [
+          "Project",
+          "Track",
+          "Clip",
+          "Section",
+          "SectionRole",
+          "Step",
+          "TrackType",
+          "Mode",
+          "GenOptions",
+          "GenreProfile",
+          "planSections",
+          "planHarmony",
+          "buildKick",
+          "buildRumble",
+          "buildHats",
+          "buildClap",
+          "buildFill",
+          "buildPerc",
+          "buildAcid",
+          "buildStab",
+          "buildPad",
+          "applyGenreDevices",
+          "generateComposition",
+          "applyTransitions",
+          "regeneratePatterns",
+          "regenerateBassline",
+          "regenerateTransitions"
+        ]
+      },
+      {
+        "path": "src/index.css",
+        "bytes": 7866,
+        "sha256": "02d98f6bb5f83db63a136e3a248aa2e9c9e32caf7c2be0d5a6e1dd020ccd2e2e",
+        "lines": 372,
+        "declarations": []
+      },
+      {
+        "path": "src/lib/music.ts",
+        "bytes": 4175,
+        "sha256": "80d0e89edd4da79fff3289b3378909b5586a692d07c6c590e17a51179d5a8546",
+        "lines": 128,
+        "declarations": [
+          "RNG",
+          "hashSeed",
+          "scaleIntervals",
+          "midiName",
+          "degreeToSemitones",
+          "formatPos",
+          "formatTime",
+          "euclid"
+        ]
+      },
+      {
+        "path": "src/lib/project.ts",
+        "bytes": 12667,
+        "sha256": "7b3f3805c6a9daa73dd4e2afcfe54d7f138afdef3781b220624f9c4acedea779",
+        "lines": 388,
+        "declarations": [
+          "TrackType",
+          "Step",
+          "Clip",
+          "AutoPoint",
+          "Track",
+          "SectionRole",
+          "Section",
+          "Project",
+          "ParamSpec",
+          "makeTrack",
+          "makeProject",
+          "emptySteps",
+          "FactoryPreset",
+          "History",
+          "SavedProject",
+          "serializeProject",
+          "deserializeProject",
+          "autosave",
+          "loadAutosave",
+          "clearAutosave",
+          "loadLibrary",
+          "saveToLibrary",
+          "deleteFromLibrary"
+        ]
+      },
+      {
+        "path": "src/main.tsx",
+        "bytes": 230,
+        "sha256": "f268dc44f71240012de0cfb1569d8ac906265cccd45eb3a99059c1a663d2f830",
+        "lines": 10,
+        "declarations": []
+      },
+      {
+        "path": "src/utils/cn.ts",
+        "bytes": 169,
+        "sha256": "d1f1e0d62cb8d8d1e04c26e14de842d8a151f75812d81b046c65b5d1fe8e4b27",
+        "lines": 6,
+        "declarations": [
+          "ClassValue",
+          "cn"
+        ]
+      },
+      {
+        "path": "tsconfig.json",
+        "bytes": 681,
+        "sha256": "2a760f56fa49b96935783a2c3b4ce63d67e4547fdace88c4f4361a0c4fc10848",
+        "lines": 31,
+        "declarations": []
+      },
+      {
+        "path": "vite.config.ts",
+        "bytes": 538,
+        "sha256": "18dd184b9091357fe23797ee047138e6af7663b59697ac45d6c3c219522db9fa",
+        "lines": 19,
+        "declarations": []
+      }
+    ]
+  },
+  {
+    "archive": "ai-daw-architecture-specification.zip",
+    "archiveSha256": "c1cd8af74697ff564465af94d25c88ea1bf7faaf329c11f4e155ffb44e3d3027",
+    "fileCount": 30,
+    "files": [
+      {
+        "path": "drizzle.config.json",
+        "bytes": 156,
+        "sha256": "cc44502003e85bb5258a3a5b59522c28238a052d0f19abcf14338c71474467b7",
+        "lines": 7,
+        "declarations": []
+      },
+      {
+        "path": "eslint.config.mjs",
+        "bytes": 365,
+        "sha256": "c971926abccc506da1532570c55a95d5298b606901c4801866a4862969c13302",
+        "lines": 8,
+        "declarations": []
+      },
+      {
+        "path": "next.config.ts",
+        "bytes": 104,
+        "sha256": "ab4c61f6ee100ae43610a18512f1ebcec842bb2405431e1009266173f21cf772",
+        "lines": 5,
+        "declarations": []
+      },
+      {
+        "path": "package.json",
+        "bytes": 773,
+        "sha256": "2d7882870c607f3fc5dac674568180755e30bbffef95d88a7db9d21fe9ad90a7",
+        "lines": 33,
+        "declarations": []
+      },
+      {
+        "path": "postcss.config.mjs",
+        "bytes": 108,
+        "sha256": "b8cd36495468ea54e029eb4b2e0e98f0feff6f95d6513e70db37a71c0e3bfba4",
+        "lines": 7,
+        "declarations": []
+      },
+      {
+        "path": "src/app/api/health/route.ts",
+        "bytes": 295,
+        "sha256": "85ecde9db86952d444d593f4133df2b517ed768accc487350d35bb0db498357f",
+        "lines": 13,
+        "declarations": [
+          "GET"
+        ]
+      },
+      {
+        "path": "src/app/api/projects/route.ts",
+        "bytes": 10633,
+        "sha256": "9c5670fd52c6fa20f30d595929eb7a25ffd49c96f5d06201e184cfe0fac0d993",
+        "lines": 363,
+        "declarations": [
+          "ensureSeedData",
+          "GET",
+          "POST"
+        ]
+      },
+      {
+        "path": "src/app/api/qualification/route.ts",
+        "bytes": 1418,
+        "sha256": "4599da7395d5e34665f9fab75889e02564e36711b8153ebb9975ed9f7f725743",
+        "lines": 47,
+        "declarations": [
+          "GET",
+          "POST"
+        ]
+      },
+      {
+        "path": "src/app/globals.css",
+        "bytes": 478,
+        "sha256": "5517c890c0943b368c700a02fa548ca79902ef6b23b09b402dc544ea3ce5f32c",
+        "lines": 30,
+        "declarations": []
+      },
+      {
+        "path": "src/app/layout.tsx",
+        "bytes": 713,
+        "sha256": "ec24d972f205b26231cd59400039067f8d4a9fa10f1856d02dcc11091de1375a",
+        "lines": 19,
+        "declarations": [
+          "RootLayout"
+        ]
+      },
+      {
+        "path": "src/app/page.tsx",
+        "bytes": 24833,
+        "sha256": "0721aa9b08b4850f67586e5e9c785c6337dc9e47726b313c60d40e41b74f0bd1",
+        "lines": 694,
+        "declarations": [
+          "NyxDawWorkstationPage",
+          "if"
+        ]
+      },
+      {
+        "path": "src/components/daw/AICompositionDock.tsx",
+        "bytes": 13135,
+        "sha256": "4a538c695119d08bbadf0d34e81391bfb3d844c110afc5a45236ad5e934fb0a1",
+        "lines": 356,
+        "declarations": [
+          "AICompositionDockProps",
+          "AICompositionDock"
+        ]
+      },
+      {
+        "path": "src/components/daw/ArrangementTimeline.tsx",
+        "bytes": 31360,
+        "sha256": "4cccf7cb3de38d03f27063067b0feff6ccc97ca951eaf11d35db98c64ce8e5b5",
+        "lines": 727,
+        "declarations": [
+          "ArrangementTimelineProps",
+          "ArrangementTimeline"
+        ]
+      },
+      {
+        "path": "src/components/daw/AssetBrowserDock.tsx",
+        "bytes": 13361,
+        "sha256": "4841bc0eb115d9350385d84d94a15e7ba6bf1edbd5edd61585e4dae728cd2d3e",
+        "lines": 338,
+        "declarations": [
+          "SavedProjectSummary",
+          "SnapshotRecord",
+          "AssetBrowserDockProps",
+          "AssetBrowserDock"
+        ]
+      },
+      {
+        "path": "src/components/daw/BottomEditorRack.tsx",
+        "bytes": 42704,
+        "sha256": "adbe22dff156d45cfd98333bcbb492b20135ff9f223f71a87792b1bab13ec027",
+        "lines": 1097,
+        "declarations": [
+          "BottomRackTab",
+          "BottomEditorRackProps",
+          "BottomEditorRack",
+          "const"
+        ]
+      },
+      {
+        "path": "src/components/daw/Modals.tsx",
+        "bytes": 34921,
+        "sha256": "5e13a06773cd9492180d0a56ec32b281b94ccc476743e2b8b25a4f2602c360bf",
+        "lines": 891,
+        "declarations": [
+          "NewProjectWizardModalProps",
+          "NewProjectWizardModal",
+          "Cards",
+          "ExportMasterModalProps",
+          "ExportMasterModal",
+          "ReleaseQualificationModalProps",
+          "ReleaseQualificationModal"
+        ]
+      },
+      {
+        "path": "src/components/daw/RotaryKnob.tsx",
+        "bytes": 4539,
+        "sha256": "cfb409586ad9532c8083ba30f0ef00d52b1f550282816a7817232ada06220925",
+        "lines": 159,
+        "declarations": [
+          "RotaryKnobProps",
+          "RotaryKnob"
+        ]
+      },
+      {
+        "path": "src/components/daw/SessionMatrixView.tsx",
+        "bytes": 8915,
+        "sha256": "a2f04b76f3ee9a593584947dd61f99b05bfe1d4a120c126bc4022b3c1502adaa",
+        "lines": 205,
+        "declarations": [
+          "SessionMatrixViewProps",
+          "SessionMatrixView"
+        ]
+      },
+      {
+        "path": "src/components/daw/TransportHeader.tsx",
+        "bytes": 14994,
+        "sha256": "e3c7b71b352f194816b8cb4ffa370f0e9e4a2760d78e880072f9337e0c23e94e",
+        "lines": 402,
+        "declarations": [
+          "PlatformViewportMode",
+          "TransportHeaderProps",
+          "TransportHeader"
+        ]
+      },
+      {
+        "path": "src/core/audioEngine.ts",
+        "bytes": 33110,
+        "sha256": "9f0c7abe1f08000a9951c9cf6ff61a54a6efa8d988f3a42b614f571957a56b55",
+        "lines": 1010,
+        "declarations": [
+          "TrackMeterTelemetry",
+          "EngineTelemetrySnapshot",
+          "TrackAudioNodes",
+          "dbToLinear",
+          "linearToDb",
+          "createDistortionCurve",
+          "createNoiseBuffer",
+          "createWarehouseReverbImpulse",
+          "NyxRealTimeAudioEngine"
+        ]
+      },
+      {
+        "path": "src/core/commands.ts",
+        "bytes": 32426,
+        "sha256": "5c73d4f9f42a1301b53dcf1c77cbe5f3a1d7413396dc19cd29fc64c97699a1e2",
+        "lines": 1152,
+        "declarations": [
+          "ProjectCommand",
+          "CommandHistoryEntry",
+          "describeCommand",
+          "finalizeProjectMutation",
+          "executeProjectCommand"
+        ]
+      },
+      {
+        "path": "src/core/compositionEngine.ts",
+        "bytes": 41859,
+        "sha256": "d6df5d21b520b73c8756630e483ab59d5d6448be269f2bf7ce5e7d10fb29041d",
+        "lines": 1362,
+        "declarations": [
+          "SubgenreGrammar",
+          "makeNoteId",
+          "generateSongFormSections",
+          "generateClipNotesForSection",
+          "generateCompleteProject",
+          "regenerateSectionInProject",
+          "evaluateCompositionQuality"
+        ]
+      },
+      {
+        "path": "src/core/factoryAssets.ts",
+        "bytes": 9981,
+        "sha256": "88e5a0f08f76ac02c6f99bb3e6aec1c1e80969aad2a021fcdd37f18eaea2dc9e",
+        "lines": 420,
+        "declarations": [
+          "FactoryPresetItem",
+          "FactorySampleItem"
+        ]
+      },
+      {
+        "path": "src/core/musicTheory.ts",
+        "bytes": 4498,
+        "sha256": "eeb133fb85091e9ade2bd13eb6583e561e9d355fc6917d71f7f2284d97255e51",
+        "lines": 178,
+        "declarations": [
+          "SeededRandom",
+          "midiToFreq",
+          "midiToNoteName",
+          "getScaleMidiNotes",
+          "isPitchInScale",
+          "snapPitchToScale",
+          "generateEuclideanPattern",
+          "computeProjectChecksum"
+        ]
+      },
+      {
+        "path": "src/core/releaseQualification.ts",
+        "bytes": 9770,
+        "sha256": "b0406ea30b8db6afd468f95536a8941862e720a55a3c73ff389c1951b62dede4",
+        "lines": 264,
+        "declarations": [
+          "runAllReleaseQualificationGates"
+        ]
+      },
+      {
+        "path": "src/core/types.ts",
+        "bytes": 7996,
+        "sha256": "730059bba8951614c06161e6f7897eded84bc57203e495762978223e0f466016",
+        "lines": 351,
+        "declarations": [
+          "TechnoSubgenre",
+          "CreativeMode",
+          "MusicalScale",
+          "MusicalKey",
+          "TrackType",
+          "InstrumentDeviceType",
+          "EffectDeviceType",
+          "EditMode",
+          "SectionRole",
+          "TempoPoint",
+          "MidiNote",
+          "ClipModel",
+          "SessionSlot",
+          "InstrumentConfig",
+          "EffectDeviceConfig",
+          "SidechainConfig",
+          "AutomationPoint",
+          "AutomationLane",
+          "TrackModel",
+          "ArrangementSection",
+          "SessionScene",
+          "MasterBusConfig",
+          "CompositionCreativeMetadata",
+          "RecoveryMetadata",
+          "ProjectModel",
+          "CompositionDiagnosticsReport",
+          "ExportStage",
+          "WavExportVerificationReport",
+          "ReleaseGateRecord"
+        ]
+      },
+      {
+        "path": "src/core/wavExporter.ts",
+        "bytes": 18579,
+        "sha256": "83001a3fe9c48b4fd8af8d3b4f3b46d2cb12b457b8fc66532d7aed556aae0e4d",
+        "lines": 543,
+        "declarations": [
+          "WavExportOptions",
+          "WavExportProgressEvent",
+          "dbToLin",
+          "linToDb",
+          "writeAscii",
+          "executeWavExportStateMachine",
+          "verifyWavBinaryBuffer",
+          "exportProjectToMidiBinary",
+          "encodeVarLen"
+        ]
+      },
+      {
+        "path": "src/db/index.ts",
+        "bytes": 547,
+        "sha256": "44d8e984cf4d238facb3e984c6a2ffa7abfca11768da1304ff439d2b7246990b",
+        "lines": 24,
+        "declarations": []
+      },
+      {
+        "path": "src/db/schema.ts",
+        "bytes": 2966,
+        "sha256": "60d917e8d39bec2f5650d862a92a4f36c5bc0eeee3936da7755bbd19e3c722ee",
+        "lines": 75,
+        "declarations": []
+      },
+      {
+        "path": "tsconfig.json",
+        "bytes": 723,
+        "sha256": "4ea5303fb21d01b83151db57d43246ba2ac0bbb4e79b9e83b3a120b2599c4351",
+        "lines": 42,
+        "declarations": []
+      }
+    ]
+  },
+  {
+    "archive": "ai-powered-daw-specification.zip",
+    "archiveSha256": "44de8c580f6d89fa743f00008c8d3c4830d35870e0818a0511f1a755abd7f10e",
+    "fileCount": 20,
+    "files": [
+      {
+        "path": "index.html",
+        "bytes": 529,
+        "sha256": "aa30932cfd880b3895e91bab6e299e131c6d3ef10cfb3af5ba8f19fe5716615c",
+        "lines": 14,
+        "declarations": []
+      },
+      {
+        "path": "package-lock.json",
+        "bytes": 86180,
+        "sha256": "dcaae0c8ec87abf4fd2b5e86ec69fd3862de6b1374aa421267c680c085fbce72",
+        "lines": 2594,
+        "declarations": []
+      },
+      {
+        "path": "package.json",
+        "bytes": 660,
+        "sha256": "d908b6fff5e9d6643a871a80fede28c35a0c2eaab3bd80705fa0e57b449bf32a",
+        "lines": 29,
+        "declarations": []
+      },
+      {
+        "path": "src/App.tsx",
+        "bytes": 11721,
+        "sha256": "868452d6239731b69ecf21192964f9be89de50a640282e4f8974eb7ef74c99ca",
+        "lines": 220,
+        "declarations": [
+          "Shell",
+          "PanelHead",
+          "ViewSeg",
+          "App"
+        ]
+      },
+      {
+        "path": "src/components/Editors.tsx",
+        "bytes": 45036,
+        "sha256": "e5dd17b4dccac0df08b801eb1590cfe0986bf3c4a289c89cc0c1299de7ccae95",
+        "lines": 698,
+        "declarations": [
+          "PianoRoll",
+          "ToolBtn",
+          "scaleSet",
+          "Mixer",
+          "MixTog",
+          "SendRow",
+          "MasterRow",
+          "DeviceParamDef",
+          "DeviceChain",
+          "moveDev",
+          "InstParam",
+          "EmptyVol",
+          "EmptyMute",
+          "LayerMatrix"
+        ]
+      },
+      {
+        "path": "src/components/SidePanels.tsx",
+        "bytes": 57320,
+        "sha256": "71928705d4244253f0855d478efaea4122061bd3b8e4f529ddc68e6a1f42b169",
+        "lines": 928,
+        "declarations": [
+          "Browser",
+          "as",
+          "Inspector",
+          "FinishCenter",
+          "AiBtn",
+          "HealthRow",
+          "MixAnalysis",
+          "QAPanel",
+          "Wizard",
+          "ExportDialog",
+          "ProjectMenu",
+          "MenuBtn",
+          "ShortcutHelp",
+          "StarIcon"
+        ]
+      },
+      {
+        "path": "src/components/TopBar.tsx",
+        "bytes": 7239,
+        "sha256": "bf1f12bc835daa9121864b74f4b66aa5a637f0bf7e1ab9a927b953ecc9229adf",
+        "lines": 127,
+        "declarations": [
+          "TopBar",
+          "AudioBadge"
+        ]
+      },
+      {
+        "path": "src/components/Workspace.tsx",
+        "bytes": 29702,
+        "sha256": "d85404f3cbff889226c494dcab59880875b65097c07510c364abf28531c7d490",
+        "lines": 528,
+        "declarations": [
+          "Timeline",
+          "quantGrid",
+          "ToolBtn",
+          "TrackHeader",
+          "MiniTog",
+          "ClipView",
+          "AutoOverlay",
+          "moveClip",
+          "resizeClip",
+          "resizeClipL",
+          "splitClip",
+          "renameTrack",
+          "flagTrack",
+          "volTrack",
+          "SessionView"
+        ]
+      },
+      {
+        "path": "src/daw/compose.ts",
+        "bytes": 58411,
+        "sha256": "c2f9f4f9afad35b3739775804664e2dc4f0c035725e17033b73d028f28ed2669",
+        "lines": 1194,
+        "declarations": [
+          "CompositionResult",
+          "SectionTemplate",
+          "planSections",
+          "nextColor",
+          "makeTrack",
+          "makeClip",
+          "n",
+          "genKick",
+          "genHats",
+          "genClapSnare",
+          "genPerc",
+          "genBass",
+          "genAcid",
+          "genStabs",
+          "genPad",
+          "genAtmos",
+          "genFX",
+          "generateFullComposition",
+          "describeSection",
+          "createDefaultIntent",
+          "buildProject",
+          "regenerateTrackSection",
+          "hashStr",
+          "CompositionMetrics",
+          "analyzeComposition",
+          "BoundaryAudit",
+          "CoverageRow",
+          "SendAudit",
+          "DeepFix",
+          "DeepAnalysis",
+          "absNotes",
+          "analyzeDeep",
+          "applyTransition",
+          "designTransition",
+          "toggleLayerCell",
+          "FinishOptions",
+          "completeArrangement",
+          "as"
+        ]
+      },
+      {
+        "path": "src/daw/engine.ts",
+        "bytes": 40947,
+        "sha256": "c3db1909d88293717f059d53e9d02b6e393205e0ce9292cb2375c8f6b0c47270",
+        "lines": 852,
+        "declarations": [
+          "MeterInfo",
+          "EngineStatus",
+          "FlatEvent",
+          "TrackNodes",
+          "midiHz",
+          "makeDistortionCurve",
+          "makeImpulse",
+          "ForgeEngine"
+        ]
+      },
+      {
+        "path": "src/daw/exporter.ts",
+        "bytes": 22341,
+        "sha256": "d6180c1012450e41f93a8f2da316759df5316f52e684e1e8594409f95946fc9c",
+        "lines": 457,
+        "declarations": [
+          "ExportState",
+          "ExportOptions",
+          "midiHz",
+          "noiseBuffer",
+          "impulse",
+          "scheduleNote",
+          "renderProject",
+          "E",
+          "encodeWAV",
+          "varLen",
+          "exportMidi",
+          "analyzeBuffer"
+        ]
+      },
+      {
+        "path": "src/daw/genres.ts",
+        "bytes": 8858,
+        "sha256": "661b3951f172bb7c1f64f9c8a99ecd8779394833265d6dacb3e1e30bf6b2e97d",
+        "lines": 64,
+        "declarations": [
+          "GenreGrammar",
+          "getGenre",
+          "paletteModifiers"
+        ]
+      },
+      {
+        "path": "src/daw/store.tsx",
+        "bytes": 16347,
+        "sha256": "7ad532978a9c52c0206a92c6083c74abedd628a88d338143498516c33039cddb",
+        "lines": 382,
+        "declarations": [
+          "MainView",
+          "BottomTab",
+          "DawState",
+          "Action",
+          "pushRecord",
+          "reducer",
+          "LibraryEntry",
+          "readLibrary",
+          "writeLibrary",
+          "validateProject",
+          "sigBody",
+          "structuralSig",
+          "DawApi",
+          "useDaw",
+          "starterProject",
+          "DawProvider"
+        ]
+      },
+      {
+        "path": "src/daw/theory.ts",
+        "bytes": 4617,
+        "sha256": "efc5f52fdde15c7ddf2e14f3d35bbaa79536c175f3b87935c818487976c98199",
+        "lines": 118,
+        "declarations": [
+          "mulberry32",
+          "Rng",
+          "hashSeed",
+          "pcName",
+          "midiName",
+          "scaleDegrees",
+          "quantizeToScale",
+          "pickProgression",
+          "chordTones",
+          "euclidean",
+          "swingOffset",
+          "humanize",
+          "pick",
+          "clamp"
+        ]
+      },
+      {
+        "path": "src/daw/types.ts",
+        "bytes": 4734,
+        "sha256": "5a56ed66e676249976d0f7062c159a1c30c88fff76a695111d837a33ecfff858",
+        "lines": 172,
+        "declarations": [
+          "TrackType",
+          "NoteEvent",
+          "MidiClip",
+          "DeviceState",
+          "TrackState",
+          "AutomationPoint",
+          "AutomationLane",
+          "ArrangementSection",
+          "CreativeIntent",
+          "0",
+          "ProjectMix",
+          "ForgeProject",
+          "CommandType",
+          "CommandRecord",
+          "uid",
+          "beatsToSeconds",
+          "secondsToBeats",
+          "barToBeats",
+          "beatsToBarBeat",
+          "formatMusicalTime"
+        ]
+      },
+      {
+        "path": "src/index.css",
+        "bytes": 3293,
+        "sha256": "f7864d8453f86fb3f2f7cbee00de2de126344bc07c3f3d30d3922014797d7000",
+        "lines": 77,
+        "declarations": []
+      },
+      {
+        "path": "src/main.tsx",
+        "bytes": 230,
+        "sha256": "f268dc44f71240012de0cfb1569d8ac906265cccd45eb3a99059c1a663d2f830",
+        "lines": 10,
+        "declarations": []
+      },
+      {
+        "path": "src/utils/cn.ts",
+        "bytes": 169,
+        "sha256": "d1f1e0d62cb8d8d1e04c26e14de842d8a151f75812d81b046c65b5d1fe8e4b27",
+        "lines": 6,
+        "declarations": [
+          "ClassValue",
+          "cn"
+        ]
+      },
+      {
+        "path": "tsconfig.json",
+        "bytes": 681,
+        "sha256": "2a760f56fa49b96935783a2c3b4ce63d67e4547fdace88c4f4361a0c4fc10848",
+        "lines": 31,
+        "declarations": []
+      },
+      {
+        "path": "vite.config.ts",
+        "bytes": 538,
+        "sha256": "18dd184b9091357fe23797ee047138e6af7663b59697ac45d6c3c219522db9fa",
+        "lines": 19,
+        "declarations": []
+      }
+    ]
+  }
+]

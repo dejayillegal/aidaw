@@ -305,7 +305,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                 <span className="font-semibold text-slate-100">NOVELTY &amp; ALS SAFETY</span>
               </div>
               <span className="text-[10px] text-emerald-400">
-                {alsReport.isValid ? 'CADENCE PASS' : 'CHECK XML'}
+                {alsReport.isValid ? 'XML CHECKS PASS' : 'CHECK XML'}
               </span>
             </div>
 

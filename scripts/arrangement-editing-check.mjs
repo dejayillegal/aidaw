@@ -199,6 +199,7 @@ try {
     ),
   );
   await stage("Duplicated selected clip through canonical history");
+  await page.getByTestId("clip-actions").locator("summary").click();
   await page.getByTestId("bar-range-start-input").fill("2");
   await page.getByTestId("bar-range-end-input").fill("3");
   await page.getByTestId("range-delete-clip-btn").click();
@@ -509,8 +510,8 @@ try {
     if (viewport.width < 900) {
       const close = page.getByTitle("Close Left Dock", { exact: true });
       if (await close.isVisible()) await close.click();
-      const toggle = page.getByTitle(/^Toggle Tracks/);
-      await toggle.click();
+      await page.getByRole("button", {name:"View",exact:true}).click();
+      await page.getByRole("button", {name:"Track list",exact:true}).click();
       assert.equal(await close.isVisible(), true);
       await close.click();
     }

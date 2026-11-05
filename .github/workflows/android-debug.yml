@@ -107,6 +107,12 @@ jobs:
           SESSION_AUTOMATION_OUTPUT: recovery-browser-evidence/session-automation
         run: node scripts/session-automation-check.mjs
 
+      - name: Verify workspace navigation and sound browser
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          WORKSPACE_FLOW_OUTPUT: recovery-browser-evidence/workspace-flow
+        run: node scripts/workspace-flow-check.mjs
+
       - name: Verify mixed-meter editing workflow
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         env:

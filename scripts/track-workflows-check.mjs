@@ -33,7 +33,7 @@ export async function runSessionWorkflows(page,origin,output) {
     return {project:p,playing:synthEngine.getIsPlaying(),beat:synthEngine.getCurrentBeat(),meters:p.tracks.map(t=>synthEngine.getTrackMeterLevels(t.id))};
   });
   const initial=await poll(read,v=>v.project.tracks.length===2 && v.project.tempo===120,'Session fixture not installed');
-  await page.getByRole('button',{name:'SESSION MATRIX',exact:true}).click();
+  await page.getByRole('button',{name:'Session',exact:true}).click();
   for(const track of initial.project.tracks) await page.getByRole('button',{name:`Copy ${track.name} first clip to slot A`,exact:true}).click();
   await page.getByLabel('Session launch quantization',{exact:true}).selectOption('1');
   await page.getByRole('button',{name:'Launch Scene A',exact:true}).click();
@@ -80,7 +80,7 @@ export async function runSessionWorkflows(page,origin,output) {
   await page.reload();await page.getByLabel('Open saved DAW project',{exact:true}).setInputFiles(file);
   const reopened=await poll(read,v=>v.project.session?.events.length===3,'Session performance not reopened');
   assert.deepEqual(reopened.project.tracks,returned.project.tracks);assert.deepEqual(reopened.project.session,returned.project.session);
-  await page.getByRole('button',{name:'SESSION MATRIX',exact:true}).click();
+  await page.getByRole('button',{name:'Session',exact:true}).click();
   for(const viewport of [{width:360,height:640},{width:900,height:720},{width:800,height:360},{width:1440,height:900}]){
     await page.setViewportSize(viewport);const button=page.getByRole('button',{name:'Return to Arrangement',exact:true});await button.scrollIntoViewIfNeeded();
     const box=await button.boundingBox();assert(box&&box.x>=0&&box.x+box.width<=viewport.width+1&&box.y>=0&&box.y+box.height<=viewport.height+1,'Session ownership control clipped');
@@ -131,7 +131,8 @@ export async function runTrackWorkflows(page, origin, output) {
     return studioCommandBus.getHistory(projectQueueService.getActiveQueueId()).map(tx=>tx.label);
   });
   const before = await state();
-  await page.getByRole('button',{name:'AI COMPOSER',exact:true}).click();
+  await page.getByRole('button',{name:'View',exact:true}).click();
+  await page.getByRole('button',{name:/^AI Composer Studio/}).click();
   await page.getByRole('button',{name:/^Randomize Velocities on/}).click();
   await page.waitForFunction(async () => {
     const {projectQueueService:q} = await import('/src/services/projectQueueService.ts');
@@ -185,7 +186,8 @@ export async function runTrackWorkflows(page, origin, output) {
   const viewports = [{width:360,height:640},{width:900,height:720},{width:800,height:360},{width:1440,height:900}];
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
-    await page.getByRole('button',{name:'AI COMPOSER',exact:true}).click();
+    await page.getByRole('button',{name:'View',exact:true}).click();
+  await page.getByRole('button',{name:/^AI Composer Studio/}).click();
     const button = page.getByRole('button',{name:/^Apply 75% Quantize/});
     await button.scrollIntoViewIfNeeded();
     const box = await button.boundingBox();

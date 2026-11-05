@@ -66,6 +66,14 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
   onUndo,
   onRedo,
 }) => {
+  const [tempoDraft, setTempoDraft] = useState(String(tempo));
+  useEffect(() => setTempoDraft(String(tempo)), [tempo]);
+  const commitTempo = () => {
+    const value = Number(tempoDraft);
+    if (tempoDraft.trim() && Number.isFinite(value) && value >= 40 && value <= 240) {
+      if (value !== tempo) onUpdateTempo(value);
+    } else setTempoDraft(String(tempo));
+  };
   const [tapTimestamps, setTapTimestamps] = useState<number[]>([]);
   const [peakHoldDb, setPeakHoldDb] = useState<number>(-60);
   const [hasClipped, setHasClipped] = useState<boolean>(false);
@@ -93,9 +101,9 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
         intervals.push(recent[i] - recent[i - 1]);
       }
       const avgIntervalMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-      if (avgIntervalMs > 250 && avgIntervalMs < 1200) {
+      if (avgIntervalMs >= 250 && avgIntervalMs <= 1500) {
         const computedBpm = Math.round(60000 / avgIntervalMs);
-        onUpdateTempo(Math.max(90, Math.min(180, computedBpm)));
+        onUpdateTempo(Math.max(40, Math.min(240, computedBpm)));
       }
     }
   };
@@ -121,7 +129,7 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
   const peakHoldPct = dbToPct(peakHoldDb);
 
   return (
-    <div className="min-h-12 overflow-x-auto gap-3 bg-[#0E1217] border-b border-[#1E2530] px-3 flex items-center justify-between font-mono select-none shrink-0 z-30">
+    <div className="studio-transport min-h-12 overflow-x-auto gap-3 bg-[#0E1217] border-b border-[#1E2530] px-3 flex items-center justify-between font-mono select-none shrink-0 z-30">
       {/* LEFT: TRANSPORT PLAYBACK CONTROLS */}
       <div className="flex items-center gap-1.5 shrink-0">
         <button
@@ -171,6 +179,8 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
           <span>{transport.arrangementMode==='session'?'SESSION':transport.loopEnabled ? `${transport.loopLengthBars}B` : 'OFF'}</span>
         </button>
 
+        <button type="button" aria-label="Metronome" aria-pressed={transport.metronomeEnabled} onClick={()=>onUpdateTransport({metronomeEnabled:!transport.metronomeEnabled})} className={`md:hidden min-h-11 min-w-11 rounded border text-xs ${transport.metronomeEnabled?'border-cyan-400 text-cyan-300':'border-[#263140] text-zinc-400'}`}>Click</button>
+
         {/* Undo / Redo */}
         <div className="hidden sm:flex items-center gap-1 ml-1 border-l border-[#202734] pl-2">
           <button
@@ -209,23 +219,29 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
           <span className="text-zinc-400 text-[10px]">BPM</span>
           <button
             type="button"
-            onClick={() => onUpdateTempo(tempo - 1)}
-            className="w-5 h-5 rounded bg-[#161C24] hover:bg-[#1F2732] text-zinc-300 flex items-center justify-center text-xs font-bold"
+            aria-label="Decrease tempo"
+            onClick={() => onUpdateTempo(Math.max(40, tempo - 1))}
+            className="tempo-stepper w-5 h-5 rounded bg-[#161C24] hover:bg-[#1F2732] text-zinc-300 flex items-center justify-center text-xs font-bold"
           >
             -
           </button>
           <input
             type="number"
-            min={80}
-            max={185}
-            value={tempo}
-            onChange={(e) => onUpdateTempo(parseFloat(e.target.value) || 134)}
-            className="w-12 text-center bg-transparent text-amber-300 font-bold text-xs outline-none tabular-nums"
+            aria-label="Tempo BPM"
+            min={40}
+            max={240}
+            step={0.01}
+            value={tempoDraft}
+            onChange={e=>setTempoDraft(e.target.value)}
+            onBlur={commitTempo}
+            onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}else if(e.key==='Escape'){setTempoDraft(String(tempo));e.stopPropagation();}}}
+            className="w-16 text-center bg-transparent text-amber-300 font-bold text-xs outline-none tabular-nums"
           />
           <button
             type="button"
-            onClick={() => onUpdateTempo(tempo + 1)}
-            className="w-5 h-5 rounded bg-[#161C24] hover:bg-[#1F2732] text-zinc-300 flex items-center justify-center text-xs font-bold"
+            aria-label="Increase tempo"
+            onClick={() => onUpdateTempo(Math.min(240, tempo + 1))}
+            className="tempo-stepper w-5 h-5 rounded bg-[#161C24] hover:bg-[#1F2732] text-zinc-300 flex items-center justify-center text-xs font-bold"
           >
             +
           </button>
@@ -259,25 +275,6 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
 
       {/* RIGHT: EDIT MODE, METERS, CPU & AUDIO ENGINE STATUS */}
       <div className="flex items-center gap-3 shrink-0">
-        {/* Edit Mode Quick Indicator */}
-        <div className="hidden lg:flex items-center gap-1 text-[10px]">
-          <span className="text-zinc-500 uppercase">MODE:</span>
-          {(['grid', 'slip', 'shuffle', 'spot'] as TimelineEditMode[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onChangeEditMode(m)}
-              className={`px-1.5 py-0.5 rounded uppercase font-semibold transition-colors ${
-                editMode === m
-                  ? 'bg-amber-500 text-zinc-950'
-                  : 'text-zinc-400 hover:text-zinc-200 bg-[#12161E]'
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-
         {/* Master Output Peak Meter with Fixed Width, Graduation Ticks & Clipping Latch */}
         <div className="flex items-center gap-2 bg-[#07090C] border border-[#222B38] px-2 py-1 rounded select-none shrink-0">
           <div className="flex flex-col gap-0.5">
@@ -319,7 +316,7 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
               <div
                 className="absolute top-0 bottom-0 w-[1px] bg-rose-400/80 z-10"
                 style={{ left: `${dbToPct(-1.0)}%` }}
-                title="-1.0 dBTP Transparent Limiter Ceiling"
+                title="-1 dB reference"
               />
             </div>
           </div>
@@ -332,13 +329,13 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
               }`}
             >
               {masterPeakDb > -58
-                ? `${masterPeakDb.toFixed(1)} dBTP`
+                ? `${masterPeakDb.toFixed(1)} dB`
                 : '-inf dB'}
             </span>
             <span className="text-[8.5px] text-zinc-500 tabular-nums">
-              {masterLufs !== undefined && masterLufs > -50
-                ? `${masterLufs.toFixed(1)} LUFS`
-                : '-14.0 LUFS'}
+              {isPlaying && masterLufs !== undefined && masterLufs > -50
+                ? `${masterLufs.toFixed(1)} LUFS est.`
+                : '— LUFS'}
             </span>
           </div>
 
@@ -346,7 +343,7 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
           <button
             type="button"
             onClick={() => setHasClipped(false)}
-            title={hasClipped ? 'Peak exceeded -0.1 dBTP (Click to reset)' : 'True Peak Ceiling normal (-1.0 dBTP)'}
+            title={hasClipped ? 'Peak exceeded -0.1 dB (Click to reset)' : 'Reset peak indicator'}
             className={`w-2.5 h-2.5 rounded-full transition-colors cursor-pointer border ${
               hasClipped
                 ? 'bg-rose-500 border-rose-300 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-pulse'
@@ -355,14 +352,6 @@ export const StudioTransportBar: React.FC<StudioTransportBarProps> = ({
           />
         </div>
 
-        {/* Download APK / Install App Button */}
-        <PWAInstallButton />
-
-        {/* Audio Engine Status */}
-        <div className="hidden xl:flex items-center gap-1.5 text-[10px] text-zinc-400 border-l border-[#202734] pl-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span>48kHz · DSP ACTIVE</span>
-        </div>
       </div>
     </div>
   );
