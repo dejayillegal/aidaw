@@ -1365,8 +1365,7 @@ export default function App() {
   };
 
   const handleSessionLaunch = (slot: number|null, trackId?: string) => {
-    const current=projectRef.current;
-    const now=synthEngine.getCurrentBeat()+(synthEngine.getIsPlaying()?0.15*current.tempo/60:0);
+    const now=synthEngine.getSessionLaunchBeat();
     const next=handleExecuteProjectCommand(slot===null?'Queue Session Stop':'Queue Session Launch','clip_edit',draft=>
       queueSessionLaunch(draft,trackId || null,slot,now,draft.session?.quantizationBeats || 4));
     if(next) {

@@ -11,3 +11,5 @@ Official sources checked November5,2026:
 - https://docs.gradle.org/current/userguide/gradle_wrapper.html documents binary/all distributions, network timeout and distributionSha256Sum. The existing wrapper already recognizes networkTimeout.
 
 Local sha256sum of android/gradle/wrapper/gradle-wrapper.jar matches the official digest. `bash android/gradlew --version` initially cannot access the distribution from the local Java process (Network is unreachable). This local limitation does not qualify an APK. Final clean SDK/Java21 CI must execute checksum-verified download, assembly and APK validation; exact final run and APK checksum belong on the PR. Persistent upstream outage remains BLOCKED; it is never converted to a PASS or ignored exit status. Rollback this properties change alone if necessary; no project/schema migration or signing change.
+
+Follow-up verification: main commit25da349706d019bc963a75a7a112cdb1a98ddcbd completed [CI42001766197](https://github.com/dejayillegal/aidaw/actions/runs/42001766197) successfully. This qualifies the merged binary distribution/timeout correction in CI, not physical-device behavior or later local modifications.

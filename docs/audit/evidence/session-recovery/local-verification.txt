@@ -1,0 +1,17 @@
+Baseline: 25da349706d019bc963a75a7a112cdb1a98ddcbd
+Scope: tested implementation working tree, then locally committed as 8c2aed7 and 70fec91; no remote publication.
+
+Commands and outcomes:
+npm ci: PASS
+npm run lint: PASS
+npm test -- --maxWorkers=2: 335 passed across 37 files
+npm run build: PASS (existing large bundle warning)
+python3 -m unittest discover -s scripts -p test_*.py: 16 passed
+node --check scripts/session-automation-check.mjs: PASS
+node --check scripts/recovery-envelope-check.mjs: PASS
+git diff --check: PASS
+
+Native Chromium 153: Session/master automation, original Berghain journal recovery, registered plugin audio, arrangement editing, Clear Arrangement, continuous WAV export and visible phone export/cancel/retry: PASS in named JSON reports.
+Existing recovery-browser suite: PASS (20 repeated renders, 64-bar render, new project, Session, responsive controls, native playback, independent WAV decode).
+Physical Android, full Ableton reopening, complete producer/corpus/listening qualification: NOT EXECUTED.
+External Qodo review: UNAVAILABLE.

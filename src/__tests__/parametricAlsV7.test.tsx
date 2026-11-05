@@ -42,6 +42,7 @@ class MockAudioParam {
   constructor(defaultVal = 0) {
     this.value = defaultVal;
   }
+  cancelScheduledValues() {}
   setTargetAtTime(val: number) {
     this.value = val;
   }

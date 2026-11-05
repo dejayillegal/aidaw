@@ -138,6 +138,7 @@ const DEFAULT_TRANSPORT: TransportConfig = {
 function createTestAudioContext() {
   const makeParam = (initial = 0) => ({
     value: initial,
+    cancelScheduledValues: vi.fn(),
     setValueAtTime: vi.fn(function (this: { value: number }, v: number) {
       this.value = v;
     }),
@@ -1409,6 +1410,7 @@ describe('G1–G8 Strengthening Contracts', () => {
         context: fakeCtx,
         gain: {
           value: 1,
+          cancelScheduledValues: vi.fn(),
           setValueAtTime: vi.fn(),
           linearRampToValueAtTime: vi.fn(),
           setTargetAtTime: vi.fn(),

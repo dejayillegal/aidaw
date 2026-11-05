@@ -20,6 +20,27 @@ const dev = (): AbletonDevice => ({
   ],
 });
 describe("Versioned unit conversion compatibility", () => {
+  it('migrates the historical built-in LFO filter route without discarding its target metadata',()=>{
+    const d: AbletonDevice={id:'9901',xmlTag:'Lfo',displayName:'Lfo',category:'max_modulator',parameters:[
+      {name:'Rate (Unsynced)',value:'0.100',unit:'Hz'},
+      {name:'Waveform',value:'Sine'},
+      {name:'Target',value:'AutoFilter.Cutoff',automationTarget:true},
+    ]};
+    d.conversionRecord=buildDeviceConversionRecord(d,true);
+    const result=migrateCompatibleUnitConversion(d);
+    expect(result.migrated).toBe(true);
+    expect(result.device.parameters).toEqual(d.parameters);
+    expect(verifyDeviceConversionRecord(result.device).isValid).toBe(true);
+    expect(migrateCompatibleUnitConversion(result.device).migrated).toBe(false);
+    // A fresh matching hash alone cannot authorize arbitrary automation routing.
+    for(const target of ['OtherTrack.Cutoff','555','AutoFilter.Resonance']) {
+      const unknown=structuredClone(d);unknown.parameters[2].value=target;
+      unknown.conversionRecord=buildDeviceConversionRecord(unknown,true);
+      expect(migrateCompatibleUnitConversion(unknown).migrated).toBe(false);
+    }
+    const altered=structuredClone(d);altered.conversionRecord!.generatedDescriptor.depth=.9;
+    expect(migrateCompatibleUnitConversion(altered).migrated).toBe(false);
+  });
   it("migrates only the exact reproducible v1 descriptor and preserves raw parameters", () => {
     const d = dev();
     d.conversionRecord = buildDeviceConversionRecord(d, true);

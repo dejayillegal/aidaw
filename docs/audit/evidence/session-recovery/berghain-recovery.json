@@ -1,0 +1,25 @@
+{
+  "scope": "Original exported envelope in an isolated IndexedDB profile; raw project data is never written to this report",
+  "inputSha256": "2da30cdc0bdf8b9d2120f3262535b077c6a5f0c01916fd51f7467b19c638f15d",
+  "inputBytes": 7557366,
+  "queueId": "queue_1793491259896_znem2",
+  "browser": "153.0.8010.0",
+  "recovery": {
+    "restored": true,
+    "tracks": 8,
+    "bars": 128,
+    "acceptance": {
+      "originalScorePreserved": true,
+      "originalEnvelopeArchived": true,
+      "idempotentReopen": true,
+      "editSaveReopen": true,
+      "nativeSnapshotRoundTrip": true,
+      "renderedBars": 4,
+      "renderedFrames": 1105403,
+      "peak": 0.8732313513755798,
+      "full128BarAudioQualified": false
+    },
+    "blocked": []
+  },
+  "status": "PASS"
+}
