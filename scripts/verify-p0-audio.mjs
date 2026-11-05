@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {createServer} from 'vite';
 const root=path.resolve(import.meta.dirname,'..');
-const output=path.join(root,'docs/p0-resume/evidence/audio');await fs.mkdir(output,{recursive:true});
+const output=process.env.P0_AUDIO_OUTPUT || path.join(root,'docs/p0-resume/evidence/audio');await fs.mkdir(output,{recursive:true});
 const require=createRequire(import.meta.url);
 const {chromium}=require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES||path.join(root,'node_modules'),'playwright'));
 const report={source:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fixture:'SYNTHETIC',status:'BLOCKED',cases:[]};

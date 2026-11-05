@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { describe, it, expect } from "vitest";
 import {
   encodeAudioBufferToWavBlob,
@@ -54,7 +55,9 @@ describe("bounded continuous WAV export", () => {
         combined.set(block, at);
         at += block.length;
       }
-      expect(combined).toEqual(reference);
+      // Compare every byte in native code; recursive million-element matcher traversal
+      // consumed the default test deadline under CI contention.
+      expect(Buffer.from(combined).equals(Buffer.from(reference))).toBe(true);
       expect(fullReads).toBe(0);
       expect(new DataView(combined.buffer).getUint32(40, true)).toBe(
         (input.length * 2 * bits) / 8,
