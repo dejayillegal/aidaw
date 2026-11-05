@@ -203,6 +203,10 @@ export interface DeviceConversionRecord {
 }
 
 export interface AbletonDevice {
+  originalPlugin?: AbletonDevice;
+  pluginOriginalEnabled?: boolean;
+  pluginRole?: 'instrument' | 'audio_effect';
+  pluginResolution?: { action: 'replace' | 'bypass'; role?: 'instrument' | 'audio_effect'; alsExport: 'original-plugin' };
   id: string;
   xmlTag: string; // e.g., 'Operator', 'Reverb', 'AutoFilter', 'DrumBuss', 'Lfo', 'EQEight', 'Limiter'
   type?: string; // Alias for xmlTag
@@ -877,6 +881,7 @@ export interface MeterChangeEvent {
 export type ProjectCreationMode = 'sketch' | 'full-track';
 
 export interface AbletonProjectState {
+  identityMigration?: { version: 1; repairedNoteCount: number; source: string; sourceEnvelopeSha256?: string; sourceXmlSha256?: string };
   songPlan?: SongPlan;
   session?: SessionPerformanceState;
   audioSettings?: ProjectAudioSettings;

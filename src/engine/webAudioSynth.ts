@@ -1,3 +1,4 @@
+import { assertPluginExecutable } from './pluginDependencies';
 import { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
 import { estimateArrangementTailSeconds, estimateContinuousExportMemory } from './wavExportPolicy';
 export { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
@@ -467,6 +468,7 @@ export function buildDeviceInsertProcessor(
   ctx: BaseAudioContext,
   device: AbletonDevice
 ): InsertProcessorInstance {
+  assertPluginExecutable(device);
   const rawTag = device.xmlTag || device.type || '';
   const parameterHash = computeDeviceParameterHash({
     xmlTag: rawTag,
@@ -1686,6 +1688,7 @@ export interface ResolvedTrackInstrumentSpec {
 }
 
 export function resolveTrackInstrumentSynthesis(track: AbletonTrack): ResolvedTrackInstrumentSpec {
+  track.devices.forEach(assertPluginExecutable);
   const defaultRole: ResolvedTrackInstrumentSpec['synthesisRole'] =
     track.archetype === 'existing' ? 'synth' : track.archetype;
 

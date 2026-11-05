@@ -1168,16 +1168,43 @@ export function buildDeviceConversionRecord(device: AbletonDevice, legacyV1 = fa
 /** V1 -> V2 unit semantics: converts valid legacy v1 conversion records to v2 conversion schema. */
 export function migrateCompatibleUnitConversion(device: AbletonDevice): { device: AbletonDevice; migrated: boolean } {
   const rec = device.conversionRecord;
-  if (!rec || rec.conversionVersion >= CURRENT_DEVICE_CONVERSION_VERSION || rec.status !== 'valid' || !CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+  if (!rec || rec.conversionVersion !== 1 || rec.status !== 'valid' || !CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+    return { device, migrated: false };
+  }
+  // The only supported historical structure is the reproducible v1 contract.
+  // A status flag is not integrity evidence. Validate identity, hash, descriptors,
+  // semantics, limitations, units and automation provenance before upgrading.
+  const canonical = (value: unknown): string => JSON.stringify(value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
+  const expected = buildDeviceConversionRecord(device, true);
+  const matches = Object.keys(expected).every(key => canonical(rec[key as keyof DeviceConversionRecord]) === canonical(expected[key as keyof DeviceConversionRecord]))
+    && Object.keys(rec).length === Object.keys(expected).length;
+  const units = new Set(['', 'ms', 's', 'Hz', 'kHz', '%', 'dB', 'st', 'ct', 'beats']);
+  if (!matches || device.parameters.some(p => (p.unit !== undefined && !units.has(p.unit)) || p.automationTarget === true)) {
     return { device, migrated: false };
   }
   const upgradedRecord = buildDeviceConversionRecord(device);
   return { device: { ...device, conversionRecord: upgradedRecord }, migrated: true };
 }
-export function migrateCompatibleProjectUnitConversions(project:AbletonProjectState):{project:AbletonProjectState;migrated:boolean} {
-  let migrated=false;
-  const tracks=project.tracks.map(track=>({...track,devices:track.devices.map(device=>{const result=migrateCompatibleUnitConversion(device);migrated ||= result.migrated;return result.device;})}));
-  return {project:migrated?{...project,tracks,conversionSchemaVersion:CURRENT_DEVICE_CONVERSION_VERSION}:project,migrated};
+function historicalAutomationIsUnresolved(project: AbletonProjectState, track: AbletonTrack, device: AbletonDevice): boolean {
+  const xml = project.rawXmlModified || project.rawXml || '';
+  if (!device.conversionRecord || device.conversionRecord.conversionVersion !== 1 || !xml.includes('AutomationEnvelope')) return false;
+  if (typeof DOMParser === 'undefined') return true;
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) return true;
+  const sourceTrack = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === track.id);
+  const source = sourceTrack && Array.from(sourceTrack.querySelectorAll(device.xmlTag)).find(el => el.getAttribute('Id') === device.id);
+  if (!source) return false; // Native browser-only device; no source automation target exists.
+  const targets = new Set(Array.from(source.querySelectorAll('AutomationTarget, ModulationTarget')).map(el => el.getAttribute('Id')).filter(Boolean));
+  return Array.from(doc.querySelectorAll('AutomationEnvelope EnvelopeTarget PointeeId')).some(el => targets.has(el.getAttribute('Value')));
+}
+export function migrateCompatibleProjectUnitConversions(project: AbletonProjectState): {project: AbletonProjectState; migrated: boolean} {
+  let migrated = false;
+  const tracks = project.tracks.map(track => ({...track, devices: track.devices.map(device => {
+    if (historicalAutomationIsUnresolved(project, track, device)) return device;
+    const result = migrateCompatibleUnitConversion(device); migrated ||= result.migrated; return result.device;
+  })}));
+  return {project: migrated ? {...project, tracks, conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION} : project, migrated};
 }
 
 export function verifyDeviceConversionRecord(device: AbletonDevice): {

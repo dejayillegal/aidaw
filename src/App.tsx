@@ -1,3 +1,4 @@
+import { isPluginDependency } from './engine/pluginDependencies';
 import {editArrangementClip,editArrangementNote,toggleArrangementNote} from './engine/arrangementEditing';
 import type {ArrangementClipEdit,ArrangementNoteEdit} from './engine/arrangementEditing';
 import {createSongPlan,composeSongPlan,materializeSongPlanTrack,songPlanAutomation} from './engine/songPlanEngine';
@@ -2131,22 +2132,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleUndo, handleRedo]);
 
-  const unsupportedPluginCount = useMemo(() => {
-    let count = 0;
-    project.tracks.forEach((track) => {
-      track.devices.forEach((dev) => {
-        if (
-          dev.xmlTag === 'AuPluginDevice' ||
-          dev.xmlTag === 'PluginDevice' ||
-          dev.xmlTag === 'MxDeviceAudioEffect' ||
-          dev.isUnsupportedPlugin === true
-        ) {
-          count++;
-        }
-      });
-    });
-    return count;
-  }, [project.tracks]);
+  const unsupportedPluginCount = useMemo(() => project.tracks.reduce((count, track) =>
+    count + track.devices.filter(isPluginDependency).length, 0), [project.tracks]);
 
   return (
     <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
@@ -2242,6 +2229,9 @@ export default function App() {
 
       {/* 4. SOUNDCRAFT PROFESSIONAL DAW WORKSTATION BODY (CSS GRID CELL) */}
       <div className="min-h-0 min-w-0 flex flex-col overflow-hidden">
+        {unsupportedPluginCount > 0 && <button type="button" className="shrink-0 p-2 text-xs text-amber-200 bg-amber-950/50" onClick={() => setIsUnsupportedPluginModalOpen(true)}>
+          Resolve plugin dependencies ({unsupportedPluginCount})
+        </button>}
         {activeTab === 'workbench' && (
           <SoundCraftWorkstation
             activeTab={activeTab}
@@ -2472,6 +2462,10 @@ export default function App() {
         onRetryRecovery={handleRetryRecovery}
         onRepairLegacyProject={handleRepairLegacyRecovery}
         onExportOriginalRecoveryData={handleExportOriginalRecoveryData}
+        onQuarantineRecovery={async (queueId) => {
+          try { await projectQueueService.quarantineBlockedRecoveryRecord(queueId); setStatusMessage('Quarantine copy saved with original envelope and diagnosis. Original retained for export and retry.'); }
+          catch (error) { setStatusMessage(`Recovery storage warning: ${error instanceof Error ? error.message : String(error)}`); }
+        }}
         onOpenSavedProject={() => projectSnapshotInputRef.current?.click()}
         onStartSeparateProject={handleStartSeparateProject}
       />
@@ -2567,25 +2561,6 @@ export default function App() {
         onClose={() => setIsDiagnosticsOpen(false)}
         onReportStatus={setStatusMessage}
       />
-
-  const [isUnsupportedPluginModalOpen, setIsUnsupportedPluginModalOpen] = useState<boolean>(false);
-
-  const unsupportedPluginCount = useMemo(() => {
-    let count = 0;
-    project.tracks.forEach((track) => {
-      track.devices.forEach((dev) => {
-        if (
-          dev.xmlTag === 'AuPluginDevice' ||
-          dev.xmlTag === 'PluginDevice' ||
-          dev.xmlTag === 'MxDeviceAudioEffect' ||
-          dev.isUnsupportedPlugin === true
-        ) {
-          count++;
-        }
-      });
-    });
-    return count;
-  }, [project.tracks]);
 
       {/* Interactive Dynamic New Project Modal */}
       <NewProjectModal

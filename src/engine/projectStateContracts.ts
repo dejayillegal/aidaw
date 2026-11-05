@@ -13,86 +13,94 @@ import {
 } from './timelineCoordinates';
 import type { AbletonProjectState } from '../types/ableton';
 
-/**
- * Deterministically repairs missing or duplicate note identities across all tracks and clips,
- * guaranteeing stable, unique IDs without altering pitch, timing, velocity, duration,
- * probability, or clip ownership.
+/** Repairs only missing identities; duplicate identities in one source clip are ambiguous.
+ * sourceNoteId/sourceNoteClipId refer to native XML templates, not edited event IDs,
+ * and must remain unchanged. IDs in different clips have distinct source scopes.
  */
 export function repairProjectNoteIdentities(project: AbletonProjectState): {
-  project: AbletonProjectState;
-  repairedNoteCount: number;
+  project: AbletonProjectState; repairedNoteCount: number;
 } {
-  if (!project || !Array.isArray(project.tracks)) {
-    return { project, repairedNoteCount: 0 };
-  }
-
   let repairedNoteCount = 0;
-  const projectNoteIds = new Set<string>();
-
-  const updatedTracks = project.tracks.map((track) => {
-    const updatedClips = (track.clips || []).map((clip) => {
-      const clipNoteIds = new Set<string>();
-      const updatedNotes = (clip.notes || []).map((note, idx) => {
-        const needsRepair =
-          !note.id ||
-          typeof note.id !== 'string' ||
-          clipNoteIds.has(note.id) ||
-          projectNoteIds.has(note.id);
-
-        let finalId = note.id;
-        if (needsRepair) {
-          repairedNoteCount++;
-          finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
-          let suffix = 1;
-          while (projectNoteIds.has(finalId) || clipNoteIds.has(finalId)) {
-            finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}_${suffix++}`;
-          }
+  const reserved = new Set<string>();
+  for (const track of project.tracks) for (const clips of [track.clips, track.sessionClips || []]) {
+    for (const clip of clips) for (const note of clip.notes) if (typeof note.id === 'string' && note.id) reserved.add(note.id);
+  }
+  const tracks = project.tracks.map(track => {
+    const repair = (clips: typeof track.clips, scope: string) => clips.map(clip => {
+      const seen = new Set<string>();
+      const notes = clip.notes.map((note, index) => {
+        if (typeof note.id === 'string' && note.id) {
+          if (seen.has(note.id)) throw new Error(`IDENTITY_AMBIGUOUS: ${track.id}/${scope}/${clip.id}/${note.id}`);
+          seen.add(note.id); return note;
         }
-
-        clipNoteIds.add(finalId);
-        projectNoteIds.add(finalId);
-
-        return needsRepair ? { ...note, id: finalId } : note;
+        if (note.id !== undefined && note.id !== null && note.id !== '') throw new Error('IDENTITY_TYPE: invalid note identity');
+        const base = `${clip.id}_n${index}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
+        let id = base, suffix = 1;
+        while (reserved.has(id)) id = `${base}_${suffix++}`;
+        reserved.add(id); seen.add(id); repairedNoteCount++;
+        return { ...note, id };
       });
-
-      return { ...clip, notes: updatedNotes };
+      return { ...clip, notes };
     });
-
-    const updatedSessionClips = (track.sessionClips || []).map((clip) => {
-      const clipNoteIds = new Set<string>();
-      const updatedNotes = (clip.notes || []).map((note, idx) => {
-        const needsRepair =
-          !note.id ||
-          typeof note.id !== 'string' ||
-          clipNoteIds.has(note.id) ||
-          projectNoteIds.has(note.id);
-
-        let finalId = note.id;
-        if (needsRepair) {
-          repairedNoteCount++;
-          finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
-          let suffix = 1;
-          while (projectNoteIds.has(finalId) || clipNoteIds.has(finalId)) {
-            finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}_${suffix++}`;
-          }
-        }
-
-        clipNoteIds.add(finalId);
-        projectNoteIds.add(finalId);
-
-        return needsRepair ? { ...note, id: finalId } : note;
-      });
-
-      return { ...clip, notes: updatedNotes };
-    });
-
-    return { ...track, clips: updatedClips, sessionClips: updatedSessionClips };
+    return { ...track, clips: repair(track.clips, 'arrangement'),
+      ...(track.sessionClips ? {sessionClips: repair(track.sessionClips, 'session')} : {}) };
   });
+  return { project: repairedNoteCount ? { ...project, tracks } : project, repairedNoteCount };
+}
 
-  return {
-    project: { ...project, tracks: updatedTracks },
-    repairedNoteCount,
-  };
+/** Recovery-only preflight. Strict validation runs against temporary unique IDs,
+ * so malformed musical fields are rejected before any repair is considered.
+ * This does not weaken the public structural or identity validators.
+ */
+export function migrateLegacyRecoveryNoteIdentities(project: AbletonProjectState, sourceXml: string, legacyEnvelope = false): {
+  project: AbletonProjectState; repairedNoteCount: number;
+} {
+  if (!project || !Array.isArray(project.tracks)) throw new Error('IDENTITY_SHAPE: missing tracks');
+  const safe = structuredClone(project);
+  for (const track of safe.tracks) {
+    if (!track || !Array.isArray(track.clips) || (track.sessionClips !== undefined && !Array.isArray(track.sessionClips))) throw new Error('IDENTITY_SHAPE: invalid clips');
+    for (const clips of [track.clips, track.sessionClips || []]) for (const clip of clips) {
+      if (!clip || !Array.isArray(clip.notes)) throw new Error('IDENTITY_SHAPE: invalid notes');
+      clip.notes = clip.notes.map((note, i) => {
+        if (!note || typeof note !== 'object') throw new Error('IDENTITY_SHAPE: invalid note');
+        return { ...note, id: `preflight_${i}` };
+      });
+    }
+  }
+  assertStructuralProjectState(safe);
+  // Identity repair cannot be applied to arbitrary current records or source-less data.
+  const result = repairProjectNoteIdentities(project);
+  if (result.repairedNoteCount && (!legacyEnvelope || !sourceXml || !sourceXml.includes('<Ableton') || project.identityMigration)) {
+    throw new Error('IDENTITY_PROVENANCE: original Ableton source required; repeated identity damage rejected');
+  }
+  if (result.repairedNoteCount) {
+    const doc = new DOMParser().parseFromString(sourceXml, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('IDENTITY_PROVENANCE: malformed source XML');
+    const identity = (el: Element, attr = 'Id') => el.getAttribute('Data-AIDAW-LogicalId') || el.getAttribute(attr === 'NoteId' ? 'Data-Parametric-NoteId' : 'Data-Parametric-ClipId') || el.getAttribute(attr);
+    result.project.tracks = result.project.tracks.map((track, ti) => ({ ...track,
+      clips: track.clips.map((clip, ci) => ({ ...clip, notes: clip.notes.map((note, ni) => {
+        if (project.tracks[ti].clips[ci].notes[ni].id) return note;
+        const sourceTrack = Array.from(doc.querySelectorAll('Tracks > MidiTrack')).find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === track.id);
+        const sourceClip = sourceTrack && Array.from(sourceTrack.querySelectorAll('MidiClip')).filter(el => identity(el) === (note.sourceNoteClipId || clip.sourceClipId || clip.id));
+        if (!sourceClip || sourceClip.length !== 1) throw new Error('IDENTITY_PROVENANCE: source clip scope is ambiguous');
+        const matches = Array.from(sourceClip[0].querySelectorAll('MidiNoteEvent')).filter(el => note.sourceNoteId
+          ? identity(el, 'NoteId') === note.sourceNoteId
+          : Number(el.getAttribute('Time')) === note.time && Number(el.getAttribute('Duration')) === note.duration
+            && Number(el.getAttribute('Velocity')) === note.velocity
+            && Number(el.parentElement?.parentElement?.querySelector('Key')?.getAttribute('Value')) === note.pitch);
+        if (matches.length !== 1 || !identity(matches[0], 'NoteId')) throw new Error('IDENTITY_PROVENANCE: source note scope is ambiguous; manual edits retained');
+        return { ...note, sourceNoteId: identity(matches[0], 'NoteId')!, sourceNoteClipId: identity(sourceClip[0])! };
+      }) })),
+    }));
+    for (let ti = 0; ti < project.tracks.length; ti++) {
+      for (const clip of project.tracks[ti].sessionClips || []) if (clip.notes.some(n => !n.id)) {
+        throw new Error('IDENTITY_PROVENANCE: legacy Session identity migration is not supported');
+      }
+    }
+    result.project.identityMigration = { version: 1, repairedNoteCount: result.repairedNoteCount, source: 'preserved-envelope-xml' };
+  }
+  assertStructuralProjectState(result.project);
+  return result;
 }
 
 /**

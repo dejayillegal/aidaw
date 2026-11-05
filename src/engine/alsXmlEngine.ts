@@ -2085,7 +2085,9 @@ export function parseAbletonXmlDom(
         tag === 'AuPluginDevice' ||
         tag === 'PluginDevice' ||
         tag === 'MxDeviceAudioEffect';
-      const bypassed = isOnManual === 'false' || isUnsupportedPlugin;
+      const bypassed = isOnManual === 'false';
+      const instrumentEvidence = devEl.querySelector('PluginDesc IsInstrument, PluginDesc IsSynth')?.getAttribute('Value');
+      const pluginRole = tag === 'MxDeviceAudioEffect' || instrumentEvidence === 'false' ? 'audio_effect' as const : instrumentEvidence === 'true' ? 'instrument' as const : undefined;
       const isAutoDuckInjected =
         devEl.getAttribute('Data-Parametric-AutoDuck') === 'true' ||
         devId === '8801' ||
@@ -2102,9 +2104,7 @@ export function parseAbletonXmlDom(
           tag === 'OriginalSimpler' ||
           tag === 'DrumGroupDevice' ||
           tag === 'UltraAnalog' ||
-          tag === 'Drift' ||
-          tag === 'AuPluginDevice' ||
-          tag === 'PluginDevice'
+          tag === 'Drift'
             ? 'instrument'
             : tag === 'MidiChord' || tag === 'MidiArpeggiator'
             ? 'midi_effect'
@@ -2117,6 +2117,7 @@ export function parseAbletonXmlDom(
         browserDspSupported: !isUnsupportedPlugin && BROWSER_SUPPORTED_DEVICE_TAGS.has(tag),
         opaqueSubtreeXml: devEl.outerHTML,
         isUnsupportedPlugin,
+        ...(isUnsupportedPlugin ? {pluginRole, pluginOriginalEnabled: isOnManual !== 'false'} : {}),
       });
     });
 
@@ -3242,7 +3243,7 @@ export function syncLocatorsAndMixerToXml(
   }
 
   tracks.forEach((t) => {
-    const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(
+    const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack')).find(
       (el) => readAlsIdentity(el) === t.id
     );
     if (!trackEl) return;
@@ -3264,7 +3265,7 @@ export function syncLocatorsAndMixerToXml(
 export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: string): AbletonProjectState {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   const projected = new Map<string, AbletonDevice[]>();
-  for (const track of Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'))) {
+  for (const track of Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack'))) {
     const node = track.querySelector(':scope > ParametricTrackState');
     if (!node) continue;
     const state = JSON.parse(node.textContent || '{}');
@@ -3293,8 +3294,8 @@ export function synchronizeProjectStateToXml(
   }
   const tracksNode = doc.querySelector('LiveSet > Tracks');
   if (!tracksNode) throw new Error('PROJECT_XML: missing Tracks');
-  // Reconcile only the track kinds represented by the editable domain. Groups,
-  // returns and future track types remain opaque, in their existing positions.
+  // Imported groups participate in the editable projection. Groups absent from
+  // older snapshots, returns and future track kinds remain opaque.
   const desiredIds = new Set(project.tracks.map(track => track.id));
   for (const node of Array.from(tracksNode.children)) {
     if (['MidiTrack', 'AudioTrack'].includes(node.tagName) && !desiredIds.has(readAlsIdentity(node))) node.remove();
@@ -3317,7 +3318,8 @@ export function synchronizeProjectStateToXml(
     tracksNode.appendChild(node);
     injectMultipleMidiClipsXmlNodes(doc, node, track.clips);
   }
-  const represented = Array.from(tracksNode.children).filter(node => ['MidiTrack', 'AudioTrack'].includes(node.tagName));
+  const represented = Array.from(tracksNode.children).filter(node =>
+    ['MidiTrack', 'AudioTrack'].includes(node.tagName) || (node.tagName === 'GroupTrack' && desiredIds.has(readAlsIdentity(node))));
   const byId = new Map<string, Element>();
   for (const node of represented) {
     const id = readAlsIdentity(node);
@@ -3328,7 +3330,8 @@ export function synchronizeProjectStateToXml(
     const slot = doc.createComment('track'); tracksNode.replaceChild(slot, node); return slot;
   });
   project.tracks.forEach((track, index) => {
-    const node = byId.get(track.id)!;
+    const node = byId.get(track.id);
+    if (!node) throw new Error(`PROJECT_XML: missing native track ${track.id}`);
     let name = node.querySelector(':scope > Name');
     if (!name) { name = doc.createElement('Name'); node.appendChild(name); }
     // Avoid rewriting an untouched native name representation on unrelated edits.
@@ -4515,7 +4518,7 @@ export function validateAlsStructuralIntegrity(
   if (!liveSet) {
     errors.push('Missing <Ableton><LiveSet> root hierarchy');
   }
-  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
+  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack'));
   if (typeof expectedTrackCount === 'number' && trackEls.length < expectedTrackCount) {
     errors.push(`Expected at least ${expectedTrackCount} tracks, found ${trackEls.length}`);
   }
