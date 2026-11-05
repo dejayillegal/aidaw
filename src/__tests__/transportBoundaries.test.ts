@@ -129,7 +129,7 @@ describe("audio-clock transport boundaries", () => {
 });
 
 function liveBus() {
-  const param = () => ({ setTargetAtTime: vi.fn() });
+  const param = () => ({ setTargetAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn() });
   return {
     activeVoices: new Set(),
     trackVoices: new Map(),
@@ -154,7 +154,7 @@ describe("live score reconciliation", () => {
       glueCompressionDrive: 0.8,
     };
     engine.setState(project, humanization, undefined, master);
-    expect(bus.masterGain.gain.setTargetAtTime.mock.calls[0][0]).toBeCloseTo(
+    expect(bus.masterGain.gain.setValueAtTime.mock.calls[0][0]).toBeCloseTo(
       10 ** (-6 / 20),
       12,
     );
@@ -211,7 +211,7 @@ it("retains the current master automation value when installing an unrelated edi
       { beat: 16, value: 0.3 },
     ],
   });
-  expect(bus.masterGain.gain.setTargetAtTime.mock.calls[0][0]).toBeCloseTo(
+  expect(bus.masterGain.gain.setValueAtTime.mock.calls[0][0]).toBeCloseTo(
     10 ** (-8 / 20),
     12,
   );

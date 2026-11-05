@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildStarterAbletonXml, parseAlsXmlString } from '../engine/alsXmlEngine';
 import { StudioCommandBus, queueSessionLaunch, captureSessionPerformance, storeArrangementClipInSession } from '../services/commandBus';
-import { sessionEventsInWindow } from '../engine/timelineCoordinates';
+import { sessionEventsInWindow, evaluatePlayableArrangementEvents, MusicalTimeService } from '../engine/timelineCoordinates';
 import { encodeProjectSnapshot, decodeProjectSnapshot } from '../services/projectSnapshotService';
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT } from '../engine/projectDefaults';
 function fixture() {
@@ -12,6 +12,26 @@ function fixture() {
   return p;
 }
 describe('independent canonical Session performance',()=>{
+  it('extends captured arrangements by the destination meter, including an exact bar boundary',()=>{
+    let p=fixture();
+    p.meterMap=[{bar:1,beat:0,numerator:3,denominator:4},{bar:3,beat:6,numerator:7,denominator:8}];
+    p=storeArrangementClipInSession(p,p.tracks[0].id,0,p.tracks[0].clips[0].id);
+    p=queueSessionLaunch(p,p.tracks[0].id,0,0,1);
+    // Bar 5 starts at beat 13; capture through the end of bar 6 (beat 20).
+    const captured=captureSessionPerformance(p,0,7,13);
+    expect(captured.arrangementLengthBars).toBe(6);
+    expect(MusicalTimeService.arrangementTotalBeats(captured)).toBe(20);
+    expect(evaluatePlayableArrangementEvents(captured).some(e=>e.beat===19.25)).toBe(true);
+  });
+  it('retains sustaining Session notes across clip cycles in the captured Arrangement',()=>{
+    let p=fixture();
+    p.tracks[0].clips[0].notes[0].duration=1.5;
+    p=storeArrangementClipInSession(p,p.tracks[0].id,0,p.tracks[0].clips[0].id);
+    p=queueSessionLaunch(p,p.tracks[0].id,0,0,1);
+    const captured=captureSessionPerformance(p,0,2,8);
+    const notes=evaluatePlayableArrangementEvents(captured).filter(e=>e.clipId.startsWith('capture_'));
+    expect(notes.map(e=>[e.beat,e.durationBeats])).toEqual([[8.25,1.5],[9.25,.75]]);
+  });
   it('copies a chosen arrangement clip into a slot without modifying its source',()=>{
     const p=fixture();const next=storeArrangementClipInSession(p,p.tracks[0].id,0,p.tracks[0].clips[0].id);
     expect(next.tracks[0].clips).toEqual(p.tracks[0].clips);

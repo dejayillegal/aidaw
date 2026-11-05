@@ -1180,7 +1180,13 @@ export function migrateCompatibleUnitConversion(device: AbletonDevice): { device
   const matches = Object.keys(expected).every(key => canonical(rec[key as keyof DeviceConversionRecord]) === canonical(expected[key as keyof DeviceConversionRecord]))
     && Object.keys(rec).length === Object.keys(expected).length;
   const units = new Set(['', 'ms', 's', 'Hz', 'kHz', '%', 'dB', 'st', 'ct', 'beats']);
-  if (!matches || device.parameters.some(p => (p.unit !== undefined && !units.has(p.unit)) || p.automationTarget === true)) {
+  // The historical parser flags this built-in symbolic LFO route as a target.
+  // It is not a time-varying native AutomationEnvelope. Other targets still
+  // require explicit resolution; project-level native envelope checks also run.
+  const knownLfoRoute = (p: AbletonDevice['parameters'][number]) =>
+    device.xmlTag === 'Lfo' && p.name === 'Target' && p.value === 'AutoFilter.Cutoff' && !p.unit;
+  if (!matches || device.parameters.some(p => (p.unit !== undefined && !units.has(p.unit)) ||
+      (p.automationTarget === true && !knownLfoRoute(p)))) {
     return { device, migrated: false };
   }
   const upgradedRecord = buildDeviceConversionRecord(device);

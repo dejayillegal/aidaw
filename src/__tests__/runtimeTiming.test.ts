@@ -16,6 +16,11 @@ function fixture(loop=false) {
 }
 afterEach(()=>vi.restoreAllMocks());
 describe('runtime tempo/meter scheduling',()=>{
+ it('predicts Session launch beyond the audio scheduling horizon using the installed tempo map',()=>{
+  const {e,clock}=fixture();clock.currentTime=4.4; // Beat 4.8 at 120 BPM, base tempo is 60.
+  expect(e.getSessionLaunchBeat()).toBeCloseTo(5.1,10);
+  e.pause();expect(e.getSessionLaunchBeat()).toBeCloseTo(4.8,10);
+ });
  it('advances the actual engine audio clock through a step tempo change in 3/4',()=>{
   const {e,clock}=fixture();clock.currentTime=5;expect(e.getCurrentBeat()).toBeCloseTo(6,10);
  });

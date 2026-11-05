@@ -18,6 +18,8 @@ import { synchronizeProjectStateToXml, syncLocatorsAndMixerToXml } from '../engi
 import { projectAudioSettings } from '../engine/projectDefaults';
 import {
   MusicalTimeService,
+  beatToBarBeatTick,
+  barBeatTickToBeat,
   noteProbabilityPasses,
   sessionEventsInWindow,
 } from '../engine/timelineCoordinates';
@@ -65,7 +67,10 @@ export function captureSessionPerformance(project: AbletonProjectState, fromBeat
     for(const e of scheduled) {const key=`${e.eventId}_${e.cycle}`;groups.set(key,[...(groups.get(key)||[]),e]);}
     const clips=[...track.clips];
     for(const [key,notes] of groups) {
-      const start=Math.max(fromBeat,notes[0].periodStart),end=Math.min(toBeat,notes[0].periodEnd);
+      const start=Math.max(fromBeat,notes[0].periodStart);
+      // A Session sustain can cross its loop's end. Preserve that overlap in the
+      // captured clip so Arrangement evaluation does not truncate the held note.
+      const end=Math.min(toBeat,notes.reduce((end,e)=>Math.max(end,e.note.time+e.note.duration),notes[0].periodEnd));
       const id=`capture_${project.projectRevision || 1}_${key}_${clips.length}`;
       clips.push({id,name:`Session capture ${notes[0].clipId}`,startTime:start+offset,endTime:end+offset,length:end-start,
         notes:notes.map((e,i)=>({...e.note,id:`${id}_n${i}`,sourceNoteId:undefined,time:e.note.time+offset,quantizedTime:e.note.quantizedTime+offset,
@@ -73,7 +78,11 @@ export function captureSessionPerformance(project: AbletonProjectState, fromBeat
     }
     return {...track,clips};
   });
-  return {...project,tracks,arrangementLengthBars:Math.max(project.arrangementLengthBars || 1,Math.ceil((destinationBeat+toBeat-fromBeat)/4))};
+  const destinationEnd=destinationBeat+toBeat-fromBeat;
+  const end=beatToBarBeatTick(destinationEnd,project.meterMap,project.ppq);
+  const barStart=barBeatTickToBeat(end.bar,1,0,project.meterMap,project.ppq);
+  const requiredBars=end.bar-(destinationEnd<=barStart+1e-9 ? 1 : 0);
+  return {...project,tracks,arrangementLengthBars:Math.max(project.arrangementLengthBars || 1,requiredBars)};
 }
 import {
   computeSelectedTrackAnalysisData,

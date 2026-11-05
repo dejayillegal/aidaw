@@ -1,0 +1,187 @@
+{
+  "browser": "153.0.8010.0",
+  "cases": [
+    {
+      "name": "short-blob",
+      "bars": 4,
+      "seed": 777,
+      "sampleRate": 44100,
+      "bitDepth": 24,
+      "frames": 1205135,
+      "durationSeconds": 27.32732426303855,
+      "tailSeconds": 20.660651177693566,
+      "expectedSize": 7230854,
+      "written": 7230854,
+      "largestBlock": 196608,
+      "memory": {
+        "outputPcmBytes": 9641080,
+        "declaredBufferBytes": 6562081,
+        "fixedReserveBytes": 20185088,
+        "encodedWholeFileBytes": 0,
+        "totalBytes": 36388249,
+        "limitBytes": 268435456
+      },
+      "sourceTrackCount": 8,
+      "wallTimeMs": 4901,
+      "sha256": "c65b6fbb06ab25c7dfafcfdafe322dc9cb1823c438332190812bcd3795c740e2",
+      "memoryBefore": {
+        "heapUsed": 3834940,
+        "backingStorage": 2355225,
+        "rssBytes": 316968960
+      },
+      "memoryPeak": {
+        "heapUsed": 6898812,
+        "backingStorage": 4543161,
+        "rssBytes": 417288192
+      },
+      "memoryAfter": {
+        "heapUsed": 27882340,
+        "backingStorage": 27073154,
+        "rssBytes": 521809920
+      }
+    },
+    {
+      "name": "short-stream",
+      "bars": 4,
+      "seed": 777,
+      "sampleRate": 44100,
+      "bitDepth": 24,
+      "frames": 1205135,
+      "durationSeconds": 27.32732426303855,
+      "tailSeconds": 20.660651177693566,
+      "expectedSize": 7230854,
+      "written": 7230854,
+      "largestBlock": 196608,
+      "memory": {
+        "outputPcmBytes": 9641080,
+        "declaredBufferBytes": 6562081,
+        "fixedReserveBytes": 20185088,
+        "encodedWholeFileBytes": 0,
+        "totalBytes": 36388249,
+        "limitBytes": 268435456
+      },
+      "sourceTrackCount": 8,
+      "wallTimeMs": 4820,
+      "sha256": "c65b6fbb06ab25c7dfafcfdafe322dc9cb1823c438332190812bcd3795c740e2",
+      "memoryBefore": {
+        "heapUsed": 27887836,
+        "backingStorage": 27073154,
+        "rssBytes": 521822208
+      },
+      "memoryPeak": {
+        "heapUsed": 13397820,
+        "backingStorage": 28848153,
+        "rssBytes": 595001344
+      },
+      "memoryAfter": {
+        "heapUsed": 31485304,
+        "backingStorage": 5681170,
+        "rssBytes": 434049024
+      }
+    },
+    {
+      "name": "cancel",
+      "cancelled": true,
+      "written": 0,
+      "wallTimeMs": 516,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "memoryBefore": {
+        "heapUsed": 31492080,
+        "backingStorage": 5681170,
+        "rssBytes": 434053120
+      },
+      "memoryPeak": {
+        "heapUsed": 0,
+        "backingStorage": 0,
+        "rssBytes": 0
+      },
+      "memoryAfter": {
+        "heapUsed": 25810236,
+        "backingStorage": 6284369,
+        "rssBytes": 498675712
+      }
+    },
+    {
+      "name": "retry",
+      "bars": 4,
+      "seed": 777,
+      "sampleRate": 44100,
+      "bitDepth": 24,
+      "frames": 1205135,
+      "durationSeconds": 27.32732426303855,
+      "tailSeconds": 20.660651177693566,
+      "expectedSize": 7230854,
+      "written": 7230854,
+      "largestBlock": 196608,
+      "memory": {
+        "outputPcmBytes": 9641080,
+        "declaredBufferBytes": 6562081,
+        "fixedReserveBytes": 20185088,
+        "encodedWholeFileBytes": 0,
+        "totalBytes": 36388249,
+        "limitBytes": 268435456
+      },
+      "sourceTrackCount": 8,
+      "wallTimeMs": 4899,
+      "sha256": "c65b6fbb06ab25c7dfafcfdafe322dc9cb1823c438332190812bcd3795c740e2",
+      "memoryBefore": {
+        "heapUsed": 25815484,
+        "backingStorage": 6284369,
+        "rssBytes": 498675712
+      },
+      "memoryPeak": {
+        "heapUsed": 9448380,
+        "backingStorage": 3949487,
+        "rssBytes": 497926144
+      },
+      "memoryAfter": {
+        "heapUsed": 23517780,
+        "backingStorage": 12957161,
+        "rssBytes": 510889984
+      }
+    },
+    {
+      "name": "high-feedback-tail",
+      "bars": 4,
+      "seed": 777,
+      "sampleRate": 44100,
+      "bitDepth": 24,
+      "frames": 2191709,
+      "durationSeconds": 49.69861678004535,
+      "tailSeconds": 43.03194523181172,
+      "expectedSize": 13150298,
+      "written": 13150298,
+      "largestBlock": 196608,
+      "memory": {
+        "outputPcmBytes": 17533672,
+        "declaredBufferBytes": 6562081,
+        "fixedReserveBytes": 20185088,
+        "encodedWholeFileBytes": 0,
+        "totalBytes": 44280841,
+        "limitBytes": 268435456
+      },
+      "sourceTrackCount": 8,
+      "wallTimeMs": 6869,
+      "sha256": "26ee98e02bde00b4c1c88263b0de7dd56e5b96da4bcd32f7d80a5d328c2383e8",
+      "memoryBefore": {
+        "heapUsed": 23524596,
+        "backingStorage": 12957161,
+        "rssBytes": 510898176
+      },
+      "memoryPeak": {
+        "heapUsed": 9528708,
+        "backingStorage": 3949487,
+        "rssBytes": 508239872
+      },
+      "memoryAfter": {
+        "heapUsed": 9640596,
+        "backingStorage": 3240299,
+        "rssBytes": 444743680
+      },
+      "peakAfterOldEightSecondTail": 0.05982983112335205
+    }
+  ],
+  "errors": [],
+  "scope": "Native browser continuous graph and streamed files; not physical Android or listening approval",
+  "status": "PASS"
+}

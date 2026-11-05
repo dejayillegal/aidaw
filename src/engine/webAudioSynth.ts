@@ -1,3 +1,5 @@
+import { evaluateAutomationAtBeat, scheduleMasterAutomation } from './masterAutomation';
+export { evaluateAutomationAtBeat } from './masterAutomation';
 import { projectSeconds, projectBeat, runtimeClockPosition, runtimeAudioTime, runtimeWindowEnd, metronomeEvents, runtimeNoteDuration, tempoAtBeat, scheduleTempoSyncedReturns } from './runtimeTiming';
 import { assertPluginExecutable } from './pluginDependencies';
 import { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
@@ -62,34 +64,6 @@ export function shouldPlayNote(note: MidiNoteEvent): boolean {
 function dbToGain(db: number): number {
   if (db <= -48) return 0;
   return Math.pow(10, db / 20);
-}
-
-/**
- * Evaluates the normalized automation envelope at an absolute arrangement beat.
- * Returns a normalized value in [0.0, 1.0].
- */
-export function evaluateAutomationAtBeat(
-  points: AutomationPoint[] | undefined,
-  beat: number,
-  maxBeats = Number.POSITIVE_INFINITY
-): number {
-  if (!points || points.length === 0) return 0.55;
-  const sorted = [...points].sort((a, b) => a.beat - b.beat);
-  const clampedBeat = Math.max(0, Math.min(maxBeats, beat));
-
-  if (clampedBeat <= sorted[0].beat) return sorted[0].value;
-  if (clampedBeat >= sorted[sorted.length - 1].beat) return sorted[sorted.length - 1].value;
-
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const p0 = sorted[i];
-    const p1 = sorted[i + 1];
-    if (clampedBeat >= p0.beat && clampedBeat <= p1.beat) {
-      const span = Math.max(0.0001, p1.beat - p0.beat);
-      const t = (clampedBeat - p0.beat) / span;
-      return p0.value + t * (p1.value - p0.value);
-    }
-  }
-  return 0.55;
 }
 
 /**
@@ -3482,25 +3456,7 @@ async function renderContinuousAudioBuffer(
     bus = activeBus;
     if(project.tempoMap?.length)scheduleTempoSyncedReturns(activeBus,project,0,0);
     const noise = createNoiseBuffer(ctx);
-    const masterPoints = [...(masterBus.masterAutomationPoints || [])].sort(
-      (a, b) => a.beat - b.beat,
-    );
-    if (masterPoints.length) {
-      activeBus.masterGain.gain.setValueAtTime(
-        dbToGain(
-          masterBus.masterVolumeDb +
-            (evaluateAutomationAtBeat(masterPoints, 0, totalBeats) - 0.55) * 8,
-        ),
-        0,
-      );
-      for (const point of masterPoints)
-        if (point.beat > 0 && point.beat <= totalBeats) {
-          activeBus.masterGain.gain.linearRampToValueAtTime(
-            dbToGain(masterBus.masterVolumeDb + (point.value - 0.55) * 8),
-            projectSeconds(project,point.beat),
-          );
-        }
-    }
+    scheduleMasterAutomation(activeBus.masterGain.gain, project, masterBus, 0, totalBeats, 0);
     const bps = project.tempo / 60;
     const mutedTrackIds = new Set(
       project.tracks
@@ -4914,21 +4870,12 @@ export class ParametricWebAudioEngine {
 
     if (this.ctx && this.bus) {
       const now = this.ctx.currentTime;
-      const masterPoints = this.masterBus.masterAutomationPoints || [];
-      const masterTrim = masterPoints.length
-        ? (evaluateAutomationAtBeat(
-            masterPoints,
-            this.getCurrentBeat(),
-            this.getMaxArrangementBeats(),
-          ) -
-            0.55) *
-          8
-        : 0;
-      this.bus.masterGain.gain.setTargetAtTime(
-        dbToGain(this.masterBus.masterVolumeDb + masterTrim),
-        now,
-        0.02,
-      );
+      if (this.masterBus.masterAutomationPoints?.length) {
+        this.scheduleMasterGainWindow(this.getCurrentBeat(), now, this.getMaxArrangementBeats());
+      } else {
+        this.bus.masterGain.gain.cancelScheduledValues(now);
+        this.bus.masterGain.gain.setTargetAtTime(dbToGain(this.masterBus.masterVolumeDb), now, 0.02);
+      }
       this.bus.reverbReturnGain.gain.setTargetAtTime(
         this.masterBus.reverbReturnLevel * 0.85,
         now,
@@ -5137,6 +5084,14 @@ export class ParametricWebAudioEngine {
 
   public getIsPlaying(): boolean {
     return this.isPlaying;
+  }
+
+  /** Keep launch decisions beyond queued sources, following the installed tempo map. */
+  public getSessionLaunchBeat(): number {
+    const beat = this.getCurrentBeat();
+    return this.isPlaying && this.project
+      ? projectBeat(this.project, projectSeconds(this.project, beat) + 0.15)
+      : beat;
   }
 
   public getAnalyser(): AnalyserNode | null {
@@ -5509,27 +5464,32 @@ export class ParametricWebAudioEngine {
       }
     }
 
-    // Evaluate master automation curve if present
-    if (
-      this.masterBus.masterAutomationPoints &&
-      this.masterBus.masterAutomationPoints.length > 0 &&
-      this.bus
-    ) {
-      const autoVal = evaluateAutomationAtBeat(
-        this.masterBus.masterAutomationPoints,
-        exactBeatNow,
-        maxBeats
-      );
-      const masterTrim = (autoVal - 0.55) * 8.0;
-      const targetGain = dbToGain((this.masterBus.masterVolumeDb || 0) + masterTrim);
-      this.bus.masterGain.gain.setTargetAtTime(targetGain, nowAudio, 0.02);
-    }
-
+    this.scheduleMasterGainWindow(exactBeatNow, nowAudio, maxBeats);
 
     if (this.playbackState === 'recovering') {
       this.playbackState = 'playing';
     }
   };
+
+  private scheduleMasterGainWindow(exactBeatNow: number, nowAudio: number, maxBeats: number) {
+    if (!this.project || !this.bus || !this.masterBus.masterAutomationPoints?.length) return;
+    const region = this.getPlaybackRegion(maxBeats);
+    const windowEndBeat = runtimeWindowEnd(this.project, exactBeatNow, 0.12, region);
+    // Schedule the same beat-domain gain envelope as offline export. Split at
+    // the loop seam: a loop restart is a step, never a ramp through the seam.
+    scheduleMasterAutomation(
+      this.bus!.masterGain.gain, this.project!, this.masterBus,
+      exactBeatNow, region.enabled ? Math.min(windowEndBeat, region.end) : windowEndBeat, nowAudio,
+    );
+    if (region.enabled && windowEndBeat > region.end) {
+      scheduleMasterAutomation(
+        this.bus!.masterGain.gain, this.project!, this.masterBus,
+        region.start, region.start + windowEndBeat - region.end,
+        nowAudio + projectSeconds(this.project!, region.end) - projectSeconds(this.project!, exactBeatNow), false,
+      );
+    }
+
+  }
 
   private runVisualPlayheadLoop = () => {
     if (!this.isPlaying || !this.project || !this.humanization || !this.ctx) return;

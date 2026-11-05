@@ -36,6 +36,8 @@ import {
   migrateCompatibleProjectUnitConversions,
 } from '../engine/abletonCapabilityMatrix';
 
+import { migrateLegacyRecoveryXmlIdentities } from '../engine/recoveryXmlIdentityMigration';
+
 export type StorageStatus = 'saved' | 'pending' | 'blocked' | 'error' | 'unavailable';
 
 export interface BlockedRecoveryRecordInfo {
@@ -591,7 +593,9 @@ export class ProjectQueueService {
             stopFallbackToBackup = true;
           }
 
-          const unitMigration = migrateCompatibleProjectUnitConversions(noteMigration.project);
+          const xmlIdentityMigration = migrateLegacyRecoveryXmlIdentities(noteMigration.project,
+            row.identitySchemaVersion === undefined && row.recoveryVersion !== 2);
+          const unitMigration = migrateCompatibleProjectUnitConversions(xmlIdentityMigration.project);
           // 4. Determine migration eligibility from explicit schema/build provenance or compatibility rule
           const eligibility = determineLegacyConversionMigrationEligibility(
             unitMigration.project,
@@ -608,7 +612,7 @@ export class ProjectQueueService {
           let candidateProject = cloneProjectState(unitMigration.project);
 
           // 6. Migrate genuinely missing conversion metadata for known supported devices
-          let wasMigrated = unitMigration.migrated || noteMigration.repairedNoteCount > 0;
+          let wasMigrated = unitMigration.migrated || xmlIdentityMigration.migrated || noteMigration.repairedNoteCount > 0;
           if (eligibility.eligible) {
             const mig = migrateMissingLegacyProjectConversions(candidateProject);
             candidateProject = mig.project;

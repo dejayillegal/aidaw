@@ -1,0 +1,170 @@
+{
+  "source": "70fec911486780c24f19417722c54466ff145aad",
+  "fixture": "SYNTHETIC",
+  "status": "PASS",
+  "cases": [
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Operator",
+      "role": "instrument",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.1450293004663591,
+        "peak": 0.40226155519485474
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Operator.wav",
+        "sha256": "02d35f2219695dbc6932771e09bc874cf6ea460bb8606c88367ad23ac0a1f841",
+        "decodedSamples": 1372836,
+        "rms": 0.09598926784856895,
+        "peak": 0.4697612524032593,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Analog",
+      "role": "instrument",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.023746632246827194,
+        "peak": 0.11700956523418427
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Analog.wav",
+        "sha256": "1ceaa8d36c279a837c8eb478a20bf1117a6466bcbda34843fa0b4e775c0aac86",
+        "decodedSamples": 1372836,
+        "rms": 0.01576082777911537,
+        "peak": 0.1306912899017334,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Wavetable",
+      "role": "instrument",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.04220055263698259,
+        "peak": 0.29970479011535645
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Wavetable.wav",
+        "sha256": "9848c52308e23e44eef478c546bb5269117f274a6e4dd9e272f1c28cd5e0ef5d",
+        "decodedSamples": 1372836,
+        "rms": 0.030541540459655365,
+        "peak": 0.3800860643386841,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "EQEight",
+      "role": "audio_effect",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.15742966673675202,
+        "peak": 0.7406013011932373
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "EQEight.wav",
+        "sha256": "0b4816956b15ee6556032285367452a936eccbcb13c0a72869915edceee1c569",
+        "decodedSamples": 1372836,
+        "rms": 0.09881244363187716,
+        "peak": 0.7664433717727661,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Reverb",
+      "role": "audio_effect",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.17705766433902967,
+        "peak": 0.6291674375534058
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Reverb.wav",
+        "sha256": "2d7b2f2fba1475fac1124e7461cb6e06fefb14c5225c522077d91d6830299b3f",
+        "decodedSamples": 1372836,
+        "rms": 0.11627239412963924,
+        "peak": 0.6520572900772095,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Compressor2",
+      "role": "audio_effect",
+      "dynamic": false,
+      "expectedMusicalSeconds": 7.565011820330969,
+      "live": {
+        "samples": 38400,
+        "rms": 0.19709170871008377,
+        "peak": 0.7645523548126221
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "wav": {
+        "file": "Compressor2.wav",
+        "sha256": "e1d08c8569a890a947576c8f040b9fe35f3d81ab4f10a544a71254cef517042e",
+        "decodedSamples": 1372836,
+        "rms": 0.12816922411830858,
+        "peak": 0.8063833713531494,
+        "decoder": "FFmpeg f32le"
+      }
+    },
+    {
+      "fixture": "SYNTHETIC",
+      "replacement": "Operator",
+      "role": "instrument",
+      "dynamic": true,
+      "clockEvidence": {
+        "elapsedSeconds": 4.510793650793659,
+        "expectedBeat": 7.476409857107755,
+        "upperExpectedBeat": 7.476409857107755,
+        "actualBeat": 7.476409857107755,
+        "sourcePlacementMaxSeconds": 7.105427357601002e-15,
+        "checkedNoteOnsets": 7
+      },
+      "expectedTotalSeconds": 14.272588722239782,
+      "expectedMusicalSeconds": 6.272588722239782,
+      "live": {
+        "samples": 115200,
+        "rms": 0.14040430443110605,
+        "peak": 0.39569520950317383
+      },
+      "scope": "Captured live browser signal; human listening and Android qualification remain separate",
+      "repeatedPcm": {
+        "maxError": 0,
+        "rmsError": 0,
+        "maxTolerance": 0.001,
+        "rmsTolerance": 0.0001,
+        "repeatSha256": "951c7c3ad50e93d64e241ad963f27b4e00fbf271ee2a5480abd88fa137ca8492"
+      },
+      "wav": {
+        "file": "Operator-tempo-map.wav",
+        "sha256": "951c7c3ad50e93d64e241ad963f27b4e00fbf271ee2a5480abd88fa137ca8492",
+        "decodedSamples": 1258844,
+        "rms": 0.0918123125061936,
+        "peak": 0.44564080238342285,
+        "decoder": "FFmpeg f32le"
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "browser": "153.0.8010.0",
+  "steps": [
+    "Phone export cancels, removes its partial destination and leaves the score unchanged",
+    "Retry completes a real 48k WAV, with final verification and no project/history mutation"
+  ],
+  "errors": [],
+  "scope": "Visible browser workflow with real file bytes and a simulated destination picker; Android SAF itself remains a hardware gate",
+  "status": "PASS",
+  "savedFile": "/tmp/aidaw-export-ui/save-2.wav",
+  "savedBytes": 21310316
+}
