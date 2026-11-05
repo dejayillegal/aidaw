@@ -273,11 +273,16 @@ export default function App() {
     useState<MacroArrangementFormId>('hypnotic_longform');
 
   const [project, setProject] = useState<AbletonProjectState>(() => {
+    const active = projectQueueService.getActiveItem()?.workingProjectState;
+    if (active) return active;
     const seed = initialCompositionSeed;
     const { xml, meta } = buildStarterAbletonXml('berghain-134', seed);
     const parsed = parseAbletonXmlDom(xml, meta.name, xml);
     return enrichProjectWithAnalysis(parsed, 'hypnotic_longform');
   });
+  const [isRecoveringProject, setIsRecoveringProject] = useState(
+    () => projectQueueService.getAllItems().length === 0,
+  );
 
   const [requestedCompositionSeed,setRequestedCompositionSeed]=useState<number>();
   const compositionSeed = requestedCompositionSeed ?? project.songPlan?.seed ?? project.generationSeed ?? project.lastGenerationIdentity?.compositionSeed ?? initialCompositionSeed;
@@ -463,8 +468,10 @@ export default function App() {
           syncRecoveryServiceState();
           setStatusMessage(`Recovery failed: ${String(error)}. Open a saved project file.`);
         }
+      }).finally(() => {
+        if (!cancelled) setIsRecoveringProject(false);
       });
-    }
+    } else setIsRecoveringProject(false);
     return () => {
       cancelled = true;
       unsubQueue();
@@ -1654,7 +1661,11 @@ export default function App() {
           progress,
           control.signal,
         );
-        const saved = await saveExportBlob(blob, exportName);
+        const saved = await saveExportBlob(blob, exportName, control.signal, phase => {
+          wavExportPhase.current = phase;
+          setCanCancelWavExport(phase !== 'verifying');
+          if (phase === 'verifying') setStatusMessage('Finalizing the saved file; please wait...');
+        });
         setWavExportProgress(100);
         setStatusMessage(
           `${saved.verified ? 'Saved and verified' : 'Download requested'}: ${exportName} (${(blob.size / (1024 * 1024)).toFixed(2)} MB · ${durationSeconds.toFixed(1)}s · 44.1kHz/${bitDepth}-bit PCM).`,
@@ -1793,6 +1804,7 @@ export default function App() {
   // Global Studio Keyboard Shortcuts (Cmd/Ctrl+K, Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, F1-F4)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isRecoveringProject) return;
       const target = e.target as HTMLElement | null;
       const isInput =
         target &&
@@ -1838,10 +1850,17 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, isRecoveringProject]);
 
   const unsupportedPluginCount = useMemo(() => project.tracks.reduce((count, track) =>
     count + track.devices.filter(isPluginDependency).length, 0), [project.tracks]);
+
+  // A placeholder must never accept edits under the recovered project's queue ID.
+  if (isRecoveringProject) return (
+    <main className="studio-shell h-dvh grid place-items-center bg-[#080A0D] text-[#F1F5F9]" aria-busy="true">
+      <p role="status">Restoring saved projects…</p>
+    </main>
+  );
 
   return (
     <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">

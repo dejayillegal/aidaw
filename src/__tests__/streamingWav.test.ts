@@ -169,3 +169,15 @@ it("reports the exact encoded duration rather than rounding away more than one s
   ).arrayBuffer();
   expect(inspectWavBinaryHeader(wav).durationSeconds).toBe(1001 / 48000);
 });
+
+it('retains positive and negative Float32 headroom while integer PCM saturates at full scale', async () => {
+  const values = new Float32Array([1.5, -2, .25]);
+  const input = {numberOfChannels:2,sampleRate:48000,length:3,getChannelData:()=>values};
+  const float = new DataView(await (await encodeAudioBufferToWavBlob(input,32)).arrayBuffer());
+  expect(float.getUint16(20,true)).toBe(3);
+  expect(float.getFloat32(44,true)).toBe(1.5);
+  expect(float.getFloat32(52,true)).toBe(-2);
+  const pcm16 = new DataView(await (await encodeAudioBufferToWavBlob(input,16)).arrayBuffer());
+  expect(pcm16.getInt16(44,true)).toBe(32767);
+  expect(pcm16.getInt16(48,true)).toBe(-32768);
+});

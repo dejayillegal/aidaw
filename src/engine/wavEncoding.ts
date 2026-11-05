@@ -86,7 +86,8 @@ export async function* encodeAudioBufferToWavChunks(
           throw new Error(`ENCODE_NONFINITE: frame ${i}`);
         peak = Math.max(peak, Math.abs(raw));
         const sample = Math.max(-1, Math.min(1, raw));
-        if (bitDepth === 32) out.setFloat32(offset, sample, true);
+        // IEEE float WAV retains over-unity headroom. Only integer PCM saturates.
+        if (bitDepth === 32) out.setFloat32(offset, raw, true);
         else if (bitDepth === 16)
           out.setInt16(
             offset,

@@ -44,7 +44,14 @@ try{
  for(const viewport of [{width:390,height:844},{width:800,height:360},{width:1440,height:1000}]){
   await page.setViewportSize(viewport);await view('Compare last edit');inspector=page.getByRole('region',{name:'Project inspector'});await inspector.getByRole('tab',{name:'inspect',exact:true}).click();const details=inspector.getByTestId('arrangement-edit-inspector');if(await details.getAttribute('open')===null)await details.locator('summary').click();const action=inspector.getByRole('button',{name:'Apply note edit',exact:true});await action.scrollIntoViewIfNeeded();const box=await action.boundingBox();assert(box&&box.x>=0&&box.x+box.width<=viewport.width+1&&box.width>=44&&box.y>=0&&box.y+box.height<=viewport.height+1);await page.screenshot({path:path.join(output,`inspect-${viewport.width}.png`)});await page.getByTitle('Close Right Dock',{exact:true}).click();
  }
- const saved=(await read()).project;await page.evaluate(async()=>{const{projectQueueService:q}=await import('/src/services/projectQueueService.ts');await q.flushPersistence();});await page.reload();await page.getByTestId('arrangement-clips-canvas').waitFor();assert.deepEqual((await read()).project.tracks,saved.tracks);stage('Phone/landscape inspector controls remain reachable and authoring survives native reopen');
+ const saved=(await read()).project;await page.evaluate(async()=>{const{projectQueueService:q}=await import('/src/services/projectQueueService.ts');await q.flushPersistence();});await page.reload();await page.getByTestId('arrangement-clips-canvas').waitFor();
+// The canvas also renders the initial project while IndexedDB recovery is pending.
+// Wait for the same saved queue item; a missing/different project still times out.
+await page.waitForFunction(async expectedId=>{
+ const {projectQueueService:q}=await import('/src/services/projectQueueService.ts');
+ return q.getActiveQueueId()===expectedId && !!q.getActiveItem()?.workingProjectState;
+},baseline.id);
+assert.deepEqual((await read()).project.tracks,saved.tracks);stage('Phone/landscape inspector controls remain reachable and authoring survives native reopen');
  assert.deepEqual(report.errors,[]);report.auditionPeakDb=peak;report.status='PASS';
 }catch(error){report.status='FAIL';report.error=String(error);process.exitCode=1;if(page)await page.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});}
 finally{await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));await browser?.close();await server.close();}console.log(JSON.stringify(report));
