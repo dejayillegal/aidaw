@@ -20,6 +20,7 @@ import {
 import { validateAlsProjectCadence } from './compositionIntelligenceEngine';
 import { synthesizeProjectToStereoFloatBuffers } from './webAudioSynth';
 import { assertExecutableInsertLimits } from './channelStripEngine';
+import { measureAudioSignalMetrics, measurePcmSignalMetricsAsync } from './signalMetrics';
 
 export const MASTER_EXPORT_PRESETS_STORAGE_KEY = 'ableton_studio_master_export_presets_v2';
 
@@ -171,229 +172,8 @@ export function deleteCustomMasterExportPreset(presetId: string): MasterExportPr
   return [...BUILTIN_MASTER_EXPORT_PRESETS, ...current];
 }
 
-/**
- * Computes biquad coefficients for ITU-R BS.1770-4 K-Weighting filters at any sample rate (44.1k, 48k, 96k).
- * Stage 1: High-shelf pre-filter (+4 dB @ 1681.97 Hz)
- * Stage 2: RLB high-pass filter (38.135 Hz, Q = 0.5003)
- */
-function getBs1770FilterCoeffs(sampleRate: number) {
-  // Stage 1: High shelf
-  const f0Shelf = 1681.974450955533;
-  const gainDb = 3.999843853973347;
-  const qShelf = 0.7071752369554196;
-  const K1 = Math.tan((Math.PI * f0Shelf) / sampleRate);
-  const Vh = Math.pow(10, gainDb / 20);
-  const Vb = Math.pow(Vh, 0.4996667741545416);
-  const a0_1 = 1 + K1 / qShelf + K1 * K1;
-  const b0_1 = (Vh + (Vb * K1) / qShelf + K1 * K1) / a0_1;
-  const b1_1 = (2 * (K1 * K1 - Vh)) / a0_1;
-  const b2_1 = (Vh - (Vb * K1) / qShelf + K1 * K1) / a0_1;
-  const a1_1 = (2 * (K1 * K1 - 1)) / a0_1;
-  const a2_1 = (1 - K1 / qShelf + K1 * K1) / a0_1;
-
-  // Stage 2: RLB High-pass
-  const f0Hp = 38.13547087602444;
-  const qHp = 0.5003270373238773;
-  const K2 = Math.tan((Math.PI * f0Hp) / sampleRate);
-  const a0_2 = 1 + K2 / qHp + K2 * K2;
-  const b0_2 = 1 / a0_2;
-  const b1_2 = -2 / a0_2;
-  const b2_2 = 1 / a0_2;
-  const a1_2 = (2 * (K2 * K2 - 1)) / a0_2;
-  const a2_2 = (1 - K2 / qHp + K2 * K2) / a0_2;
-
-  return {
-    shelf: { b0: b0_1, b1: b1_1, b2: b2_1, a1: a1_1, a2: a2_1 },
-    hp: { b0: b0_2, b1: b1_2, b2: b2_2, a1: a1_2, a2: a2_2 },
-  };
-}
-
-function applyKWeightingChannel(samples: Float32Array, sampleRate: number): Float32Array {
-  const { shelf, hp } = getBs1770FilterCoeffs(sampleRate);
-  const out = new Float32Array(samples.length);
-
-  let x1_1 = 0,
-    x2_1 = 0,
-    y1_1 = 0,
-    y2_1 = 0;
-  let x1_2 = 0,
-    x2_2 = 0,
-    y1_2 = 0,
-    y2_2 = 0;
-
-  for (let i = 0; i < samples.length; i++) {
-    const x0 = samples[i];
-    const y0_1 =
-      shelf.b0 * x0 + shelf.b1 * x1_1 + shelf.b2 * x2_1 - shelf.a1 * y1_1 - shelf.a2 * y2_1;
-    x2_1 = x1_1;
-    x1_1 = x0;
-    y2_1 = y1_1;
-    y1_1 = y0_1;
-
-    const y0_2 = hp.b0 * y0_1 + hp.b1 * x1_2 + hp.b2 * x2_2 - hp.a1 * y1_2 - hp.a2 * y2_2;
-    x2_2 = x1_2;
-    x1_2 = y0_1;
-    y2_2 = y1_2;
-    y1_2 = y0_2;
-
-    out[i] = y0_2;
-  }
-
-  return out;
-}
-
-/**
- * Genuine ITU-R BS.1770-4 Integrated Loudness (LUFS), 4x Oversampled True Peak (dBTP),
- * Sample Peak (dBFS), Crest Factor (dB), Headroom, and Clipping Counter.
- */
-export function measureAudioSignalMetrics(
-  left: Float32Array,
-  right: Float32Array,
-  sampleRate: number
-): {
-  integratedLufs: number;
-  samplePeakDbfs: number;
-  truePeakDbtp: number;
-  rmsDb: number;
-  crestFactorDb: number;
-  headroomDb: number;
-  clippingSampleCount: number;
-} {
-  const n = Math.min(left.length, right.length);
-  if (n === 0) {
-    return {
-      integratedLufs: -70,
-      samplePeakDbfs: -90,
-      truePeakDbtp: -90,
-      rmsDb: -90,
-      crestFactorDb: 0,
-      headroomDb: 90,
-      clippingSampleCount: 0,
-    };
-  }
-
-  // 1. Sample Peak, RMS, and 4x Oversampled Cubic Hermite True Peak (ITU-R BS.1770 Annex 2)
-  let maxSamplePeak = 0;
-  let maxTruePeak = 0;
-  let sumSqAll = 0;
-  let clippingSampleCount = 0;
-
-  const evalHermite4x = (ym1: number, y0: number, y1: number, y2: number) => {
-    const c0 = y0;
-    const c1 = 0.5 * (y1 - ym1);
-    const c2 = ym1 - 2.5 * y0 + 2 * y1 - 0.5 * y2;
-    const c3 = 0.5 * (y2 - ym1) + 1.5 * (y0 - y1);
-    let peak = Math.max(Math.abs(y0), Math.abs(y1));
-    for (const t of [0.25, 0.5, 0.75]) {
-      const val = Math.abs(((c3 * t + c2) * t + c1) * t + c0);
-      if (val > peak) peak = val;
-    }
-    return peak;
-  };
-
-  for (let i = 0; i < n; i++) {
-    const sL = left[i];
-    const sR = right[i];
-    const absL = Math.abs(sL);
-    const absR = Math.abs(sR);
-    if (absL > maxSamplePeak) maxSamplePeak = absL;
-    if (absR > maxSamplePeak) maxSamplePeak = absR;
-    if (absL >= 0.9999 || absR >= 0.9999) clippingSampleCount++;
-    sumSqAll += 0.5 * (sL * sL + sR * sR);
-
-    if (i >= 1 && i < n - 2) {
-      if (absL > 0.05) {
-        const tpL = evalHermite4x(left[i - 1], sL, left[i + 1], left[i + 2]);
-        if (tpL > maxTruePeak) maxTruePeak = tpL;
-      }
-      if (absR > 0.05) {
-        const tpR = evalHermite4x(right[i - 1], sR, right[i + 1], right[i + 2]);
-        if (tpR > maxTruePeak) maxTruePeak = tpR;
-      }
-    }
-  }
-  if (maxSamplePeak > maxTruePeak) maxTruePeak = maxSamplePeak;
-
-  const samplePeakDbfs =
-    maxSamplePeak > 1e-6 ? Number((20 * Math.log10(maxSamplePeak)).toFixed(2)) : -90;
-  const truePeakDbtp =
-    maxTruePeak > 1e-6 ? Number((20 * Math.log10(maxTruePeak)).toFixed(2)) : -90;
-  const rmsLinear = Math.sqrt(sumSqAll / n);
-  const rmsDb = rmsLinear > 1e-6 ? Number((20 * Math.log10(rmsLinear)).toFixed(2)) : -90;
-  const crestFactorDb = Number(Math.max(0, truePeakDbtp - rmsDb).toFixed(2));
-  const headroomDb = Number((-truePeakDbtp).toFixed(2));
-
-  // 2. ITU-R BS.1770-4 K-weighted Gated Loudness Integration
-  const kL = applyKWeightingChannel(left, sampleRate);
-  const kR = applyKWeightingChannel(right, sampleRate);
-
-  const blockSamples = Math.max(1, Math.floor(0.4 * sampleRate)); // 400 ms gating block
-  const stepSamples = Math.max(1, Math.floor(0.1 * sampleRate)); // 100 ms step (75% overlap)
-
-  const blockEnergies: number[] = [];
-  if (n >= blockSamples) {
-    for (let start = 0; start + blockSamples <= n; start += stepSamples) {
-      let sumL = 0;
-      let sumR = 0;
-      const end = start + blockSamples;
-      for (let i = start; i < end; i++) {
-        sumL += kL[i] * kL[i];
-        sumR += kR[i] * kR[i];
-      }
-      const zL = sumL / blockSamples;
-      const zR = sumR / blockSamples;
-      const blockEnergy = zL + zR;
-      blockEnergies.push(blockEnergy);
-    }
-  } else {
-    let sumL = 0;
-    let sumR = 0;
-    for (let i = 0; i < n; i++) {
-      sumL += kL[i] * kL[i];
-      sumR += kR[i] * kR[i];
-    }
-    blockEnergies.push(sumL / n + sumR / n);
-  }
-
-  // Absolute gate at -70 LKFS: -0.691 + 10 * log10(E) > -70
-  const absGateLinear = Math.pow(10, (-70 + 0.691) / 10);
-  const absPassed = blockEnergies.filter((e) => e > absGateLinear);
-
-  if (absPassed.length === 0) {
-    return {
-      integratedLufs: -70,
-      samplePeakDbfs,
-      truePeakDbtp,
-      rmsDb,
-      crestFactorDb,
-      headroomDb,
-      clippingSampleCount,
-    };
-  }
-
-  const meanAbsEnergy = absPassed.reduce((a, b) => a + b, 0) / absPassed.length;
-  const relGateLufs = -0.691 + 10 * Math.log10(meanAbsEnergy) - 10.0; // -10 LU relative threshold
-  const relGateLinear = Math.pow(10, (relGateLufs + 0.691) / 10);
-
-  const relPassed = absPassed.filter((e) => e >= relGateLinear);
-  const finalBlocks = relPassed.length > 0 ? relPassed : absPassed;
-  const gatedMeanEnergy = finalBlocks.reduce((a, b) => a + b, 0) / finalBlocks.length;
-
-  const integratedLufs =
-    gatedMeanEnergy > 1e-10
-      ? Number((-0.691 + 10 * Math.log10(gatedMeanEnergy)).toFixed(2))
-      : -70;
-
-  return {
-    integratedLufs,
-    samplePeakDbfs,
-    truePeakDbtp,
-    rmsDb,
-    crestFactorDb,
-    headroomDb,
-    clippingSampleCount,
-  };
-}
+// Keep the established export API; reference and master analysis share one meter.
+export { measureAudioSignalMetrics } from './signalMetrics';
 
 /**
  * Encodes stereo Float32Arrays into a verified RIFF WAVE (.wav) ArrayBuffer and Blob.
@@ -621,7 +401,7 @@ export function inspectWavBinaryHeader(
 }
 
 /**
- * Applies two-pass mastering (gain scaling + soft-knee lookahead brickwall limiting) to stereo Float32Arrays
+ * Applies gain scaling and sample-domain limiting with a measured true-peak guard.
  * to hit `targetIntegratedLufs` while respecting `truePeakCeilingDbtp`.
  */
 export function applyTwoPassMasteringToBuffers(
@@ -655,6 +435,9 @@ export function applyTwoPassMasteringToBuffers(
       masteredRight[i] = rawRight[i] * attenGain;
     }
     const pass2Metrics = measureAudioSignalMetrics(masteredLeft, masteredRight, sampleRate);
+    const loudnessRequested = preset.normalize && preset.targetIntegratedLufs !== null;
+    const loudnessCompliant = !loudnessRequested || (pass2Metrics.integratedLufsAvailable &&
+      Math.abs(pass2Metrics.integratedLufs - preset.targetIntegratedLufs!) <= .6);
     return {
       masteredLeft,
       masteredRight,
@@ -662,8 +445,8 @@ export function applyTwoPassMasteringToBuffers(
       pass2Metrics,
       appliedGainDb: Number((20 * Math.log10(attenGain)).toFixed(2)),
       limiterGainReductionDb: attenGain < 1 ? Number((-20 * Math.log10(attenGain)).toFixed(2)) : 0,
-      targetCompliant: true,
-      conflictWarning: null,
+      targetCompliant: loudnessCompliant && pass2Metrics.truePeakDbtp <= preset.truePeakCeilingDbtp + .05,
+      conflictWarning: loudnessCompliant ? null : 'Loudness target not verified: the signal is too short, gated out, or too quiet for safe normalization.',
     };
   }
 
@@ -707,7 +490,7 @@ export function applyTwoPassMasteringToBuffers(
     const neededGain = peakAbs > safeCeiling ? safeCeiling / peakAbs : 1.0;
 
     if (neededGain < envGain) {
-      envGain = neededGain; // Instant lookahead attack
+      envGain = neededGain; // Immediate sample-domain attack; no lookahead claim.
     } else {
       envGain = releaseCoeff * envGain + (1 - releaseCoeff) * neededGain;
     }
@@ -740,8 +523,19 @@ export function applyTwoPassMasteringToBuffers(
     }
   }
 
-  const limiterGainReductionDb =
-    maxGrLinear < 0.999 ? Number((-20 * Math.log10(maxGrLinear)).toFixed(2)) : 0;
+  // Sample-domain limiting alone cannot enforce an inter-sample ceiling. A final
+  // linear attenuation uses the measured FIR peak and preserves the waveform.
+  let peakGuardReductionDb = 0;
+  if (pass2Metrics.truePeakDbtp > preset.truePeakCeilingDbtp) {
+    peakGuardReductionDb = pass2Metrics.truePeakDbtp - preset.truePeakCeilingDbtp + .02;
+    const guard = 10 ** (-peakGuardReductionDb / 20);
+    for (let i = 0; i < n; i++) { masteredLeft[i] *= guard; masteredRight[i] *= guard; }
+    effectiveGainDb -= peakGuardReductionDb;
+    pass2Metrics = measureAudioSignalMetrics(masteredLeft, masteredRight, sampleRate);
+  }
+  const limiterGainReductionDb = Number((
+    (maxGrLinear < 0.999 ? -20 * Math.log10(maxGrLinear) : 0) + peakGuardReductionDb
+  ).toFixed(2));
   const lufsDelta = Math.abs(pass2Metrics.integratedLufs - preset.targetIntegratedLufs);
   const peakCompliant = pass2Metrics.truePeakDbtp <= preset.truePeakCeilingDbtp + 0.05;
   const targetCompliant = peakCompliant && lufsDelta <= 0.6 && !conflictWarning;
@@ -1018,12 +812,14 @@ export async function runStageBAudioMeasurement(
     1
   );
 
-  const metrics = measureAudioSignalMetrics(left, right, sampleRate);
-  if (metrics.integratedLufs <= -68) {
+  const metrics = await measurePcmSignalMetricsAsync([left, right], sampleRate);
+  if (!metrics.integratedLufsAvailable) {
     return {
       available: false,
       status: 'unavailable',
-      unavailableReason: 'Audio Measurement Unavailable: Rendered signal is below -68 LKFS silence gate.',
+      unavailableReason: metrics.loudnessUnavailableReason === 'insufficient-duration'
+        ? 'Audio Measurement Unavailable: A complete 400 ms gating block is required.'
+        : 'Audio Measurement Unavailable: Rendered signal is below the -70 LKFS absolute gate.',
       integratedLufs: null,
       samplePeakDbfs: null,
       truePeakDbtp: null,

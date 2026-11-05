@@ -24,3 +24,5 @@ Release remains blocked. No reference project's QA dashboard or internal heurist
 
 
 Authoring follow-up: AUTHORING-REVIEW-EVIDENCE.md records real Inspect/Compare/editor selection, canonical instrument replacement and role generation, reviewed AI actions, stale protection and native audition. These are named subchecks; complete audio editing/DSP/routing/platform gates remain open.
+
+Signal-measurement follow-up: SIGNAL-MEASUREMENT-EVIDENCE.md records scoped mono/stereo metering, independent decoded-PCM comparison and cooperative reference analysis. G7 remains FAIL and G8 remains BLOCKED pending their complete criteria; named subchecks do not certify interoperability, full audio standards or hardware.

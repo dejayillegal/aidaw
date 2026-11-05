@@ -70,6 +70,11 @@ jobs:
       - name: Install independent audio decoder
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
 
+      - name: Verify loudness and true peak against independent FFmpeg
+        env:
+          SIGNAL_METRICS_OUTPUT: recovery-browser-evidence/signal-metrics.json
+        run: node --import tsx scripts/verify-signal-metrics.mjs
+
       - name: Install isolated browser test runtime
         id: browser-runtime
         run: |
@@ -77,6 +82,12 @@ jobs:
           npm install --prefix "$browser_runtime" --no-save --package-lock=false playwright@1.62.1
           node "$browser_runtime/node_modules/playwright/cli.js" install --with-deps chromium
           echo "CODEX_PRIMARY_RUNTIME_NODE_MODULES=$browser_runtime/node_modules" >> "$GITHUB_ENV"
+
+      - name: Verify decoded reference measurement responsiveness
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          SIGNAL_BROWSER_OUTPUT: recovery-browser-evidence/signal-metrics-browser.json
+        run: node scripts/signal-metrics-browser-check.mjs
 
       - name: Inventory UI controls
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}

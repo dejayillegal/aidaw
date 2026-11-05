@@ -1,0 +1,166 @@
+{
+  "scope": "Native decoded reference-file metrics, cooperative event-loop responsiveness and cancellation; not physical Android or full-session performance",
+  "status": "PASS",
+  "browser": "151.0.7922.34",
+  "result": {
+    "analysis": {
+      "id": "ref_1793893758013_9xlig",
+      "fileName": "right-only.wav",
+      "durationSeconds": 12,
+      "detectedTempo": 134,
+      "detectedRootKey": "A",
+      "detectedScale": "Minor",
+      "signalMeasurement": {
+        "method": "bs1770-k-gated-fir",
+        "channels": 2,
+        "sampleRate": 44100,
+        "integratedAvailable": true,
+        "unavailableReason": null
+      },
+      "integratedLufs": -23,
+      "truePeakDbtp": -20,
+      "crestFactorDb": 6,
+      "dynamicRangeDb": 7.8,
+      "spectralBands": {
+        "subRatio": 0,
+        "lowRatio": 0,
+        "midRatio": 0,
+        "highRatio": 0,
+        "airRatio": 0
+      },
+      "structuralSections": [
+        {
+          "role": "Intro · Bars 1–3",
+          "startBar": 1,
+          "endBar": 3,
+          "targetEnergy": 0.3,
+          "characteristics": "Intro: active archetypes [kick, rumble]"
+        },
+        {
+          "role": "Groove Establish · Bars 4–6",
+          "startBar": 4,
+          "endBar": 6,
+          "targetEnergy": 0.65,
+          "characteristics": "Groove Establish: active archetypes [kick, rumble, percussion, hats]"
+        },
+        {
+          "role": "Tension Riser · Bars 7–8",
+          "startBar": 7,
+          "endBar": 8,
+          "targetEnergy": 0.8,
+          "characteristics": "Tension Riser: active archetypes [hats, percussion, acid, synth]"
+        },
+        {
+          "role": "Breakdown · Bars 9–11",
+          "startBar": 9,
+          "endBar": 11,
+          "targetEnergy": 0.25,
+          "characteristics": "Breakdown: active archetypes [pad, synth, acid, percussion]"
+        },
+        {
+          "role": "Peak Drop · Bars 12–14",
+          "startBar": 12,
+          "endBar": 14,
+          "targetEnergy": 0.98,
+          "characteristics": "Peak Drop: active archetypes [kick, rumble, percussion, synth, hats, acid, ride, pad]"
+        },
+        {
+          "role": "Outro · Bars 15–16",
+          "startBar": 15,
+          "endBar": 16,
+          "targetEnergy": 0.35,
+          "characteristics": "Outro: active archetypes [kick, hats, percussion]"
+        }
+      ],
+      "detectedLayers": [
+        {
+          "archetype": "kick",
+          "detectedName": "Sub-Weighted 909 Kick Anchor",
+          "energyLevel": 0.94,
+          "frequencyRange": "45 Hz – 120 Hz",
+          "timbralCharacteristics": "Punchy transient click with deep sub-tail decay",
+          "recommendedInstrument": "DrumGroupDevice (909 Core) + DrumBuss + EQEight",
+          "creativeVariationPrompt": "Heavy saturated low-end punch with surgical 55Hz anchor"
+        },
+        {
+          "archetype": "rumble",
+          "detectedName": "Reverb-Washed Rolling Sub-Bass",
+          "energyLevel": 0.75,
+          "frequencyRange": "32 Hz – 90 Hz",
+          "timbralCharacteristics": "Dark warehouse convolution reverb with tight sidechain pumping",
+          "recommendedInstrument": "Operator (Sine) + HybridReverb + Compressor2 (4.5:1)",
+          "creativeVariationPrompt": "Evolving 16th rolling sub ducked dynamically under kick"
+        },
+        {
+          "archetype": "acid",
+          "detectedName": "Resonant 303 Diode Acid Lead",
+          "energyLevel": 0.65,
+          "frequencyRange": "180 Hz – 3.2 kHz",
+          "timbralCharacteristics": "Squelchy portamento slides with high-resonance envelope accents",
+          "recommendedInstrument": "Analog (303 Diode) + Roar + AutoFilter",
+          "creativeVariationPrompt": "Accented Phrygian b2 slides with modulated filter cutoff"
+        },
+        {
+          "archetype": "percussion",
+          "detectedName": "Polymeter Metallic Percussion",
+          "energyLevel": 0.55,
+          "frequencyRange": "800 Hz – 6.5 kHz",
+          "timbralCharacteristics": "Euclidean cross-rhythms with resonator transients and saturation",
+          "recommendedInstrument": "Collision + Saturator + Echo",
+          "creativeVariationPrompt": "7/16 Euclidean pulse cluster creating hypnotic polyrhythm"
+        },
+        {
+          "archetype": "synth",
+          "detectedName": "Hypnotic Melodic Synth Motif",
+          "energyLevel": 0.72,
+          "frequencyRange": "400 Hz – 4.5 kHz",
+          "timbralCharacteristics": "Stereo ping-pong echo delay with automation filter breath",
+          "recommendedInstrument": "Wavetable + Echo (3/16) + AutoPan",
+          "creativeVariationPrompt": "Dorian minor pentatonic motif with slow envelope modulation"
+        },
+        {
+          "archetype": "pad",
+          "detectedName": "Deep Atmospheric Dub Chord Pad",
+          "energyLevel": 0.58,
+          "frequencyRange": "250 Hz – 5.0 kHz",
+          "timbralCharacteristics": "Lush chorused space with tape delay and wide stereo spread",
+          "recommendedInstrument": "Drift + ChorusEnsemble + HybridReverb",
+          "creativeVariationPrompt": "Minor 9th chord swell with slow LFO filter breathing"
+        },
+        {
+          "archetype": "hats",
+          "detectedName": "Swung 909 Offbeat Hi-Hats",
+          "energyLevel": 0.78,
+          "frequencyRange": "4.5 kHz – 16 kHz",
+          "timbralCharacteristics": "Crisp 8th-note offbeat open hat layered with subtle 16th ghosts",
+          "recommendedInstrument": "Simpler (909 Open) + AutoFilter (HPF 2.8kHz)",
+          "creativeVariationPrompt": "Swung groove with decay modulation on alternate bars"
+        },
+        {
+          "archetype": "ride",
+          "detectedName": "Warehouse Peak-Time Ride Cymbal",
+          "energyLevel": 0.85,
+          "frequencyRange": "6 kHz – 20 kHz",
+          "timbralCharacteristics": "Relentless metallic wash with bell accents and high-shelf shimmer",
+          "recommendedInstrument": "Simpler (909 Ride) + EQEight + Overdrive",
+          "creativeVariationPrompt": "High-energy 16th drive for arrangement drops and peak energy"
+        }
+      ],
+      "grooveProfile": {
+        "swingPct": 55,
+        "syncopationIndex": 0.42,
+        "polyrhythmicFeel": "Straight 4/4 Driving Lock"
+      },
+      "creativeRecommendations": [
+        "Reference exhibits strong energy in the Mid-Range (1kHz) band. Re-compose with matching weight using Operator Sub and DrumBuss.",
+        "Harmonic structure centers around A Minor. Propose creative modal expansion into Dorian/Aeolian without cloning chord voicings.",
+        "Measured peak -20.0 dBTP; crest 6.0 dB. Estimated dynamic range 7.8 dB is an orchestration heuristic, not Loudness Range (LRA)."
+      ]
+    },
+    "ticks": 120,
+    "maxGapMs": 62.90000000037253,
+    "elapsedMs": 1413,
+    "cancelled": true,
+    "retryLufs": -23.01
+  }
+}

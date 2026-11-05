@@ -1,0 +1,617 @@
+{
+  "scope": "Synthetic mono/stereo PCM against FFmpeg ebur128, with explicit 100ms zero guards at file boundaries; not full BS.2217 certification or output-device qualification",
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "node": "v24.22.1",
+  "budgets": {
+    "loudnessLu": 0.1,
+    "truePeakDb": 0.35
+  },
+  "cases": [
+    {
+      "name": "mono-44100",
+      "sampleRate": 44100,
+      "channels": 1,
+      "frames": 141120,
+      "actual": {
+        "integratedLufs": -23.08,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 8
+      },
+      "expected": {
+        "integratedLufs": -23.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.020000000000003126,
+      "peakError": 0,
+      "elapsedMs": 92.52988900000014
+    },
+    {
+      "name": "stereo-44100",
+      "sampleRate": 44100,
+      "channels": 2,
+      "frames": 141120,
+      "actual": {
+        "integratedLufs": -20.07,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 8
+      },
+      "expected": {
+        "integratedLufs": -20.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.030000000000001137,
+      "peakError": 0,
+      "elapsedMs": 127.29627400000004
+    },
+    {
+      "name": "right-only-44100",
+      "sampleRate": 44100,
+      "channels": 2,
+      "frames": 141120,
+      "actual": {
+        "integratedLufs": -23.08,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -26.3,
+        "crestFactorDb": 6.3,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 8
+      },
+      "expected": {
+        "integratedLufs": -23.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.020000000000003126,
+      "peakError": 0,
+      "elapsedMs": 112.26815499999998
+    },
+    {
+      "name": "antiphase-44100",
+      "sampleRate": 44100,
+      "channels": 2,
+      "frames": 141120,
+      "actual": {
+        "integratedLufs": -20.07,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 8
+      },
+      "expected": {
+        "integratedLufs": -20.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.030000000000001137,
+      "peakError": 0,
+      "elapsedMs": 224.6192169999997
+    },
+    {
+      "name": "quiet-intersample-44100",
+      "sampleRate": 44100,
+      "channels": 2,
+      "frames": 141120,
+      "actual": {
+        "integratedLufs": -24.68,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -30.97,
+        "truePeakDbtp": -27.86,
+        "rmsDb": -31.25,
+        "crestFactorDb": 3.38,
+        "headroomDb": 27.86,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 8
+      },
+      "expected": {
+        "integratedLufs": -24.7,
+        "truePeakDbtp": -27.9
+      },
+      "loudnessError": 0.019999999999999574,
+      "peakError": 0.03999999999999915,
+      "elapsedMs": 160.70739000000003
+    },
+    {
+      "name": "near-nyquist-44100",
+      "sampleRate": 44100,
+      "channels": 1,
+      "frames": 141120,
+      "actual": {
+        "integratedLufs": -19.73,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20.03,
+        "truePeakDbtp": -19.78,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.51,
+        "headroomDb": 19.78,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 8
+      },
+      "expected": {
+        "integratedLufs": -19.7,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.030000000000001137,
+      "peakError": 0.21999999999999886,
+      "elapsedMs": 68.38059900000007
+    },
+    {
+      "name": "mono-48000",
+      "sampleRate": 48000,
+      "channels": 1,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -23.09,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -23.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.010000000000001563,
+      "peakError": 0,
+      "elapsedMs": 61.64592300000004
+    },
+    {
+      "name": "stereo-48000",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -20.08,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -20.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.020000000000003126,
+      "peakError": 0,
+      "elapsedMs": 107.36973699999999
+    },
+    {
+      "name": "right-only-48000",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -23.09,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -26.3,
+        "crestFactorDb": 6.3,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -23.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.010000000000001563,
+      "peakError": 0,
+      "elapsedMs": 72.45532100000037
+    },
+    {
+      "name": "antiphase-48000",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -20.08,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -20.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.020000000000003126,
+      "peakError": 0,
+      "elapsedMs": 76.15939600000002
+    },
+    {
+      "name": "quiet-intersample-48000",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -24.68,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -30.97,
+        "truePeakDbtp": -27.86,
+        "rmsDb": -31.25,
+        "crestFactorDb": 3.38,
+        "headroomDb": 27.86,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -24.7,
+        "truePeakDbtp": -27.9
+      },
+      "loudnessError": 0.019999999999999574,
+      "peakError": 0.03999999999999915,
+      "elapsedMs": 72.99728000000005
+    },
+    {
+      "name": "near-nyquist-48000",
+      "sampleRate": 48000,
+      "channels": 1,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -19.73,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20.03,
+        "truePeakDbtp": -19.78,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.51,
+        "headroomDb": 19.78,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -19.7,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.030000000000001137,
+      "peakError": 0.21999999999999886,
+      "elapsedMs": 45.16930700000012
+    },
+    {
+      "name": "mono-96000",
+      "sampleRate": 96000,
+      "channels": 1,
+      "frames": 307200,
+      "actual": {
+        "integratedLufs": -23.1,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -23.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0,
+      "peakError": 0,
+      "elapsedMs": 68.01996099999997
+    },
+    {
+      "name": "stereo-96000",
+      "sampleRate": 96000,
+      "channels": 2,
+      "frames": 307200,
+      "actual": {
+        "integratedLufs": -20.09,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -20.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.010000000000001563,
+      "peakError": 0,
+      "elapsedMs": 151.87803799999983
+    },
+    {
+      "name": "right-only-96000",
+      "sampleRate": 96000,
+      "channels": 2,
+      "frames": 307200,
+      "actual": {
+        "integratedLufs": -23.1,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -26.3,
+        "crestFactorDb": 6.3,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -23.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0,
+      "peakError": 0,
+      "elapsedMs": 662.8689889999996
+    },
+    {
+      "name": "antiphase-96000",
+      "sampleRate": 96000,
+      "channels": 2,
+      "frames": 307200,
+      "actual": {
+        "integratedLufs": -20.09,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.29,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -20.1,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.010000000000001563,
+      "peakError": 0,
+      "elapsedMs": 149.58881100000053
+    },
+    {
+      "name": "quiet-intersample-96000",
+      "sampleRate": 96000,
+      "channels": 2,
+      "frames": 307200,
+      "actual": {
+        "integratedLufs": -24.7,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -30.97,
+        "truePeakDbtp": -27.86,
+        "rmsDb": -31.25,
+        "crestFactorDb": 3.38,
+        "headroomDb": 27.86,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -24.7,
+        "truePeakDbtp": -27.9
+      },
+      "loudnessError": 0,
+      "peakError": 0.03999999999999915,
+      "elapsedMs": 1587.3930840000003
+    },
+    {
+      "name": "near-nyquist-96000",
+      "sampleRate": 96000,
+      "channels": 1,
+      "frames": 307200,
+      "actual": {
+        "integratedLufs": -19.76,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20.03,
+        "truePeakDbtp": -19.78,
+        "rmsDb": -23.29,
+        "crestFactorDb": 3.51,
+        "headroomDb": 19.78,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -19.8,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.03999999999999915,
+      "peakError": 0.21999999999999886,
+      "elapsedMs": 766.0824569999986
+    },
+    {
+      "name": "relative-gate",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 393600,
+      "actual": {
+        "integratedLufs": -20.38,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -29.14,
+        "crestFactorDb": 9.14,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -20.4,
+        "truePeakDbtp": -20
+      },
+      "loudnessError": 0.019999999999999574,
+      "peakError": 0,
+      "elapsedMs": 186.36186499999894
+    },
+    {
+      "name": "over-unity",
+      "sampleRate": 48000,
+      "channels": 1,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": 0.44,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": 3.52,
+        "truePeakDbtp": 3.52,
+        "rmsDb": 0.23,
+        "crestFactorDb": 3.29,
+        "headroomDb": -3.52,
+        "clippingSampleCount": 77106,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": 0.4,
+        "truePeakDbtp": 3.5
+      },
+      "loudnessError": 0.03999999999999998,
+      "peakError": 0.020000000000000018,
+      "elapsedMs": 62.24331800000073
+    },
+    {
+      "name": "seeded-noise",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -18.67,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -14.78,
+        "rmsDb": -25.02,
+        "crestFactorDb": 10.24,
+        "headroomDb": 14.78,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -18.7,
+        "truePeakDbtp": -15
+      },
+      "loudnessError": 0.029999999999997584,
+      "peakError": 0.22000000000000064,
+      "elapsedMs": 65.08910800000012
+    },
+    {
+      "name": "multitone",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 153600,
+      "actual": {
+        "integratedLufs": -19.97,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": -13.16,
+        "truePeakDbtp": -13.16,
+        "rmsDb": -20.24,
+        "crestFactorDb": 7.08,
+        "headroomDb": 13.16,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -20,
+        "truePeakDbtp": -13.2
+      },
+      "loudnessError": 0.030000000000001137,
+      "peakError": 0.03999999999999915,
+      "elapsedMs": 69.13616199999888
+    },
+    {
+      "name": "file-edge-impulses",
+      "sampleRate": 48000,
+      "channels": 1,
+      "frames": 57600,
+      "actual": {
+        "integratedLufs": -38.5,
+        "integratedLufsAvailable": true,
+        "loudnessUnavailableReason": null,
+        "samplePeakDbfs": 1.58,
+        "truePeakDbtp": 1.58,
+        "rmsDb": -43.37,
+        "crestFactorDb": 44.96,
+        "headroomDb": -1.58,
+        "clippingSampleCount": 2,
+        "truePeakOversample": 4
+      },
+      "expected": {
+        "integratedLufs": -38.5,
+        "truePeakDbtp": 1.6
+      },
+      "loudnessError": 0,
+      "peakError": 0.020000000000000018,
+      "elapsedMs": 55.91430400000172
+    },
+    {
+      "name": "silence",
+      "actual": {
+        "integratedLufs": -70,
+        "integratedLufsAvailable": false,
+        "loudnessUnavailableReason": "below-absolute-gate",
+        "samplePeakDbfs": -90,
+        "truePeakDbtp": -90,
+        "rmsDb": -90,
+        "crestFactorDb": 0,
+        "headroomDb": 90,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      }
+    },
+    {
+      "name": "short",
+      "actual": {
+        "integratedLufs": -70,
+        "integratedLufsAvailable": false,
+        "loudnessUnavailableReason": "insufficient-duration",
+        "samplePeakDbfs": -20,
+        "truePeakDbtp": -20,
+        "rmsDb": -23.01,
+        "crestFactorDb": 3.01,
+        "headroomDb": 20,
+        "clippingSampleCount": 0,
+        "truePeakOversample": 4
+      }
+    }
+  ],
+  "status": "PASS"
+}
