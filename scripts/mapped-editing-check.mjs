@@ -42,6 +42,7 @@ try {
         if(await close.isVisible())await close.click();
       }
     }
+    await page.getByTestId('timeline-settings').locator('summary').click();
     await page.getByTitle('Spot Mode: Exact numeric Bar.Beat.16th coordinate placement',{exact:true}).click();
     await page.getByTitle('Target Bar (1-4)',{exact:true}).fill('3');
     const beat=page.getByTitle('Target Beat (1-7)',{exact:true});

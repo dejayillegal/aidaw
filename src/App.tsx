@@ -1,3 +1,4 @@
+import { editProjectBaseTempo } from './engine/projectTempoEditing';
 import { clearArrangementContent } from './engine/clearArrangement';
 import { ClearArrangementDialog, type ClearArrangementDialogHandle } from './components/ClearArrangementDialog';
 import { isPluginDependency } from './engine/pluginDependencies';
@@ -304,11 +305,11 @@ export default function App() {
   // SoundCraft Workstation & Dock Layout States
   const [studioWorkspace, setStudioWorkspace] = useState<WorkspaceTabId>('edit');
   const [activeEditingTool, setActiveEditingTool] = useState<StudioEditingTool>('smart');
-  const [spectrumOverlayMode, setSpectrumOverlayMode] = useState<SpectrumOverlayMode>('compact_lane');
-  const [leftDockOpen, setLeftDockOpen] = useState<boolean>(true);
-  const [bottomDockOpen, setBottomDockOpen] = useState<boolean>(true);
+  const [spectrumOverlayMode, setSpectrumOverlayMode] = useState<SpectrumOverlayMode>('off');
+  const [leftDockOpen, setLeftDockOpen] = useState<boolean>(false);
+  const [bottomDockOpen, setBottomDockOpen] = useState<boolean>(false);
   const [rightDockOpen, setRightDockOpen] = useState<boolean>(false);
-  const [bottomEditorTab, setBottomEditorTab] = useState<'composer' | 'devices' | 'pads' | 'spectrum'>('composer');
+  const [bottomEditorTab, setBottomEditorTab] = useState<'composer' | 'devices' | 'pads' | 'spectrum'>('devices');
 
   const [editMode, setEditMode] = useState<TimelineEditMode>('grid');
   // Theme & Settings States
@@ -337,7 +338,6 @@ export default function App() {
 
   const handleSelectTrack = useCallback((trackId: string) => {
     setSelectedTrackId(trackId);
-    setBottomDockOpen(true);
   }, []);
 
   const [queueItems, setQueueItems] = useState<QueuedProjectRecord[]>(() =>
@@ -1738,8 +1738,7 @@ export default function App() {
   );
 
   const handleUpdateTempo = (newBpm: number) => {
-    const clamped = Math.max(90, Math.min(180, newBpm));
-    handleExecuteProjectCommand('Change Tempo', 'transport', prev => ({ ...prev, tempo: clamped, ...(prev.songPlan?{songPlan:{...prev.songPlan,tempo:clamped}}:{}) }));
+    handleExecuteProjectCommand('Change Tempo', 'transport', prev => editProjectBaseTempo(prev, newBpm));
   };
 
   const handleSaveProjectSnapshot = async () => {
@@ -2071,7 +2070,7 @@ export default function App() {
     count + track.devices.filter(isPluginDependency).length, 0), [project.tracks]);
 
   return (
-    <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
+    <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
       {/* 1. TOP 28px SOUNDCRAFT STUDIO MENU BAR */}
       <StudioMenuBar
         projectName={project.fileName}
@@ -2106,6 +2105,9 @@ export default function App() {
           setActiveTab('workbench');
           setStudioWorkspace(ws);
         }}
+        onToggleTracks={() => setLeftDockOpen(v => !v)}
+        onToggleEditor={() => setBottomDockOpen(v => !v)}
+        onToggleInspector={() => setRightDockOpen(v => !v)}
         onResetLayout={() => handleApplyLayoutPreset('edit')}
         onOpenXmlInspector={() => setActiveTab('xml')}
         onOpenPythonExporter={() => setActiveTab('python')}
@@ -2165,7 +2167,7 @@ export default function App() {
       />
 
       {/* 4. SOUNDCRAFT PROFESSIONAL DAW WORKSTATION BODY (CSS GRID CELL) */}
-      <div className="min-h-0 min-w-0 flex flex-col overflow-hidden">
+      <div className="studio-main min-h-0 min-w-0 flex flex-col overflow-hidden">
         {unsupportedPluginCount > 0 && <button type="button" className="shrink-0 p-2 text-xs text-amber-200 bg-amber-950/50" onClick={() => setIsUnsupportedPluginModalOpen(true)}>
           Resolve plugin dependencies ({unsupportedPluginCount})
         </button>}

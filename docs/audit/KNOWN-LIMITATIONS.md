@@ -16,3 +16,5 @@
 These are real acceptance gaps, not approvals to drop features or erase original projects. Engineering/QA must attach measured evidence before promoting a gate.
 
 - The owner-merged runtime-timing/Gradle correction passed main CI42001766197. New follow-up commit CI and physical qualification remain separate requirements. See BUILD-DOWNLOAD-EVIDENCE.md and the PR for exact artifact status.
+
+- The standalone November 5 master directive changes gate meanings. G0-G8-TRACEABILITY.md is authoritative; the earlier ledger is retained as HISTORICAL-G0-G8-TRACEABILITY.md. Reference-guided navigation and a real sound browser improve reachability but do not close missing sampler/routing/warp/DSP or physical-platform acceptance. REFERENCE-WORKSPACE-IMPLEMENTATION.md records scoped evidence.

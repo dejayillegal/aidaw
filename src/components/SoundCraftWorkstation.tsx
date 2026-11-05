@@ -1,3 +1,4 @@
+import { StudioBrowser } from './StudioBrowser';
 import type {ArrangementClipEdit,ArrangementNoteEdit} from '../engine/arrangementEditing';
 import React, { useState, useEffect } from 'react';
 import { SessionMatrix, type SessionMatrixProps } from './SessionMatrix';
@@ -22,7 +23,7 @@ import {
   VoicingSpreadStyle,
 } from '../types/ableton';
 import { RangeClipGeneratorMode } from '../engine/compositionIntelligenceEngine';
-import { StudioEditingTool, StudioEditorToolbar, SpectrumOverlayMode } from './StudioEditorToolbar';
+import type { StudioEditingTool, SpectrumOverlayMode } from './StudioEditorToolbar';
 import { WorkspaceTabId } from './StudioWorkspaceTabs';
 import { TimelineCanvas } from './TimelineCanvas';
 import { SoundCraftMixConsole } from './SoundCraftMixConsole';
@@ -319,8 +320,8 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
           </h2>
           <div className="p-4 bg-[#121620] border border-[#232B3A] rounded-md font-mono text-xs text-slate-300 space-y-2">
             <p>
-              Integrated zero-regression audio engine connecting Web Audio DSP, Live 12 MIDI tools,
-              and authentic Ableton .als XML parsing and compilation.
+              Shared Web Audio processing, canonical project commands and supported ALS import/export.
+              Compatibility depends on the device and file format subset; Live reopening requires separate validation.
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 text-[11px]">
               <div className="bg-[#0A0D12] p-2 rounded border border-[#1E2530]">
@@ -337,13 +338,17 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               </div>
               <div className="bg-[#0A0D12] p-2 rounded border border-[#1E2530]">
                 <span className="text-zinc-500">Validation:</span>
-                <span className="ml-1 text-emerald-400 font-bold">100% ALS Valid</span>
+                <span className="ml-1 text-emerald-400 font-bold">Not release qualification</span>
               </div>
             </div>
           </div>
         </div>
       </div>
     );
+  }
+
+  if (studioWorkspace === 'browser') {
+    return <StudioBrowser project={project} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} onInsertDevice={onInjectLibraryDevice} onAddTrack={onAddUserTrackFromRole} />;
   }
 
   // Full-Viewport Dedicated Workspaces
@@ -375,7 +380,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
                 SESSION MATRIX &amp; LIVE JAM PADS
               </h2>
               <p className="text-xs font-mono text-zinc-400">
-                Live hardware trigger surface for {selectedTrack?.name || 'Selected Track'}
+                Clip launcher and touch pads for {selectedTrack?.name || 'Selected Track'}
               </p>
             </div>
           </div>
@@ -400,7 +405,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
                 DEVICE RACK &amp; SPECTRAL DUCKING
               </h2>
               <p className="text-xs font-mono text-zinc-400">
-                Track {selectedTrack?.name || 'Selected'} · Native Ableton Live 12 devices &amp; DSP inserts
+                Track {selectedTrack?.name || 'Selected'} · Built-in processing and project device chains
               </p>
             </div>
           </div>
@@ -485,23 +490,6 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#080A0D]">
-      {/* SoundCraft Unified Edit Toolbar */}
-      <StudioEditorToolbar
-        editMode={editMode}
-        activeTool={activeEditingTool}
-        spectrumMode={spectrumOverlayMode}
-        arrangementLengthBars={activeTotalBars as 16 | 32 | 64 | 128}
-        memoryLocations={project.memoryLocations || []}
-        selectedTrackName={selectedTrack?.name}
-        onChangeEditMode={onChangeEditMode}
-        onChangeActiveTool={onChangeActiveTool}
-        onChangeSpectrumMode={onChangeSpectrumMode}
-        onChangeArrangementLength={onChangeArrangementLength}
-        onDropMarkerAtPlayhead={onDropMemoryLocationAtPlayhead}
-        onSeekToMarker={onSeekBeat}
-        onOpenCompingModal={onOpenCompingModal}
-      />
-
       {/* CSS Grid Tri-Pane Workstation: [left-dock] auto [center-viewport] 1fr [right-dock] auto */}
       <div
         className="relative flex-1 grid min-w-0 min-h-0 overflow-hidden"

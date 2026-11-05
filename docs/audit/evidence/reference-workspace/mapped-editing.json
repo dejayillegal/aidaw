@@ -1,0 +1,30 @@
+{
+  "scope": "Visible mixed-meter Spot placement and ruler/piano synchronization; browser touch geometry only, not hardware qualification",
+  "cases": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "spotBeat": 9.25,
+      "beatMaximum": 7,
+      "sixteenthMaximum": 2,
+      "scorePreserved": true,
+      "status": "PASS"
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "spotBeat": 9.25,
+      "beatMaximum": 7,
+      "sixteenthMaximum": 2,
+      "scorePreserved": true,
+      "status": "PASS"
+    }
+  ],
+  "errors": [],
+  "browser": "153.0.8010.0",
+  "status": "PASS"
+}

@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "scope": "track velocity/quantize, undo/redo, native save/reload, action reachability",
+  "transactions": 2,
+  "arrangementClips": 2,
+  "restoredTracks": 2,
+  "viewports": [
+    {
+      "width": 360,
+      "height": 640
+    },
+    {
+      "width": 900,
+      "height": 720
+    },
+    {
+      "width": 800,
+      "height": 360
+    },
+    {
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "deviceQualification": false,
+  "fullUiCoverage": false,
+  "browser": "153.0.8010.0"
+}

@@ -79,16 +79,32 @@ export const StudioSettingsModal: React.FC<StudioSettingsModalProps> = ({
     return () => clearInterval(interval);
   }, [isOpen]);
 
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => previous?.focus();
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
     <div className="studio-modal-overlay fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-fadeIn">
-      <div className="w-full max-w-2xl bg-[#0F131A] dark:bg-[#0F131A] border border-[#232B38] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="studio-settings-title" onKeyDown={e=>{
+        if(e.key==='Escape'){e.preventDefault();e.stopPropagation();onClose();}
+        if(e.key==='Tab'){
+          const controls=[...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href]')].filter(el=>el.getClientRects().length>0);
+          const first=controls[0],last=controls.at(-1);
+          if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+          else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+        }
+      }} className="w-full max-w-2xl bg-[#0F131A] dark:bg-[#0F131A] border border-[#232B38] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
         {/* Modal Header */}
         <div className="px-4 py-3 bg-[#090C11] border-b border-[#1F2734] flex items-center justify-between select-none">
           <div className="flex items-center gap-2">
             <Sliders className="w-4 h-4 text-amber-400" />
-            <h3 className="font-display font-semibold text-sm text-slate-100">
+            <h3 id="studio-settings-title" className="font-display font-semibold text-sm text-slate-100">
               Parametric DAW Workstation Settings &amp; Diagnostics
             </h3>
           </div>

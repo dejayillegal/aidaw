@@ -1,0 +1,47 @@
+{
+  "baseline": "0703a63d4b5bb8585d068c92f1146c3527c38391",
+  "branch": "remediation/reference-workspace",
+  "tests": {
+    "files": 39,
+    "passed": 346,
+    "failed": 0,
+    "status": "PASS"
+  },
+  "strictTypeScript": "PASS",
+  "correctnessEslint": "PASS",
+  "productionPwaBuild": "PASS",
+  "pythonBuildTests": {
+    "passed": 16,
+    "status": "PASS"
+  },
+  "negativeRegression": {
+    "file": "tempo-before-fix.json",
+    "expected": "FAIL before correction; native mapped project remained at 128 after entering 143.25"
+  },
+  "nativeReports": [
+    "workspace.json",
+    "mapped-editing.json",
+    "arrangement-editing.json",
+    "track-tools.json",
+    "session.json",
+    "clear.json",
+    "export.json",
+    "audio.json",
+    "journal.json"
+  ],
+  "androidBuild": "CI pending publication; no local device claim",
+  "physicalAndroid": "BLOCKED: no adb target/tool available",
+  "licensedLiveReopen": "BLOCKED: runtime unavailable",
+  "producerListening": "NOT TESTED",
+  "review": "Local source diff and regression review; no independent Qodo review available",
+  "sourceSha256": {
+    "src/App.tsx": "bf0dd189bd64ece1dc67bf86e302497915fc43d95d37374a6a25cdf05a7e5be7",
+    "src/components/StudioWorkspaceTabs.tsx": "95c0de64807871b3fcb1acb6173daa447263d6b6357471b9ede8c3927a42cccd",
+    "src/components/StudioBrowser.tsx": "789dfa08da957e028fdb0da025de4cff1696ef954353edd3cc13946dcb04d526",
+    "src/components/StudioTransportBar.tsx": "1060d73d9e470c8d91e909fa27838f7a4f3022b7b269a69b768e72c9d43f6f48",
+    "src/components/TimelineCanvas.tsx": "338540eb70cfcb6b9e69c9424c344cdb2a38b419c99429b15ed30e108f450711",
+    "src/components/StudioSettingsModal.tsx": "d2e76ebbdf031a53ebdf32898302fcebafe0416e2ddc2f3adc95945a846d9cf8",
+    "src/engine/projectTempoEditing.ts": "206f934a7aabda9da9bb97fea4d3de10f9c7363ce9b0576855f40c80dd2df6d2",
+    "scripts/workspace-flow-check.mjs": "933ca6b75e1b0727b38d0deec31366d95ce3b8d5c47c637a3f69fa5656cee88c"
+  }
+}

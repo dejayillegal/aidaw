@@ -126,7 +126,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
   const primaryRepairable = blockedRecoveryRecords.find((r) => r.canRepairLegacyConversions);
 
   return (
-    <>
+    <div className="studio-status min-w-0">
       {criticalMessage && (
         <div
           role="alert"
@@ -261,7 +261,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
             <span className={`w-1.5 h-1.5 rounded-full ${playbackDotClass}`} />
             <span className="font-bold text-zinc-200">{playbackLabel}</span>
             <span className="text-zinc-600">·</span>
-            <span>48kHz 32-bit float</span>
+            <span>Web Audio</span>
           </div>
 
           <div
@@ -319,9 +319,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
           )}
 
           <div className="hidden lg:flex items-center gap-1 text-zinc-400 border-l border-[#1C222C] pl-2">
-            <span className="uppercase text-zinc-500">TOOL:</span>
-            <span className="text-zinc-200 uppercase font-semibold">{activeTool}</span>
-            <span className="text-zinc-600">/</span>
+            <span className="uppercase text-zinc-500">EDIT:</span>
             <span className="text-amber-400 uppercase font-semibold">{editMode}</span>
           </div>
         </div>
@@ -373,7 +371,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

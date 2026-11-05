@@ -1,0 +1,50 @@
+[
+  {
+    "name": "after",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "metrics": {
+      "visibleButtons": 107,
+      "documentWidth": 1440,
+      "leftDrawer": false
+    }
+  },
+  {
+    "name": "after",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "metrics": {
+      "visibleButtons": 80,
+      "documentWidth": 390,
+      "leftDrawer": false
+    }
+  },
+  {
+    "name": "before",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "metrics": {
+      "visibleButtons": 177,
+      "documentWidth": 1440,
+      "leftDrawer": true
+    }
+  },
+  {
+    "name": "before",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "metrics": {
+      "visibleButtons": 107,
+      "documentWidth": 390,
+      "leftDrawer": true
+    }
+  }
+]
