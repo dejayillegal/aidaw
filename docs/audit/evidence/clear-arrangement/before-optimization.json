@@ -1,0 +1,41 @@
+{
+  "cases": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "status": "PASS",
+      "cancel": true,
+      "undoRedo": true,
+      "nativeReopen": true,
+      "dialogTiming": {
+        "samples": 21,
+        "p95Ms": 133.59999999962747,
+        "budgetMs": 100,
+        "status": "FAIL",
+        "method": "pointerdown to next animation frame after native dialog opens; no audio or all-workstation latency claim"
+      }
+    },
+    {
+      "viewport": {
+        "width": 360,
+        "height": 640
+      },
+      "status": "PASS",
+      "cancel": true,
+      "undoRedo": true,
+      "nativeReopen": true,
+      "dialogTiming": {
+        "samples": 21,
+        "p95Ms": 117.29999999981374,
+        "budgetMs": 100,
+        "status": "FAIL",
+        "method": "pointerdown to next animation frame after native dialog opens; no audio or all-workstation latency claim"
+      }
+    }
+  ],
+  "scope": "Visible clear/cancel/undo/redo/native reopen; performance qualification remains partial",
+  "browser": "153.0.8010.0",
+  "status": "PASS"
+}
