@@ -14,3 +14,5 @@
 - Seven dependency advisories remain (2 low,5 moderate). No complete security/licensing review or production signing-lineage approval is claimed.
 
 These are real acceptance gaps, not approvals to drop features or erase original projects. Engineering/QA must attach measured evidence before promoting a gate.
+
+- Initial runtime-timing candidate CI encountered external Gradle distribution HTTP504 and timeout before Android compilation. A same-version checksum-pinned binary/timeout correction is included; final Android CI must qualify that configuration. See BUILD-DOWNLOAD-EVIDENCE.md and the PR for latest execution status.
