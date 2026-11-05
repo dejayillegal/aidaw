@@ -11,15 +11,15 @@ const report={scope:'Native UI Inspect/Compare, instrument replacement, empty/ge
 const stage=name=>{report.steps.push(name);console.log(name);};
 try{
  await server.listen();browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});report.browser=browser.version();
- page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(30000);page.on('pageerror',e=>report.errors.push(String(e)));
- await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//,r=>r.abort());
+ page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(30000);page.on('pageerror',e=>report.errors.push(String(e)));page.on('console',m=>{if(m.type()==='error')report.errors.push(m.text());});
+ await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//,r=>r.fulfill({status:200,contentType:'text/css',body:''}));
  const origin=`http://127.0.0.1:${server.httpServer.address().port}`;await page.goto(origin+'/tests/recovery-browser.html');
  const fixture=await page.evaluate(async()=>{const{createEditableFullTrack}=await import('/src/services/projectCreationService.ts');const{encodeProjectSnapshot}=await import('/src/services/projectSnapshotService.ts');const{projectAudioSettings}=await import('/src/engine/projectDefaults.ts');const p=createEditableFullTrack({title:'Review_Authoring',subgenreId:'raw_warehouse',bpm:132,durationBars:32,layerDensity:'compact',seed:77});const s=projectAudioSettings(p);return encodeProjectSnapshot(p,s.humanization,s.masterBus,s.transport);});
  await page.goto(origin);await page.getByLabel('Open saved DAW project',{exact:true}).setInputFiles({name:'Review_Authoring.aidaw.json',mimeType:'application/json',buffer:Buffer.from(fixture)});await page.getByText(/^Opened Review_Authoring/).filter({visible:true}).waitFor();
  const read=()=>page.evaluate(async()=>{const{projectQueueService:q}=await import('/src/services/projectQueueService.ts');const{studioCommandBus:b}=await import('/src/services/commandBus.ts');const id=q.getActiveQueueId();return {id,project:q.getActiveItem().workingProjectState,depth:b.getHistory(id).length};});
  const review=()=>page.getByRole('dialog',{name:/^Review changes/});const view=async label=>{await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('button',{name:label,exact:true}).click();};
  const baseline=await read();
- await page.getByRole('button',{name:'Add layer',exact:true}).click();const browserRegion=page.getByRole('region',{name:'Sound browser'});await page.getByLabel('Search browser',{exact:true}).fill('B4');
+ await page.getByRole('button',{name:'Add layer',exact:true}).click();assert.equal(await page.getByTestId('arrangement-clips-canvas').count(),1,'Opening Browser must preserve the mounted Editor');const browserRegion=page.getByRole('region',{name:'Sound browser'});await page.getByLabel('Search browser',{exact:true}).fill('B4');
  await browserRegion.getByRole('button',{name:'Preview layer with phrase',exact:true}).click();await review().waitFor();
  assert.deepEqual((await read()).project.tracks,baseline.project.tracks);assert.equal((await read()).depth,baseline.depth);
  await page.screenshot({path:path.join(output,'generated-layer-review.png')});await review().getByRole('button',{name:'Cancel changes',exact:true}).click();assert.equal((await read()).depth,baseline.depth);

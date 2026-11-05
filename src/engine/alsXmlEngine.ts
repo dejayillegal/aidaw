@@ -2407,14 +2407,19 @@ export function parseAbletonXmlDom(
     let appState: Partial<AbletonTrack> = {};
     const appStateNode = trackEl.querySelector(':scope > ParametricTrackState');
     if (appStateNode) {
-      if (appStateNode.getAttribute('Version') !== '1') throw new Error('PROJECT_STATE_VERSION: unsupported track metadata');
+      if (!['1','2'].includes(appStateNode.getAttribute('Version') || '')) throw new Error('PROJECT_STATE_VERSION: unsupported track metadata');
       try { appState = JSON.parse(appStateNode.textContent || '{}');
         if (!appState || typeof appState !== 'object' || Array.isArray(appState)) throw new Error('invalid metadata');
       }
       catch { throw new Error('PROJECT_STATE: malformed track metadata'); }
       // Read only this application's serialized projection; never overlay native IDs/devices/clips.
       appState = Object.fromEntries(Object.entries(appState).filter(([key]) =>
-        ['devices', 'mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb', 'sessionClips', 'activeSessionSlot'].includes(key)));
+        ['devices', 'mixer', 'muted', 'soloed', 'locked', 'automationPoints', 'vcaGroupId', 'automationGainOffsetDb', 'sessionClips', 'activeSessionSlot', 'layer', 'archetype', 'roleCode', 'groupCode', 'parameterAutomation', 'sidechainCompressor', 'spectralDucking', 'polyrhythm', 'velocityCurve', 'instrumentDeleted'].includes(key)));
+      // Explicit null means the app deliberately owns an absent optional feature;
+      // do not resurrect import defaults and change the sound on reopen.
+      if (appState.spectralDucking === null) appState.spectralDucking = undefined;
+      if (appState.polyrhythm === null) appState.polyrhythm = undefined;
+      if (appState.velocityCurve === null) appState.velocityCurve = undefined;
     }
     if(appState.devices) appState.devices=appState.devices.map(device=>migrateCompatibleUnitConversion(device).device);
     tracks.push({
@@ -2503,7 +2508,7 @@ export function parseAbletonXmlDom(
       ? savedRequestedBars
       : undefined;
   const songPlanNode=xmlDoc.querySelector('LiveSet > ParametricSongPlan');
-  if(songPlanNode&&!['1','2'].includes(songPlanNode.getAttribute('Version')||'')) throw new Error('SONG_PLAN_VERSION: unsupported metadata; original preserved');
+  if(songPlanNode&&!['1','2','3'].includes(songPlanNode.getAttribute('Version')||'')) throw new Error('SONG_PLAN_VERSION: unsupported metadata; original preserved');
   const parsedProject: AbletonProjectState = {
     audioSettings,
     ...(xmlDoc.querySelector('LiveSet > ParametricSongPlan') ? {songPlan: JSON.parse(xmlDoc.querySelector('LiveSet > ParametricSongPlan')!.textContent || 'null')} : {}),
@@ -2538,6 +2543,14 @@ export function parseAbletonXmlDom(
     estimatedGzipByteSize: Math.round(rawByteSize * 0.14),
     lastActionLog: `Parsed ${tracks.length} tracks (${totalNotesCount} <MidiNoteEvent> nodes) across ${arrangementLengthBars} bars at ${tempo} BPM in ${detectedRoot} ${scaleNameAttr || 'Phrygian'}.`,
   };
+  const musicalIntentNode=xmlDoc.querySelector('LiveSet > ParametricMusicalIntent');
+  if (musicalIntentNode) {
+    if(musicalIntentNode.getAttribute('Version')!=='1')throw new Error('MUSICAL_INTENT_VERSION: unsupported intent; original preserved');
+    let intent: {rootKey?:unknown;scale?:unknown};
+    try{intent=JSON.parse(musicalIntentNode.textContent||'null');}catch{throw new Error('MUSICAL_INTENT: invalid metadata');}
+    if(!intent||typeof intent.rootKey!=='string'||!intent.rootKey||intent.rootKey.length>32||typeof intent.scale!=='string'||!intent.scale||intent.scale.length>64)throw new Error('MUSICAL_INTENT: invalid key or mode');
+    parsedProject.rootKey=intent.rootKey;parsedProject.scale=intent.scale;
+  }
   const sessionNode=xmlDoc.querySelector('LiveSet > ParametricSessionState');
   if (sessionNode) {
     if (sessionNode.getAttribute('Version')!=='1') throw new Error('SESSION_VERSION: unsupported Session metadata');
@@ -2732,6 +2745,12 @@ export function syncTrackClipsToXml(
 ): string {
   const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
   if (doc.querySelector('parsererror') || doc.documentElement.tagName !== 'Ableton') throw new Error('Invalid source XML');
+  syncTrackClipsInDocument(doc, trackId, clips);
+  return new XMLSerializer().serializeToString(doc);
+}
+
+/** Batch projection shares one parsed document while retaining scoped opaque templates. */
+function syncTrackClipsInDocument(doc: Document, trackId: string, clips: AbletonMidiClip[]): void {
   const matches = Array.from(doc.querySelectorAll('Tracks > MidiTrack')).filter(el => readAlsIdentity(el) === trackId);
   if (matches.length !== 1) throw new Error(`CLIP_SYNC_TRACK: target track ${trackId} missing or ambiguous`);
   const track = matches[0];
@@ -2866,9 +2885,6 @@ export function syncTrackClipsToXml(
     if (!generator || Number(generator.getAttribute('NextId')) < next) ensure(notes, 'NoteIdGenerator').setAttribute('NextId', String(next));
   }
   requireUnique(Array.from(events.children).filter(el => el.tagName === 'MidiClip').map(el => el.getAttribute('Id') || ''), 'serialized clip');
-  return new XMLSerializer().serializeToString(doc);
-
-
 }
 
 /**
@@ -3215,6 +3231,11 @@ export function syncLocatorsAndMixerToXml(
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(currentXml, 'application/xml');
   if (xmlDoc.querySelector('parsererror')) throw new Error('PROJECT_XML: invalid source XML');
+  syncLocatorsAndMixerInDocument(xmlDoc, tracks, memoryLocations);
+  return new XMLSerializer().serializeToString(xmlDoc);
+}
+
+function syncLocatorsAndMixerInDocument(xmlDoc: Document, tracks: AbletonTrack[], memoryLocations?: MemoryLocationMarker[]): void {
   const liveSet = xmlDoc.querySelector('Ableton > LiveSet');
   if (!liveSet) throw new Error('PROJECT_XML: missing LiveSet');
 
@@ -3247,23 +3268,23 @@ export function syncLocatorsAndMixerToXml(
     locatorsOuter.appendChild(locatorsInner);
   }
 
+  const trackElements = new Map(Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack')).map(el => [readAlsIdentity(el), el]));
   tracks.forEach((t) => {
-    const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack')).find(
-      (el) => readAlsIdentity(el) === t.id
-    );
+    const trackEl = trackElements.get(t.id);
     if (!trackEl) return;
     trackEl.setAttribute('Data-Base-Volume-Db', String(t.mixer.volumeDb));
     trackEl.setAttribute('Data-Pan', String(t.mixer.pan));
     let appState = trackEl.querySelector(':scope > ParametricTrackState');
     if (!appState) { appState = xmlDoc.createElement('ParametricTrackState'); trackEl.appendChild(appState); }
-    appState.setAttribute('Version', '1');
+    appState.setAttribute('Version', '2');
     appState.setAttribute('AutomationParameter', 'parametric:filter-energy');
     appState.textContent = JSON.stringify({ devices: t.devices, mixer: t.mixer, muted: t.muted, soloed: t.soloed,
+      layer: t.layer, archetype: t.archetype, roleCode: t.roleCode, groupCode: t.groupCode, parameterAutomation: t.parameterAutomation, sidechainCompressor: t.sidechainCompressor,
+      spectralDucking: t.spectralDucking ?? null, polyrhythm: t.polyrhythm ?? null, velocityCurve: t.velocityCurve ?? null, instrumentDeleted: t.instrumentDeleted ?? false,
       locked: t.locked, automationPoints: t.automationPoints, vcaGroupId: t.vcaGroupId,
       automationGainOffsetDb: t.automationGainOffsetDb, sessionClips: t.sessionClips, activeSessionSlot: t.activeSessionSlot });
   });
 
-  return new XMLSerializer().serializeToString(xmlDoc);
 }
 
 /** Serialize the existing canonical domain. Unchanged clip/unknown XML is left intact. */
@@ -3350,6 +3371,9 @@ export function synchronizeProjectStateToXml(
     tracksNode.replaceChild(node, slots[index]);
   });
   const root = doc.querySelector('Ableton')!;
+  let musicalIntent = doc.querySelector('LiveSet > ParametricMusicalIntent');
+  if (!musicalIntent) { musicalIntent = doc.createElement('ParametricMusicalIntent'); doc.querySelector('LiveSet')!.appendChild(musicalIntent); }
+  musicalIntent.setAttribute('Version','1'); musicalIntent.textContent=JSON.stringify({rootKey:project.rootKey,scale:project.scale});
   if (project.generationSeed !== undefined) root.setAttribute('Data-Parametric-GenerationSeed',String(project.generationSeed));
   if (project.humanizationSeed !== undefined) root.setAttribute('Data-Parametric-HumanizationSeed', String(project.humanizationSeed));
   if (project.creationMode !== undefined) root.setAttribute('Data-Parametric-CreationMode', project.creationMode);
@@ -3389,7 +3413,6 @@ export function synchronizeProjectStateToXml(
     });
   } else timingNode?.remove();
 
-  xml = new XMLSerializer().serializeToString(doc);
   // Compare against the prior complete projection, never the half-built document:
   // new Session references are not resolvable until track metadata is written below.
   const serialized = previous ? null : parseAbletonXmlDom(project.rawXmlModified || project.rawXml || '', project.fileName);
@@ -3402,10 +3425,11 @@ export function synchronizeProjectStateToXml(
     if (track.type !== 'midi') continue;
     const before = (previous || serialized)?.tracks.find(t => t.id === track.id);
     if (JSON.stringify(clipContent(track.clips)) !== JSON.stringify(clipContent(before?.clips))) {
-      xml = syncTrackClipsToXml(xml, track.id, track.clips);
+      syncTrackClipsInDocument(doc, track.id, track.clips);
     }
   }
-  return syncLocatorsAndMixerToXml(xml, project.tracks, project.memoryLocations);
+  syncLocatorsAndMixerInDocument(doc, project.tracks, project.memoryLocations);
+  return new XMLSerializer().serializeToString(doc);
 }
 
 /**

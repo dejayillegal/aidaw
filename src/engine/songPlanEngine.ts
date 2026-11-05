@@ -1,4 +1,7 @@
 import {deleteClipsInBeatRange,nextArrangementIdentity} from './compositionIntelligenceEngine';
+import { describeTrackLayer, layerSeed } from './layerPlanning';
+import { createLayerAutomation } from './compositionAutomation';
+import { defaultSidechain } from './sidechainGraph';
 import type {
   AbletonProjectState,
   AbletonTrack,
@@ -116,6 +119,7 @@ const STYLE_GROOVES: Partial<Record<CompositionStrategyId, SongGroove>> = {
   },
 };
 export interface SongPlan {
+  formFamily?: 'style-default' | 'plateau' | 'dual-drop' | 'dub-evolution';
   groove?: SongGroove;
   version: number;
   generatorVersion: string;
@@ -143,12 +147,16 @@ export interface SongPlan {
   }[];
   harmony: HarmonicEvent[];
   motifs: {
+    trackId?: string;
     role: TechnoArchetype;
     degrees: number[];
     steps: number[];
     transforms: ("rotate" | "subtract" | "octave" | "answer")[];
   }[];
   roles: {
+    trackId?: string;
+    layerId?: string;
+    variant?: string;
     role: TechnoArchetype;
     required: boolean;
     seed: number;
@@ -208,6 +216,7 @@ export function createSongPlan(
   project: AbletonProjectState,
   seed: number,
   style: CompositionStrategyId = "hypnotic_evolving",
+  formFamily: NonNullable<SongPlan['formFamily']> = 'style-default',
 ): SongPlan {
   const grooveProfile = STYLE_GROOVES[style];
   if (!grooveProfile)
@@ -230,18 +239,31 @@ export function createSongPlan(
     );
   const total = bars * 4,
     root = rootOf(project.rootKey);
-  const scale =
+  if (!['style-default','plateau','dual-drop','dub-evolution'].includes(formFamily)) throw new Error('SONG_PLAN_FORM: unsupported form');
+  const modeScales: Record<string, number[]> = {
+    'Phrygian':[0,1,3,5,7,8,10], 'Dorian':[0,2,3,5,7,9,10], 'Natural Minor':[0,2,3,5,7,8,10],
+    'Harmonic Minor':[0,2,3,5,7,8,11], 'Locrian':[0,1,3,5,6,8,10],
+    'Phrygian Dominant':[0,1,4,5,7,8,10], 'Octatonic':[0,1,3,4,6,7,9,10],
+  };
+  const scale = modeScales[project.scale] ?? (
     style === "dub_space" || style === "detroit_funk"
       ? [0, 2, 3, 5, 7, 9, 10]
       : style === "minimal_groove" || style === "peak_rolling"
         ? [0, 2, 3, 5, 7, 8, 10]
-        : [0, 1, 3, 5, 7, 8, 10];
+        : [0, 1, 3, 5, 7, 8, 10]);
   const evolving = style === "detroit_funk" || style === "peak_rolling";
   const names =
-    bars >= 32
+    bars >= 64 && (formFamily === 'dub-evolution' || formFamily === 'style-default' && style === 'dub_space')
+      ? ['Intro', 'Groove', 'Development', 'Reduction', 'Development', 'Peak', 'Outro']
+      : bars >= 64 && (formFamily === 'dual-drop' || formFamily === 'style-default' && ['acid_modulation', 'peak_rolling'].includes(style))
+      ? ['Intro', 'Groove', 'First Drop', 'Breakdown', 'Build', 'Peak', 'Variation', 'Outro']
+      : bars >= 64 && formFamily === 'style-default' && style === 'asymmetric_industrial'
+      ? ['Intro', 'Development', 'First Drop', 'Reduction', 'Build', 'Peak', 'Outro']
+      : bars >= 32
       ? ["Intro", "Groove", "Development", "Breakdown", "Peak", "Outro"]
       : ["Intro", "Peak", "Outro"].slice(0, Math.min(bars, 3));
-  const weights = names.length === 6 ? [1, 2, 2, 1, 3, 1] : names.map(() => 1);
+  const weights = names.map((name, i) => (name === 'Peak' ? 3 : ['Groove', 'Development'].includes(name) ? 2 : 1) *
+    (bars >= 64 ? .85 + random(seed, i + 810) * .3 : 1));
   // Whole phrases where length permits; preserve the exact requested final boundary.
   const unit = bars >= 64 ? 8 : bars >= 16 ? 4 : 1;
   let cursor = 0;
@@ -272,15 +294,15 @@ export function createSongPlan(
       energy:
         name === "Peak"
           ? 0.9
-          : name === "Breakdown"
+          : name === "Breakdown" || name === 'Reduction'
             ? 0.25
             : name === "Intro" || name === "Outro"
               ? 0.35
               : 0.65,
-      focalRole: (name === "Peak" &&
+      focalRole: (['Peak', 'First Drop'].includes(name) &&
       (style === "acid_modulation" || random(seed, 1) > 0.55)
         ? "acid"
-        : name === "Breakdown"
+        : name === "Breakdown" || name === 'Reduction'
           ? "pad"
           : style === "dub_space"
             ? "synth"
@@ -308,7 +330,7 @@ export function createSongPlan(
     const chordRoot = root + scale[degree];
     const chordDegrees = [degree, degree + 2, degree + 4, degree + 6];
     const tones = chordDegrees.map(
-      (d) => root + scale[d % 7] + 12 * Math.floor(d / 7),
+      (d) => root + scale[d % scale.length] + 12 * Math.floor(d / scale.length),
     );
     const pitchClasses = tones.map((t) => t % 12);
     const candidates: number[][] = [];
@@ -365,16 +387,23 @@ export function createSongPlan(
             : "modal-anchor",
     };
   });
-  const rolePlans: SongPlan["roles"] = roles.map((role, index) => {
+  const layerTracks = project.tracks.filter(t => t.type === 'midi' && !t.isGroupTrack && roles.includes(t.archetype));
+  const rolePlans: SongPlan["roles"] = layerTracks.map((track) => {
+    const role = track.archetype, layer = describeTrackLayer(track, seed);
+    const identitySeed = layer.seed, index = identitySeed % 65521;
+    const layerPhrases: {fromBeat:number;toBeat:number;sectionId:string}[] = [];
+    for (const s of sections) for (let at = s.fromBeat; at < s.toBeat; at += layer.phraseBeats) {
+      layerPhrases.push({fromBeat:at,toBeat:Math.min(s.toBeat,at+layer.phraseBeats),sectionId:s.id});
+    }
     const spans: SongPlan["roles"][number]["spans"] = [];
-    for (const [i, p] of phrases.entries()) {
+    for (const [i, p] of layerPhrases.entries()) {
       const s = sections.find((s) => s.id === p.sectionId)!;
       let active = true;
       if (s.name === "Intro")
         active =
           ["kick", "hats", "percussion"].includes(role) ||
           (style === "dub_space" && role === "pad");
-      if (s.name === "Breakdown")
+      if (s.name === "Breakdown" || s.name === 'Reduction')
         active =
           ["pad", "synth"].includes(role) ||
           (role === "percussion" && i % 2 === 0);
@@ -387,7 +416,7 @@ export function createSongPlan(
         active =
           active &&
           style !== "dub_space" &&
-          (s.name === "Development" || s.name === "Peak") &&
+          ['Development', 'Peak', 'First Drop', 'Build', 'Variation'].includes(s.name) &&
           i % 3 !== 0;
       if (role === "synth" && s.focalRole === "acid") active = i % 2 === 0;
       if (role === "synth" && s.name === "Groove") active = i % 2 === 1;
@@ -414,7 +443,8 @@ export function createSongPlan(
     return {
       role,
       required: ["kick", "rumble", "hats"].includes(role),
-      seed: seed + index * 997,
+      trackId: track.id, layerId: layer.id, variant: layer.variant,
+      seed: identitySeed,
       gainDb: {
         kick: -7,
         rumble: -15,
@@ -456,8 +486,9 @@ export function createSongPlan(
     tailPolicy: "preserve",
   }));
   return {
-    version: 2,
-    generatorVersion: "song-plan-2",
+    version: 3,
+    formFamily,
+    generatorVersion: "song-plan-3",
     groove: structuredClone(grooveProfile),
     seed,
     style,
@@ -472,15 +503,15 @@ export function createSongPlan(
     harmony,
     roles: rolePlans,
     transitions,
-    motifs: roles.map((role, i) => ({
-      role,
+    motifs: layerTracks.map((track) => ({
+      role: track.archetype, trackId: track.id,
       degrees: [0, 0, 4, 2, 0, 6, 4, 1].map(
-        (d, j) => (d + (random(seed, i * 99 + j) > 0.8 ? 2 : 0)) % 7,
+        (d, j) => (d + (random(layerSeed(seed, track.id), j) > 0.8 ? 2 : 0)) % scale.length,
       ),
       steps:
-        role === "acid"
+        track.archetype === "acid"
           ? [0, 2, 3, 6, 8, 10, 11, 14]
-          : role === "rumble"
+          : track.archetype === "rumble"
             ? [2, 5, 6, 10, 13, 14]
             : [0, 3, 6, 10],
       transforms: ["rotate", "subtract", "octave", "answer"],
@@ -493,7 +524,8 @@ export function assertSongPlan(plan: SongPlan): void {
     !plan ||
     !(
       (plan.version === 1 && plan.generatorVersion === "song-plan-1") ||
-      (plan.version === 2 && plan.generatorVersion === "song-plan-2")
+      (plan.version === 2 && plan.generatorVersion === "song-plan-2") ||
+      (plan.version === 3 && plan.generatorVersion === "song-plan-3")
     )
   )
     throw new Error("SONG_PLAN_VERSION: unsupported plan; original preserved");
@@ -506,7 +538,7 @@ export function assertSongPlan(plan: SongPlan): void {
     plan.tempo <= 0
   )
     throw new Error("SONG_PLAN_INPUT: invalid identity/duration");
-  if (plan.version === 2) {
+  if (plan.version >= 2) {
     const g = plan.groove;
     if (
       !g ||
@@ -552,6 +584,18 @@ export function assertSongPlan(plan: SongPlan): void {
     !Array.isArray(plan.motifs)
   )
     throw new Error("SONG_PLAN_STRUCTURE");
+  if (plan.version >= 3) {
+    if (plan.formFamily !== undefined && !['style-default','plateau','dual-drop','dub-evolution'].includes(plan.formFamily)) throw new Error('SONG_PLAN_FORM');
+    if (!Array.isArray(plan.scale) || plan.scale.length < 5 || plan.scale.length > 12 ||
+      new Set(plan.scale).size !== plan.scale.length || plan.scale.some(n=>!Number.isInteger(n)||n<0||n>11)) throw new Error('SONG_PLAN_SCALE');
+    const trackIds=new Set<string>(),layerIds=new Set<string>();
+    for(const role of plan.roles) {
+      if(!role.trackId||trackIds.has(role.trackId)||!role.layerId||layerIds.has(role.layerId)||!roles.includes(role.role)||
+        !Number.isSafeInteger(role.seed)||role.seed<0||role.seed>0xffffffff||
+        plan.motifs.filter(m=>m.trackId===role.trackId&&m.role===role.role).length!==1) throw new Error('SONG_PLAN_LAYER: invalid or ambiguous layer ownership');
+      trackIds.add(role.trackId);layerIds.add(role.layerId);
+    }
+  }
   for (const h of plan.harmony)
     if (
       !Array.isArray(h.voicing) ||
@@ -580,9 +624,23 @@ export function materializeSongPlanTrack(
   assertSongPlan(plan);
   const role = track.archetype;
   const groove = plan.groove ?? STYLE_GROOVES.hypnotic_evolving!;
-  const r = plan.roles.find((r) => r.role === role);
+  const r = plan.roles.find((r) => plan.version >= 3 ? r.trackId === track.id : r.role === role);
   if (!r || track.type !== "midi") return track.clips;
-  const motif = plan.motifs.find((m) => m.role === role)!;
+  if (['riser','impact','downlifter'].includes(r.variant || '')) {
+    return plan.sections.slice(1).flatMap((section, i) => {
+      const delta = section.energy - plan.sections[i].energy;
+      const arrival = section.name === 'Peak' || section.name === 'First Drop';
+      if (r.variant === 'downlifter' ? delta > -.2 : !arrival && delta < .2) return [];
+      const start = r.variant === 'riser' ? Math.max(0, section.fromBeat - 8) : section.fromBeat;
+      const length = Math.min(r.variant === 'impact' ? 2 : 8, plan.durationBars * 4 - start);
+      const id = `atom_${track.id}_${plan.seed}_${section.id}`;
+      return [{ id, name: `${track.name} → ${section.name}`, startTime: start, endTime: start + length, length,
+        sectionRole: section.id, notes: [{id:`${id}_note`,time:start,quantizedTime:start,duration:length,
+          pitch:r.variant==='impact'?36:60,velocity:arrival?95:70,probability:1,isGhost:false,isSlide:false,isAccent:false,motifRole:'fill' as const}] }];
+    });
+  }
+  const motif = plan.motifs.find((m) => plan.version >= 3 ? m.trackId === track.id : m.role === role)!;
+  if (!motif) throw new Error('SONG_PLAN_MOTIF: missing layer motif');
   const clips: AbletonMidiClip[] = [];
   for (const [index, span] of r.spans.entries()) {
     const notes: MidiNoteEvent[] = [];
@@ -612,7 +670,7 @@ export function materializeSongPlanTrack(
         probability: 1,
         isSlide: slide,
         isAccent: role === "acid" && velocity >= 100,
-        motifRole: fill ? "fill" : "anchor",
+          motifRole: fill ? "fill" : "anchor",
       });
     };
     for (
@@ -634,8 +692,8 @@ export function materializeSongPlanTrack(
         return (
           plan.rootMidi +
           12 +
-          plan.scale[degreeIndex % 7] +
-          12 * Math.floor(degreeIndex / 7)
+          plan.scale[degreeIndex % plan.scale.length] +
+          12 * Math.floor(degreeIndex / plan.scale.length)
         );
       };
       for (let step = 0; step < 16; step++) {
@@ -667,14 +725,14 @@ export function materializeSongPlanTrack(
             );
         } else if (role === "hats") {
           if (
-            step % 4 === 2 ||
+            (r.variant === 'closed-hat' ? step % 2 === 0 : r.variant === 'ghost-hat' ? step % 2 === 1 : r.variant === 'shaker' ? step % 4 !== 0 : step % 4 === 2) ||
             (span.density > 0.6 &&
               step % 2 === 1 &&
               hash < groove.hatGhostProbability)
           )
             add(
               at,
-              step % 4 === 2 ? 46 : 42,
+              r.variant === 'shaker' ? 70 : r.variant === 'closed-hat' || r.variant === 'ghost-hat' ? 42 : step % 4 === 2 ? 46 : 42,
               step % 4 === 2 ? 0.22 : 0.09,
               step % 4 === 2 ? 76 : 46 + Math.round(hash * 15),
             );
@@ -683,13 +741,15 @@ export function materializeSongPlanTrack(
           if (
             (role === "ride"
               ? step % 4 === 2
-              : groove.percussionSteps.includes(step) ||
+              : r.variant === 'clap' ? step === 4 || step === 12 :
+                r.variant === 'rim' ? step === 3 || step === 11 :
+                groove.percussionSteps.includes((step + (r.seed % 4)) % 16) ||
                 (fill && step >= 12)) &&
             (hash < span.density || fill)
           )
             add(
               at,
-              role === "ride" ? 51 : 37 + (bar % 3) * 2,
+              role === "ride" ? 51 : r.variant === 'clap' ? 39 : r.variant === 'tom-low' ? 43 : r.variant === 'conga-mid' ? 64 : r.variant === 'conga-high' ? 62 : r.variant === 'bongo' ? 60 : 37 + (bar % 3) * 2,
               0.13,
               fill ? 83 : 56 + Math.round(hash * 24),
               fill,
@@ -712,7 +772,7 @@ export function materializeSongPlanTrack(
             add(
               at,
               (degree(step) % 12) +
-                48 +
+                (r.variant === 'acid-low' ? 36 : 48) +
                 (step === 14 && phrase.variation === 2 ? 12 : 0),
               0.21,
               v + Math.round(hash * 18),
@@ -748,7 +808,7 @@ export function materializeSongPlanTrack(
     if (notes.length)
       clips.push({
         id: `sp_clip_${track.id}_${plan.seed}_${index}`,
-        name: `${role} · ${plan.sections.find((s) => s.id === phrase.sectionId)!.name} · ${index + 1}`,
+        name: `${track.name} · ${plan.sections.find((s) => s.id === phrase.sectionId)!.name} · ${index + 1}`,
         startTime: span.fromBeat,
         endTime: span.toBeat,
         length: span.toBeat - span.fromBeat,
@@ -906,11 +966,17 @@ export function composeSongPlan(
         }
       }
       clips.sort((a, b) => a.startTime - b.startTime);
-      return { ...track, clips };
+      const fresh=track.clips.length===0&&track.layer?.provenance==='procedural-style-v1';
+      const kick=project.tracks.find(t=>t.archetype==='kick');
+      return { ...track, ...(plan.version>=3?{layer:describeTrackLayer(track,plan.seed)}:{}), clips,
+        ...(fresh?{automationPoints:songPlanAutomation(plan,track.archetype),parameterAutomation:createLayerAutomation(plan,track),
+          ...(kick&&['rumble','pad','synth','acid'].includes(track.archetype)?{sidechainCompressor:defaultSidechain(kick.id)}:{})}:{}) };
     }
-    const role = plan.roles.find((r) => r.role === track.archetype)!;
+    const role = plan.roles.find((r) => plan.version >= 3 ? r.trackId === track.id : r.role === track.archetype);
+    if (!role) return track;
     return {
       ...track,
+      ...(plan.version>=3?{layer:describeTrackLayer(track,plan.seed)}:{}),
       clips: generated,
       automationPoints: songPlanAutomation(plan, track.archetype),
       mixer: {

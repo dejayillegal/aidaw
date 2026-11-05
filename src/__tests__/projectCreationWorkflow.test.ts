@@ -26,7 +26,7 @@ describe('Canonical full-track project creation', () => {
       takes: t.takes?.map(({ createdAt, ...take }) => take) }));
     expect(score(createEditableFullTrack(options))).toEqual(score(p));
   }, 30000);
-  it.each([['compact', 6], ['standard', 7], ['full_reference', 8]] as const)('makes %s density executable in state and XML (%i tracks)', (layerDensity, count) => {
+  it.each([['compact', 8], ['standard', 11], ['full_reference', 19]] as const)('makes %s density executable in state and XML (%i raw-style tracks)', (layerDensity, count) => {
     const p = createEditableFullTrack({ ...options, layerDensity });
     expect(p.tracks).toHaveLength(count);
     expect(parseAlsXmlString(p.rawXmlModified).tracks).toHaveLength(count);

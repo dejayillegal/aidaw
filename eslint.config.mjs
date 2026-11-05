@@ -47,8 +47,8 @@ const rules={
     };
 
 export default [
-  { ignores: ['node_modules/**','dist/**','android/**','docs/**','public/**'] },
-  { files:['scripts/**/*.{mjs,js}','*.mjs'],languageOptions:{ecmaVersion:'latest',sourceType:'module'},rules },
+  { ignores: ['node_modules/**','dist/**','android/**','docs/**','public/assets/**'] },
+  { files:['scripts/**/*.{mjs,js}','public/audio/*.js','*.mjs'],languageOptions:{ecmaVersion:'latest',sourceType:'module'},rules },
   {
     files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', '*.ts'],
     languageOptions: {

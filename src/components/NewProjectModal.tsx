@@ -2,15 +2,19 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import type { TechnoSubgenreId } from '../types/ableton';
 import type { NewProjectOptions } from '../services/projectCreationService';
+import { CREATION_STYLE_STRATEGIES } from '../services/projectCreationService';
+import { styleLayerRecipes } from '../engine/layerPlanning';
 export type { NewProjectOptions } from '../services/projectCreationService';
 
 const styles = [
   { id: 'raw_warehouse', label: 'Raw Warehouse', bpm: 138 },
+  { id: 'hypnotic_deep', label: 'Hypnotic Plateau', bpm: 136 },
   { id: 'berlin_industrial', label: 'Berlin Industrial', bpm: 134 },
   { id: 'hardgroove', label: 'Hardgroove Tribal', bpm: 142 },
   { id: 'acid_techno', label: '303 Acid Modular', bpm: 140 },
   { id: 'dub_techno', label: 'Dub Atmospheric', bpm: 130 },
   { id: 'driving_rolling', label: 'Driving Peak Time', bpm: 136 },
+  { id: 'minimal_micro', label: 'Minimal Micro Groove', bpm: 128 },
 ];
 
 export function NewProjectModal({ isOpen, initialDurationBars = 128, onClose, onCreateProject }: {
@@ -25,6 +29,8 @@ export function NewProjectModal({ isOpen, initialDurationBars = 128, onClose, on
   const [durationBars, setDurationBars] = useState(initialDurationBars);
   const [seed, setSeed] = useState(777);
   const [layerDensity, setLayerDensity] = useState<NewProjectOptions['layerDensity']>('full_reference');
+  const [rootKey,setRootKey]=useState('F'),[mode,setMode]=useState('Phrygian');
+  const [formFamily,setFormFamily]=useState<NonNullable<NewProjectOptions['formFamily']>>('style-default');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const dialog = useRef<HTMLDivElement>(null);
@@ -65,7 +71,7 @@ export function NewProjectModal({ isOpen, initialDurationBars = 128, onClose, on
         <form className="p-4 space-y-5" onSubmit={async event => {
           event.preventDefault(); if (submitting.current) return;
           submitting.current = true; setBusy(true); setError('');
-          try { await onCreateProject({ title, subgenreId, bpm, durationBars, seed, layerDensity }); onClose(); }
+          try { await onCreateProject({ title, subgenreId, bpm, durationBars, seed, layerDensity,rootKey,mode,formFamily }); onClose(); }
           catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
           finally { submitting.current = false; setBusy(false); }
         }}>
@@ -83,11 +89,17 @@ export function NewProjectModal({ isOpen, initialDurationBars = 128, onClose, on
               <label className="space-y-2 text-sm"><span>Duration (bars)</span><input type="number" min={4} max={4096} step={1} required value={durationBars} onChange={e => setDurationBars(e.target.valueAsNumber)} className={inputClass} /></label>
             </div>
             <p className="text-xs text-slate-300" aria-live="polite">{durationText} in 4/4 at {bpm} BPM ({Number.isFinite(seconds) ? seconds.toFixed(1) : '—'} seconds), plus effect tails.</p>
+            <div className="grid grid-cols-2 gap-3 text-sm"><label>Key<select aria-label="Composition key" value={rootKey} onChange={e=>setRootKey(e.target.value)} className={inputClass}>{['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'].map(key=><option key={key}>{key}</option>)}</select></label>
+              <label>Mode<select aria-label="Composition mode" value={mode} onChange={e=>setMode(e.target.value)} className={inputClass}>{['Phrygian','Dorian','Natural Minor','Harmonic Minor','Locrian','Phrygian Dominant','Octatonic'].map(value=><option key={value}>{value}</option>)}</select></label></div>
+            <label className="block text-sm">Song form<select aria-label="Composition form" value={formFamily} onChange={e=>setFormFamily(e.target.value as typeof formFamily)} className={inputClass}>
+              <option value="style-default">Style-led form</option><option value="plateau">Plateau and reduction</option><option value="dual-drop">Dual arrival and main peak</option><option value="dub-evolution">Overlapping dub evolution</option>
+            </select><span className="text-xs text-slate-400">Forms adapt to duration; extended forms develop from 64 bars.</span></label>
             <div className="flex flex-wrap gap-2">{[32, 64, 128, 180].map(bars => <button type="button" key={bars} aria-pressed={durationBars === bars} onClick={() => setDurationBars(bars)} className="min-h-11 px-3 rounded border border-slate-600 text-xs">{bars} Bars</button>)}</div>
             <label className="block text-sm space-y-2"><span>Generation seed</span><input type="number" min={0} max={0xffffffff} step={1} required value={seed} onChange={e => setSeed(e.target.valueAsNumber)} className={inputClass} /></label>
             <div className="space-y-2"><h3 className="text-sm">Instrument layers</h3><div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {([{ id: 'compact', label: 'Essential — 6 tracks' }, { id: 'standard', label: 'Standard — 7 tracks' }, { id: 'full_reference', label: 'Full — 8 tracks' }] as const).map(density => <button type="button" key={density.id} aria-pressed={layerDensity === density.id} onClick={() => setLayerDensity(density.id)} className={`min-h-11 p-2 rounded border text-xs ${layerDensity === density.id ? 'border-emerald-500 bg-emerald-950' : 'border-slate-600'}`}>{density.label}</button>)}
+              {([{ id: 'compact', label: 'Essential ensemble' }, { id: 'standard', label: 'Developed ensemble' }, { id: 'full_reference', label: 'Full style ensemble' }] as const).map(density => <button type="button" key={density.id} aria-pressed={layerDensity === density.id} onClick={() => setLayerDensity(density.id)} className={`min-h-12 p-2 rounded border text-xs ${layerDensity === density.id ? 'border-emerald-500 bg-emerald-950' : 'border-slate-600'}`}>{density.label}</button>)}
             </div><p className="text-xs text-slate-400">The selected style plans sections, harmony and independent track phrases. Sketch projects remain available in the File menu.</p></div>
+            <div aria-label="Planned style layers" className="rounded border border-slate-700 p-3 text-xs text-cyan-200"><p>Layer palette · inactive supporting layers are omitted from short sketches.</p><p className="mt-2 text-slate-300">{styleLayerRecipes(CREATION_STYLE_STRATEGIES[subgenreId],layerDensity,Number.isSafeInteger(seed)?seed:0).map(r=>r.name).join(' · ')}</p></div>
           </fieldset>
           {error && <p role="alert" className="text-sm text-rose-300 break-words">{error}</p>}
           <div className="flex flex-wrap justify-end gap-2 border-t border-slate-700 pt-4">

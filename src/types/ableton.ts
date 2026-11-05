@@ -386,11 +386,40 @@ export interface MidiGhostPruningConfig {
   protectAccents?: boolean;
 }
 
+/** Additive composition identity. Existing projects remain valid without it. */
+export interface LayerDescriptor {
+  version: 1;
+  id: string;
+  family: TechnoArchetype;
+  variant: string;
+  seed: number;
+  phraseBeats: number;
+  registerHz: [number, number];
+  provenance: 'legacy-score' | 'procedural-style-v1';
+}
+
+export type AutomatedTrackParameter = 'filterCutoffHz' | 'volumeDb' | 'pan' | 'reverbSend' | 'delaySend';
+export interface ParameterAutomationLane {
+  version: 1;
+  id: string;
+  target: AutomatedTrackParameter;
+  enabled: boolean;
+  points: { beat: number; value: number; curve?: 'linear' | 'exponential' | 'smooth' | 'step' }[];
+}
+export interface SidechainCompressorConfig {
+  version: 1; enabled: boolean; sourceTrackId: string;
+  thresholdDb: number; ratio: number; kneeDb: number; attackMs: number;
+  releaseMs: number; holdMs: number; keyHighpassHz: number; mix: number;
+}
+
 export interface AbletonTrack {
   id: string;
   name: string;
   type: 'midi' | 'audio';
   archetype: TechnoArchetype;
+  layer?: LayerDescriptor;
+  parameterAutomation?: ParameterAutomationLane[];
+  sidechainCompressor?: SidechainCompressorConfig;
   groupId?: string;
   isGroupTrack?: boolean;
   isFolded?: boolean;

@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 
 export interface SoundCraftWorkstationProps {
+  onCloseWorkspacePanel?: () => void;
   renderInspector?: (assist:React.ReactNode)=>React.ReactNode;
   editorSelection?: EditorSelection;
   onEditorSelectionChange?: (selection:EditorSelection)=>void;
@@ -171,7 +172,7 @@ export interface SoundCraftWorkstationProps {
 }
 
 export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
-  renderInspector, editorSelection, onEditorSelectionChange, editorRevealToken, onOpenLayerBrowser, onCreateClip, onAddNote, browserView, onAddGeneratedLayer,
+  onCloseWorkspacePanel, renderInspector, editorSelection, onEditorSelectionChange, editorRevealToken, onOpenLayerBrowser, onCreateClip, onAddNote, browserView, onAddGeneratedLayer,
   activeTab,
   studioWorkspace,
   activeEditingTool,
@@ -359,13 +360,14 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
     );
   }
 
+  let workspacePanel: React.ReactNode = null;
   if (studioWorkspace === 'browser') {
-    return <StudioBrowser initialView={browserView} onAddGeneratedLayer={onAddGeneratedLayer} project={project} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} onInsertDevice={onInjectLibraryDevice} onAddTrack={onAddUserTrackFromRole} />;
+    workspacePanel = <StudioBrowser initialView={browserView} onAddGeneratedLayer={onAddGeneratedLayer} project={project} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} onInsertDevice={onInjectLibraryDevice} onAddTrack={onAddUserTrackFromRole} />;
   }
 
   // Full-Viewport Dedicated Workspaces
   if (studioWorkspace === 'mix') {
-    return (
+    workspacePanel = (
       <div className="flex-1 overflow-hidden bg-[#0A0D12] flex flex-col">
         <SoundCraftMixConsole
           project={project}
@@ -383,7 +385,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   }
 
   if (studioWorkspace === 'session') {
-    return (
+    workspacePanel = (
       <div className="flex-1 min-h-0 min-w-0 overflow-y-auto bg-[#0A0D12] p-4">
         <div className="w-full max-w-4xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#232B3A] pb-3">
@@ -408,7 +410,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   }
 
   if (studioWorkspace === 'devices') {
-    return (
+    workspacePanel = (
       <div className="flex-1 overflow-y-auto bg-[#0A0D12] p-4">
         <div className="max-w-5xl mx-auto space-y-4">
           <div className="flex items-center justify-between border-b border-[#232B3A] pb-3">
@@ -446,7 +448,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   }
 
   if (studioWorkspace === 'ai') {
-    return (
+    workspacePanel = (
       <div className="flex-1 overflow-y-auto bg-[#0A0D12] p-4">
         <div className="max-w-4xl mx-auto space-y-4">
           <AiComposerIntelligencePanel
@@ -478,7 +480,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   }
 
   if (studioWorkspace === 'queue') {
-    return (
+    workspacePanel = (
       <div className="flex-1 overflow-y-auto bg-[#0A0D12] p-6 flex items-center justify-center">
         <div className="max-w-xl text-center space-y-4 p-8 bg-[#10141C] border border-[#232B3A] rounded-lg">
           <Layers className="w-10 h-10 text-amber-400 mx-auto" />
@@ -504,7 +506,12 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   const soloActive = project.tracks.some((t) => t.soloed);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#080A0D]">
+    <div className="relative flex-1 flex flex-col min-w-0 overflow-hidden bg-[#080A0D]">
+      {workspacePanel && <section aria-label={`${studioWorkspace} workspace panel`} className="absolute inset-x-0 bottom-0 z-[44] flex max-h-[72%] min-h-[40%] flex-col overflow-hidden border-t border-cyan-900 bg-[#0B0D10] shadow-2xl md:inset-x-auto md:top-0 md:right-0 md:h-full md:max-h-none md:w-[min(50vw,680px)] md:border-l">
+        <header className="flex min-h-12 shrink-0 items-center justify-between border-b border-slate-700 px-3 text-xs"><span className="capitalize">{studioWorkspace === 'ai' ? 'Compose & Assist' : studioWorkspace} · Editor remains active</span><button type="button" aria-label="Close workspace panel" onClick={onCloseWorkspacePanel} className="min-h-12 min-w-12 text-cyan-300">Close</button></header>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{workspacePanel}</div>
+      </section>}
+
       {/* CSS Grid Tri-Pane Workstation: [left-dock] auto [center-viewport] 1fr [right-dock] auto */}
       <div
         className="relative flex-1 grid min-w-0 min-h-0 overflow-hidden"

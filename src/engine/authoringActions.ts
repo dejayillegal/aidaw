@@ -21,8 +21,10 @@ export function chooseTrackDevice(project:AbletonProjectState,trackId:string,tem
 export function ensureAuthoringSongPlan(project:AbletonProjectState,strategy:CompositionStrategyId,seed:number){
  if(!Number.isSafeInteger(seed)||seed<0||seed>0xffffffff)throw new Error('GENERATION_SEED: use an unsigned 32-bit integer');
  if(project.meterMap?.some(m=>m.numerator!==4||m.denominator!==4))throw new Error('GENERATION_METER: phrase generation currently requires 4/4; existing material is unchanged');
- const fresh=createSongPlan(project,seed,strategy),old=project.songPlan;
- return old&&old.style===strategy&&old.seed===seed&&old.durationBars===(project.arrangementLengthBars||16)?{...old,roles:[...old.roles,...fresh.roles.filter(r=>!old.roles.some(p=>p.role===r.role))]}:fresh;
+ const old=project.songPlan,fresh=createSongPlan(project,seed,strategy,old?.formFamily);
+ return old&&old.version===3&&old.style===strategy&&old.seed===seed&&old.durationBars===(project.arrangementLengthBars||16)?{...old,
+  roles:[...old.roles,...fresh.roles.filter(r=>!old.roles.some(p=>p.trackId===r.trackId))],
+  motifs:[...old.motifs,...fresh.motifs.filter(r=>!old.motifs.some(p=>p.trackId===r.trackId))]}:fresh;
 }
 export function generateTrackLayer(project:AbletonProjectState,trackId:string,strategy:CompositionStrategyId,seed:number):AbletonProjectState {
  const track=project.tracks.find(t=>t.id===trackId);if(!track||track.type!=='midi')throw new Error('TRACK_MISSING: choose a MIDI layer');
