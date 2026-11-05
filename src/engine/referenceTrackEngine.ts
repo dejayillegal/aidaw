@@ -9,6 +9,7 @@ import {
   ReferenceTrackStructuralSection,
   TechnoArchetype,
 } from '../types/ableton';
+import { measurePcmSignalMetricsAsync } from './signalMetrics';
 import {
   buildStarterAbletonXml,
   formatXmlString,
@@ -21,9 +22,8 @@ import {
 } from './compositionIntelligenceEngine';
 
 /**
- * Procedural Web Audio MIR (Music Information Retrieval) Analyzer.
- * Extracts tempo, key/scale, 5-band spectral balance, dynamic range,
- * structural sections, and archetype layers from an uploaded audio file.
+ * Decoded-audio loudness/peak analysis plus a legacy creative reference profile.
+ * Musical descriptors are heuristics; key/scale is a suggested palette, not detection.
  */
 export async function analyzeUploadedReferenceTrack(
   audioFile: File | Blob
@@ -46,25 +46,12 @@ export async function analyzeUploadedReferenceTrack(
   const durationSeconds = audioBuffer.duration;
   const sampleRate = audioBuffer.sampleRate;
   const channelData = audioBuffer.getChannelData(0);
-  const totalSamples = channelData.length;
-
-  // 1. RMS & Peak Calculation
-  let maxAbsSample = 0;
-  let sumSquared = 0;
-  const step = Math.max(1, Math.floor(totalSamples / 500000));
-  let sampledCount = 0;
-
-  for (let i = 0; i < totalSamples; i += step) {
-    const s = Math.abs(channelData[i]);
-    if (s > maxAbsSample) maxAbsSample = s;
-    sumSquared += s * s;
-    sampledCount++;
-  }
-
-  const rms = Math.sqrt(sumSquared / Math.max(1, sampledCount));
-  const truePeakDbtp = maxAbsSample > 0.0001 ? Math.min(0.5, 20 * Math.log10(maxAbsSample * 1.05)) : -60;
-  const integratedLufs = rms > 0.0001 ? Math.max(-48, Math.min(-6, 20 * Math.log10(rms) - 0.691)) : -60;
-  const crestFactorDb = Math.max(0, truePeakDbtp - integratedLufs);
+  // Scan all channels/frames through the same meter used for rendered exports.
+  // Explicitly reject layouts we cannot weight correctly rather than ignoring channels.
+  const channels = Array.from({length:audioBuffer.numberOfChannels},(_,i)=>audioBuffer.getChannelData(i));
+  const metrics = await measurePcmSignalMetricsAsync(channels, sampleRate);
+  const {integratedLufs,truePeakDbtp,crestFactorDb} = metrics;
+  // This legacy orchestration heuristic is not EBU Loudness Range (LRA).
   const dynamicRangeDb = Math.min(24, Math.max(6, crestFactorDb * 1.3));
 
   // 2. Tempo Autocorrelation / Energy Interval Analysis
@@ -74,7 +61,7 @@ export async function analyzeUploadedReferenceTrack(
   const spectralBands = computeSpectralBands(channelData, sampleRate);
 
   // 4. Chroma & Scale Estimation (12-Tone Pitch Class Profile)
-  const { rootKey, scale } = estimateKeyAndScale(channelData, sampleRate);
+  const { rootKey, scale } = chooseCreativeKeyAndScale(channelData, sampleRate);
 
   // 5. Structural Section Segmentation based on RMS Energy Envelope
   const structuralSections = estimateArrangementSections(channelData, sampleRate, durationSeconds, detectedTempo);
@@ -90,9 +77,9 @@ export async function analyzeUploadedReferenceTrack(
   };
 
   const creativeRecommendations = [
-    `Reference exhibits strong energy in the ${spectralBands.subRatio > 0.3 ? 'Sub-Bass (40-75Hz)' : 'Mid-Range (1kHz)'} band. Re-compose with matching weight using Operator Sub and DrumBuss.`,
-    `Harmonic structure centers around ${rootKey} ${scale}. Propose creative modal expansion into Dorian/Aeolian without cloning chord voicings.`,
-    `Dynamic range measured at ${dynamicRangeDb.toFixed(1)} dB with ${truePeakDbtp.toFixed(1)} dBTP peak. Calibrate master limiter ceiling to -1.0 dBTP for transparent streaming fidelity.`,
+    `Creative suggestion: explore ${spectralBands.subRatio > 0.3 ? 'sub-bass weight' : 'mid-range weight'} using Operator Sub and DrumBuss.`,
+    `Suggested harmonic palette: ${rootKey} ${scale}. Explore Dorian/Aeolian variations without cloning chord voicings.`,
+    `Measured peak ${truePeakDbtp.toFixed(1)} dBTP; crest ${crestFactorDb.toFixed(1)} dB. Estimated dynamic range ${dynamicRangeDb.toFixed(1)} dB is an orchestration heuristic, not Loudness Range (LRA).`,
   ];
 
   return {
@@ -102,6 +89,11 @@ export async function analyzeUploadedReferenceTrack(
     detectedTempo,
     detectedRootKey: rootKey,
     detectedScale: scale,
+    signalMeasurement: {
+      method:'bs1770-k-gated-fir', channels:audioBuffer.numberOfChannels as 1 | 2, sampleRate,
+      integratedAvailable:metrics.integratedLufsAvailable,
+      unavailableReason:metrics.loudnessUnavailableReason,
+    },
     integratedLufs: Number(integratedLufs.toFixed(1)),
     truePeakDbtp: Number(truePeakDbtp.toFixed(1)),
     crestFactorDb: Number(crestFactorDb.toFixed(1)),
@@ -199,9 +191,9 @@ function computeSpectralBands(
 }
 
 /**
- * Pitch Class Profile (Chroma) root key and scale estimation.
+ * Creative key/scale palette. No measured tonal-detection claim.
  */
-function estimateKeyAndScale(
+function chooseCreativeKeyAndScale(
   _channelData: Float32Array,
   _sampleRate: number
 ): { rootKey: string; scale: string } {

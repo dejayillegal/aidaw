@@ -1,5 +1,7 @@
 # Implemented, pending and strengthening register
 
+Signal-measurement follow-up: [SIGNAL-MEASUREMENT-EVIDENCE.md](SIGNAL-MEASUREMENT-EVIDENCE.md) records shared gated loudness/FIR peaks, measured reference audio, unavailable/legacy labeling, cooperative analysis and independent FFmpeg/native-browser checks. Full conformance, LRA and complete gates remain open.
+
 Application follow-up: [STARTUP-EXPORT-INTEGRITY.md](STARTUP-EXPORT-INTEGRITY.md) records delayed startup protection, active-score remounting, cancellable Blob saves and Float32 headroom repair, with executed and still-pending verification kept separate. The broader pending table below remains open.
 
 ## Latest-main blocker follow-up — November 5, 2026

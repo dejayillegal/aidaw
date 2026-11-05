@@ -507,6 +507,14 @@ export interface ReferenceTrackStructuralSection {
 }
 
 export interface ReferenceTrackAnalysisReport {
+  /** Absent on legacy reports that used RMS/peak heuristics. */
+  signalMeasurement?: {
+    method: 'bs1770-k-gated-fir';
+    channels: 1 | 2;
+    sampleRate: number;
+    integratedAvailable: boolean;
+    unavailableReason: 'insufficient-duration' | 'below-absolute-gate' | null;
+  };
   id: string;
   fileName: string;
   durationSeconds: number;

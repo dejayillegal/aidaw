@@ -144,7 +144,7 @@ export const ReferenceTrackModal: React.FC<ReferenceTrackModalProps> = ({
                   : 'Drop Reference Audio Track (WAV, MP3, AIFF, FLAC)'}
               </p>
               <p className="text-[10px] text-zinc-500 mt-0.5">
-                AI extracts musical genetics without copying chord progressions or melodies
+                Measure loudness and peak, then explore a creative reference profile
               </p>
             </div>
           </div>
@@ -162,13 +162,13 @@ export const ReferenceTrackModal: React.FC<ReferenceTrackModalProps> = ({
               {/* Metrics Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="p-2.5 rounded bg-[#10141C] border border-[#1C2330]">
-                  <span className="text-[10px] text-zinc-500 uppercase">Tempo (BPM)</span>
+                  <span className="text-[10px] text-zinc-500 uppercase">Estimated tempo</span>
                   <p className="text-base font-bold text-amber-400 tabular-nums">
                     {report.detectedTempo} BPM
                   </p>
                 </div>
                 <div className="p-2.5 rounded bg-[#10141C] border border-[#1C2330]">
-                  <span className="text-[10px] text-zinc-500 uppercase">Root &amp; Scale</span>
+                  <span className="text-[10px] text-zinc-500 uppercase">Suggested key &amp; scale</span>
                   <p className="text-base font-bold text-cyan-400">
                     {report.detectedRootKey} {report.detectedScale}
                   </p>
@@ -176,7 +176,7 @@ export const ReferenceTrackModal: React.FC<ReferenceTrackModalProps> = ({
                 <div className="p-2.5 rounded bg-[#10141C] border border-[#1C2330]">
                   <span className="text-[10px] text-zinc-500 uppercase">Integrated Loudness</span>
                   <p className="text-base font-bold text-emerald-400 tabular-nums">
-                    {report.integratedLufs} LUFS
+                    {report.signalMeasurement?.integratedAvailable === false ? 'Unavailable' : `${report.integratedLufs} LUFS`}
                   </p>
                 </div>
                 <div className="p-2.5 rounded bg-[#10141C] border border-[#1C2330]">
@@ -187,12 +187,21 @@ export const ReferenceTrackModal: React.FC<ReferenceTrackModalProps> = ({
                 </div>
               </div>
 
+              <p className="text-xs text-zinc-400">
+                {report.signalMeasurement
+                  ? report.signalMeasurement.integratedAvailable
+                    ? 'Loudness and peak are measured; musical descriptors are creative estimates.'
+                    : report.signalMeasurement.unavailableReason === 'insufficient-duration'
+                      ? 'Loudness unavailable: at least 400 ms of audio is required. Peak is measured.'
+                      : 'Loudness unavailable: audio is below the measurement gate. Peak is measured.'
+                  : 'Legacy report: loudness and peak are estimates. Analyze the file again for measured values.'}
+              </p>
               {/* Spectral Decomposition */}
               <div className="p-3.5 bg-[#10141C] border border-[#1C2330] rounded space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-zinc-300 uppercase">5-Band Spectral Balance</span>
+                  <span className="font-bold text-zinc-300 uppercase">Creative band profile · estimate</span>
                   <span className="text-[10px] text-zinc-500">
-                    Dynamic Range: {report.dynamicRangeDb} dB · Crest: {report.crestFactorDb} dB
+                    Estimated range: {report.dynamicRangeDb} dB · Crest: {report.crestFactorDb} dB
                   </span>
                 </div>
                 <div className="grid grid-cols-5 gap-2 text-[10px] pt-1">

@@ -18,3 +18,5 @@ These are real acceptance gaps, not approvals to drop features or erase original
 - The owner-merged runtime-timing/Gradle correction passed main CI42001766197. New follow-up commit CI and physical qualification remain separate requirements. See BUILD-DOWNLOAD-EVIDENCE.md and the PR for exact artifact status.
 
 - The standalone November 5 master directive changes gate meanings. G0-G8-TRACEABILITY.md is authoritative; the earlier ledger is retained as HISTORICAL-G0-G8-TRACEABILITY.md. Reference-guided navigation and a real sound browser improve reachability but do not close missing sampler/routing/warp/DSP or physical-platform acceptance. REFERENCE-WORKSPACE-IMPLEMENTATION.md records scoped evidence.
+
+Signal measurement now has a shared gated mono/stereo meter, FIR inter-sample peaks and independent FFmpeg/native reference checks; see SIGNAL-MEASUREMENT-EVIDENCE.md for scope and exact-source CI requirements. Full conformance/LRA/multichannel, post-encode target verification and all wet/live/capture paths remain unqualified. Creative reference descriptors beyond loudness/peak remain heuristics, including the suggested key/scale palette.
