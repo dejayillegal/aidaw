@@ -101,6 +101,12 @@ jobs:
           ARRANGEMENT_EDITING_OUTPUT: recovery-browser-evidence/arrangement-editing
         run: node scripts/arrangement-editing-check.mjs
 
+      - name: Verify clear dialog and project preservation
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          CLEAR_OUTPUT: recovery-browser-evidence/clear-arrangement
+        run: node scripts/clear-arrangement-check.mjs
+
       - name: Verify continuous file rendering
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         env:

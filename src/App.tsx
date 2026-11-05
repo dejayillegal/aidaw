@@ -1,3 +1,5 @@
+import { clearArrangementContent } from './engine/clearArrangement';
+import { ClearArrangementDialog, type ClearArrangementDialogHandle } from './components/ClearArrangementDialog';
 import { isPluginDependency } from './engine/pluginDependencies';
 import {editArrangementClip,editArrangementNote,toggleArrangementNote} from './engine/arrangementEditing';
 import type {ArrangementClipEdit,ArrangementNoteEdit} from './engine/arrangementEditing';
@@ -254,13 +256,7 @@ export default function App() {
   const [isUnsupportedPluginModalOpen, setIsUnsupportedPluginModalOpen] = useState<boolean>(false);
 
   // Granular Clear Arrangement state
-  const [clearOptions, setClearOptions] = useState<ClearArrangementOptions>({
-    scope: 'selected_track',
-    wipeNotes: true,
-    wipeAutomation: true,
-    wipeSessionClips: false,
-    resetMixerToNeutral: false,
-  });
+  const clearDialogRef = useRef<ClearArrangementDialogHandle>(null);
 
   const [initialCompositionSeed] = useState<number>(
     () => Math.floor(Math.random() * 1000000) + 101
@@ -1308,60 +1304,12 @@ export default function App() {
   };
 
   // Handler: Granular Clear Arrangement (Preserves DeviceChain!)
-  const handleClearArrangement = () => {
-    const { updatedXml, clearedTrackCount, summary } = clearProjectArrangementXml(
-      project.rawXmlModified,
-      project.tracks,
-      selectedTrackId,
-      clearOptions
-    );
-
-    if (clearedTrackCount === 0) {
-      setStatusMessage('No unlocked target tracks matched Clear Arrangement scope.');
-      return;
-    }
-
-    const reParsed = parseAbletonXmlDom(updatedXml, project.fileName, project.rawXmlOriginal);
-    const preserved = preserveTrackStates(reParsed, project);
-
-    const updatedTracks = preserved.tracks.map((t) => {
-      const isTargeted =
-        clearOptions.scope === 'all_tracks' ||
-        (clearOptions.scope === 'unlocked_tracks' && !t.locked) ||
-        (clearOptions.scope === 'selected_track' && t.id === selectedTrackId);
-
-      if (!isTargeted) return t;
-
-      return {
-        ...t,
-        clips: clearOptions.wipeNotes
-          ? t.clips.map((c) => ({ ...c, notes: [] }))
-          : t.clips,
-        automationPoints: clearOptions.wipeAutomation ? [] : t.automationPoints,
-        sessionClips: clearOptions.wipeSessionClips ? [] : t.sessionClips,
-        mixer: clearOptions.resetMixerToNeutral
-          ? {
-              ...t.mixer,
-              volumeDb: 0,
-              pan: 0,
-              transposeSemitones: 0,
-              fineTuneCents: 0,
-            }
-          : t.mixer,
-      };
-    });
-
-    handleExecuteProjectCommand('Clear Arrangement', 'clip_edit', () =>
-      enrichProjectWithAnalysis(
-        {
-          ...preserved,
-          tracks: updatedTracks,
-          rawXmlModified: updatedXml,
-        },
-        activeFormId
-      )
-    );
-    setStatusMessage(summary);
+  const handleClearArrangement = (options: ClearArrangementOptions) => {
+    try { clearArrangementContent(projectRef.current, selectedTrackId, options); }
+    catch(error) {return error instanceof Error ? error.message : String(error)}
+    const next = handleExecuteProjectCommand('Clear Arrangement', 'clip_edit', draft =>
+      clearArrangementContent(draft, selectedTrackId, options));
+    return next ? undefined : 'Edit rejected; project and history were preserved.';
   };
 
   // Handler: Configurable Arrangement Duration (1 to 4096 Bars) - Non-destructive Extent Change
@@ -2152,7 +2100,7 @@ export default function App() {
         onExportFileWav={()=>handleExportLosslessWav(24,{stream:true,sampleRate:48000})}
         fileWavAvailable={supportsStreamingFileExport()}
         onOpenQueueModal={() => setIsBulkQueueModalOpen(true)}
-        onOpenClearModal={() => setStudioWorkspace('queue')}
+        onOpenClearModal={() => clearDialogRef.current?.show()}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenCompingModal={() => setIsCompingModalOpen(true)}
         onSwitchWorkspace={(ws) => {
@@ -2272,7 +2220,7 @@ export default function App() {
             onOpenBulkQueueModal={() => setIsBulkQueueModalOpen(true)}
             onExecuteProjectCommand={handleExecuteProjectCommand}
             onExportLosslessWav={handleExportLosslessWav}
-            onClearArrangement={handleClearArrangement}
+            onClearArrangement={() => clearDialogRef.current?.show()}
             onExportNativeAls={handleExportNativeAls}
             onRandomizeTrackVelocities={handleRandomizeTrackVelocities}
             onApplyMidiQuantizeStrength={handleApplyMidiQuantizeStrength}
@@ -2551,6 +2499,7 @@ export default function App() {
       />
 
       {/* Interactive Dynamic New Project Modal */}
+      <ClearArrangementDialog ref={clearDialogRef} onApply={handleClearArrangement} />
       <NewProjectModal
         isOpen={isNewProjectModalOpen}
         initialDurationBars={newProjectBars}
