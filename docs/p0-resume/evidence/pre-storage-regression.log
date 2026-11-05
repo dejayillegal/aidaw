@@ -1,0 +1,35 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/legacyRecoveryAndSession.test.tsx --maxWorkers=1
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/legacyRecoveryAndSession.test.tsx (13 tests | 1 failed) 12764ms
+   ❯ Legacy Recovery, DrumBuss 102 Migration & Safe Recovery Workflow (12)
+     × synthetic: an unresolved record cannot block unrelated concurrent saves and restart 530ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/legacyRecoveryAndSession.test.tsx > Legacy Recovery, DrumBuss 102 Migration & Safe Recovery Workflow > synthetic: an unresolved record cannot block unrelated concurrent saves and restart
+AssertionError: promise rejected "Error: RECOVERY_VERSION: unsupported jour…" instead of resolving
+ ❯ src/__tests__/legacyRecoveryAndSession.test.tsx:508:39
+    506|     await q.restorePersistedProjects();
+    507|     // Flush reports write failures only; intact unresolved journals a…
+    508|     await expect(q.flushPersistence()).resolves.toBeUndefined();
+       |                                       ^
+    509|     const xml=buildStarterAbletonXml('berghain-134',20,4).xml;
+    510|     const records=await Promise.all([q.enqueueProjectFromXml('healthy-…
+
+Caused by: Error: RECOVERY_VERSION: unsupported journal; preserved without downgrade
+ ❯ ProjectQueueService.flushPersistence src/services/projectQueueService.ts:292:63
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  06:18:33
+   Duration  14.16s (tests 92%, environment 6%, transform 2%, import 1%)
+

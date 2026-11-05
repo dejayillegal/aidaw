@@ -79,6 +79,9 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
   const eligibility = determineLegacyConversionMigrationEligibility(input.project, {
     envelopeConversionSchemaVersion: input.conversionSchemaVersion,
   });
+  if (['FUTURE_CONVERSION_VERSION', 'INVALIDATED_RECORD', 'STALE_PARAMETER_HASH', 'ALTERED_DESCRIPTOR', 'UNEXPECTED_CONVERSION_RECORD'].includes(eligibility.code)) {
+    throw new Error(`CONVERSION_REQUIRED: ${eligibility.code}: ${eligibility.reason}`);
+  }
   if (eligibility.eligible) {
     const clonedCandidate = JSON.parse(JSON.stringify(input.project)) as AbletonProjectState;
     input.project = migrateMissingLegacyProjectConversions(clonedCandidate).project;

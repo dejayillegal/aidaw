@@ -1,0 +1,39 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/p0Resume.test.ts --maxWorkers=1 -t registered instrument count
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/p0Resume.test.ts (8 tests | 1 failed | 7 skipped) 688ms
+   ❯ P0 resume synthetic regression (8)
+     × rejects replacement that would exceed the registered instrument count 686ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/p0Resume.test.ts > P0 resume synthetic regression > rejects replacement that would exceed the registered instrument count
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ src/__tests__/p0Resume.test.ts:76:78
+     74|     const p=fixture(),id=p.tracks[0].id;
+     75|     p.tracks[0].devices.unshift({id:'existing-synth',xmlTag:'Operator'…
+     76|     expect(()=>substituteUnsupportedDevice(p,id,'31','Analog','instrum…
+       |                                                                              ^
+     77|   });
+     78|   it('does not steal a valid later note identity during repair', () =>…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  06:40:54
+   Duration  2.00s (environment 44%, tests 40%, transform 11%, import 4%, setup 1%, worker 1%)
+

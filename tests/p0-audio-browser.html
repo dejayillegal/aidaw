@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><title>P0 synthetic plugin audio qualification</title>
+<script type="module">
+import {buildStarterAbletonXml,parseAlsXmlString} from '/src/engine/alsXmlEngine.ts';
+import {substituteUnsupportedDevice} from '/src/services/commandBus.ts';
+import {synthEngine,renderArrangementToWavBlob} from '/src/engine/webAudioSynth.ts';
+import {DEFAULT_HUMANIZATION as h,DEFAULT_MASTER_BUS as m,DEFAULT_TRANSPORT as transport} from '/src/engine/projectDefaults.ts';
+window.runP0Audio=async(replacement,role)=>{
+  let p=parseAlsXmlString(buildStarterAbletonXml('berghain-134',19,4).xml);
+  p.tracks=p.tracks.slice(0,1);const t=p.tracks[0];t.archetype='synth';t.muted=false;t.soloed=false;t.vcaGroupId=undefined;
+  const plugin={id:'external31',xmlTag:'PluginDevice',displayName:'SYNTHETIC external plugin',category:role,isUserCreated:true,bypassed:false,browserDspSupported:false,parameters:[],opaqueSubtreeXml:'<PluginDevice Id="external31"/>'};
+  t.devices=role==='instrument'?[plugin]:[...t.devices.filter(d=>d.category==='instrument'),plugin];
+  t.clips=[{id:'synthetic-clip',name:'Synthetic repeated notes',startTime:0,length:16,notes:Array.from({length:16},(_,i)=>({id:`n${i}`,time:i,quantizedTime:i,pitch:48,duration:.5,velocity:100,isGhost:false}))}];
+  p=substituteUnsupportedDevice(p,t.id,plugin.id,replacement,role);
+  let samples=0,energy=0,peak=0;
+  try {
+    synthEngine.setState(p,h,{...transport,loopEnabled:false},m);synthEngine.start(true);
+    await synthEngine.getAudioContext().resume();
+    const analyser=synthEngine.getAnalyser(),values=new Float32Array(analyser.fftSize);
+    for(let i=0;i<75;i++) {await new Promise(resolve=>setTimeout(resolve,20));analyser.getFloatTimeDomainData(values);for(const x of values){if(!Number.isFinite(x))throw new Error('NONFINITE_LIVE');energy+=x*x;peak=Math.max(peak,Math.abs(x));samples++;}}
+  } finally {synthEngine.stop();}
+  const rms=Math.sqrt(energy/samples);if(!(rms>1e-6))throw new Error('SILENT_LIVE');
+  const {blob}=await renderArrangementToWavBlob(p,h,m,4,24);
+  await window.saveP0Wav(Array.from(new Uint8Array(await blob.arrayBuffer())));
+  return {fixture:'SYNTHETIC',replacement,role,live:{samples,rms,peak},scope:'Captured live browser signal; human listening and Android qualification remain separate'};
+};
+</script>

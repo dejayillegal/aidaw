@@ -1,0 +1,10 @@
+{
+  "scope": "First CI-generated Operator replacement WAV; independent FFmpeg decode. Live capture metrics were not retained before the missing-decoder failure.",
+  "run": 41950950388,
+  "source": "14fd450da4f9d811f7452343cb3648a050cf8358",
+  "file_sha256": "ce1fc560e366ac74ca8ebadfe13c4edb23b9af2f56c23322211f5f0cd6a41837",
+  "samples": 1372836,
+  "rms": 0.09663430665681884,
+  "peak": 0.475902795791626,
+  "finite": true
+}

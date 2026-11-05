@@ -7,9 +7,9 @@ import {
   RECOVERY_IDB_STORE,
 } from '../services/projectQueueService';
 import { buildStarterAbletonXml, computeSha256Hex, parseAlsXmlString } from '../engine/alsXmlEngine';
-import { decodeProjectSnapshot } from '../services/projectSnapshotService';
+import { encodeProjectSnapshot, decodeProjectSnapshot } from '../services/projectSnapshotService';
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT } from '../engine/projectDefaults';
-import { queueSessionLaunch, storeArrangementClipInSession } from '../services/commandBus';
+import { StudioCommandBus, queueSessionLaunch, storeArrangementClipInSession } from '../services/commandBus';
 import { synthEngine } from '../engine/webAudioSynth';
 import {
   CURRENT_DEVICE_CONVERSION_VERSION,
@@ -450,6 +450,142 @@ describe('Legacy Recovery, DrumBuss 102 Migration & Safe Recovery Workflow', () 
     (synthEngine as any).ctx = null;
     (synthEngine as any).bus = null;
     projectQueueService.setSimulateMigrationWriteFailureForTest(false);
+  });
+
+  // SYNTHETIC envelopes: exercise the actual restart/recovery entry point.
+  async function seedSynthetic(id: string, damage: 'missing' | 'duplicate' | 'future' | 'v1-reverb' = 'missing') {
+    const p = parseAlsXmlString(buildStarterAbletonXml('berghain-134', 19, 4).xml);
+    const clip = p.tracks[0].clips[0];
+    if (damage === 'missing') { clip.notes[0].id = ''; clip.notes[0].velocity = 117; clip.notes[0].sourceNoteId = 'n0'; }
+    if (damage === 'duplicate') clip.notes[1].id = clip.notes[0].id;
+    if (damage === 'v1-reverb') {
+      const d = {id:'r1',xmlTag:'Reverb',displayName:'Reverb',category:'audio_effect' as const,parameters:[{name:'DecayTime',value:3600,unit:'ms'}]};
+      p.tracks[0].devices = [{...d,conversionRecord:buildDeviceConversionRecord(d,true)}];
+    }
+    // An explicit source reference allows preservation of manually edited velocity.
+    if (damage === 'missing') {
+      const doc = new DOMParser().parseFromString(p.rawXml!, 'application/xml');
+      const source = doc.querySelector('MidiTrack MidiClip MidiNoteEvent')!;
+      clip.notes[0].sourceNoteId = source.getAttribute('Data-AIDAW-LogicalId') || source.getAttribute('Data-Parametric-NoteId') || source.getAttribute('NoteId')!;
+    }
+    const record = {queueId:id,originalFilename:'synthetic.als',workingProjectRevision:3,workingProjectState:p,state:'ready',createdAt:'2026-11-05',updatedAt:'2026-11-05',sourceXmlSnapshot:p.rawXml};
+    const row = {queueId:id,recoveryVersion:damage==='future'?99:1,record,checksum:await computeSha256Hex(JSON.stringify(record)),active:true};
+    await putRawEnvelope(row); return row;
+  }
+  it('synthetic: reaches identity migration, archives originals, preserves edits and repeats recovery', async () => {
+    const row = await seedSynthetic('missing');
+    const queue = new ProjectQueueService();
+    const p = await queue.restorePersistedProjects();
+    expect(p).not.toBeNull();
+    expect(p!.tracks[0].clips[0].notes[0].velocity).toBe(117);
+    expect(p!.tracks[0].clips[0].notes[0].sourceNoteId).toBe(row.record.workingProjectState.tracks[0].clips[0].notes[0].sourceNoteId);
+    expect((await getRawEnvelope('backup:missing')).record).toEqual(row.record);
+    const second = await new ProjectQueueService().restorePersistedProjects();
+    expect(second!.tracks).toEqual(p!.tracks);
+  });
+  it('synthetic: tampered bypassed historical records cannot evade recovery integrity checks', async () => {
+    const row=await seedSynthetic('tampered-bypassed','v1-reverb');
+    const d=row.record.workingProjectState.tracks[0].devices[0];d.bypassed=true;d.conversionRecord!.sourceParameterHash='tampered';
+    row.checksum=await computeSha256Hex(JSON.stringify(row.record));await putRawEnvelope(row);
+    const q=new ProjectQueueService();
+    expect(await q.restorePersistedProjects()).toBeNull();
+    expect(q.getBlockedRecoveryRecords()[0].error).toContain('CONVERSION_REQUIRED');
+    expect(await getRawEnvelope('tampered-bypassed')).toEqual(row);
+    expect(()=>decodeProjectSnapshot(JSON.stringify({format:'parametric-als-daw',version:2,project:{...row.record.workingProjectState,audioSettings:{humanization:DEFAULT_HUMANIZATION,masterBus:DEFAULT_MASTER_BUS,transport:DEFAULT_TRANSPORT}}}))).toThrow(/CONVERSION_REQUIRED/);
+  });
+  it('synthetic: a concurrent committed edit wins over stale migration', async () => {
+    const original = await seedSynthetic('concurrent');
+    const q = new ProjectQueueService();
+    const commit = (q as any).persistMigratedEnvelopeAtomically.bind(q);
+    const newer = structuredClone(original);
+    newer.record.workingProjectState.tracks[0].clips[0].notes[0].velocity=83;
+    newer.checksum=await computeSha256Hex(JSON.stringify(newer.record));
+    (q as any).persistMigratedEnvelopeAtomically = async (...args:any[]) => {await putRawEnvelope(newer);return commit(...args);};
+    expect(await q.restorePersistedProjects()).toBeNull();
+    expect(await getRawEnvelope('concurrent')).toEqual(newer);
+    expect(await getRawEnvelope('backup:concurrent')).toBeUndefined();
+  });
+  it('synthetic: recovers a lone valid backup without inventing a primary envelope', async () => {
+    const row=await seedSynthetic('backup-only','v1-reverb');
+    await clearIdb(); await putRawEnvelope({...row,queueId:'backup:backup-only',originalQueueId:'backup-only'});
+    const q=new ProjectQueueService();
+    expect(await q.restorePersistedProjects()).not.toBeNull();
+    const hash=await computeSha256Hex(JSON.stringify({...row,queueId:'backup:backup-only',originalQueueId:'backup-only'}));
+    expect((await getRawEnvelope(`archive:backup-only:${hash}`)).rawEnvelopeJson).toBe(JSON.stringify({...row,queueId:'backup:backup-only',originalQueueId:'backup-only'}));
+  });
+  it('synthetic: recovered identities survive native save, undo and XML export', async () => {
+    await seedSynthetic('native-save');
+    const q = new ProjectQueueService(), p = (await q.restorePersistedProjects())!;
+    const saved = encodeProjectSnapshot(p,DEFAULT_HUMANIZATION,DEFAULT_MASTER_BUS,DEFAULT_TRANSPORT);
+    const reopened = decodeProjectSnapshot(saved).project;
+    expect(reopened.tracks).toEqual(p.tracks);
+    const bus = new StudioCommandBus();
+    const edited = bus.executeMutation('native-save','Manual pitch','clip_edit',reopened,draft=>{
+      draft.tracks[0].clips[0].notes[0].pitch=51;return draft;
+    });
+    expect(edited.tracks[0].clips[0].notes[0].pitch).toBe(51);
+    expect(bus.undo('native-save')!.tracks).toEqual(reopened.tracks);
+    expect(bus.redo('native-save')!.tracks[0].clips[0].notes[0].pitch).toBe(51);
+    expect(edited.rawXmlModified).toContain('MidiNoteEvent');
+    expect(p.identityMigration?.sourceEnvelopeSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+  it('synthetic: independent record write failures do not poison healthy saves', async () => {
+    const q = new ProjectQueueService();
+    const originalOpen = (q as any).openRecoveryDb.bind(q);
+    (q as any).openRecoveryDb = async () => {throw new Error('SYNTHETIC_WRITE_FAILURE');};
+    const failed = await q.enqueueProjectFromXml('write-failure.als',buildStarterAbletonXml('berghain-134',20,4).xml);
+    expect(q.getStorageStatus(failed.queueId)).toBe('error');
+    (q as any).openRecoveryDb = originalOpen;
+    const healthy = await q.enqueueProjectFromXml('healthy.als',buildStarterAbletonXml('berghain-134',21,4).xml);
+    await expect(q.flushPersistence(healthy.queueId)).resolves.toBeUndefined();
+    expect(q.getStorageStatus(healthy.queueId)).toBe('saved');
+    await expect(q.flushPersistence(failed.queueId)).rejects.toThrow('SYNTHETIC_WRITE_FAILURE');
+    q.updateWorkingProjectState(failed.queueId,failed.workingProjectState);
+    await q.flushPersistence(failed.queueId);
+    const restart = new ProjectQueueService(); await restart.restorePersistedProjects();
+    expect(restart.getItem(healthy.queueId)).toBeDefined(); expect(restart.getItem(failed.queueId)).toBeDefined();
+  });
+  it('synthetic: quarantine preserves raw data, diagnosis and retry after restart', async () => {
+    const row = await seedSynthetic('quarantined','future'), q = new ProjectQueueService();
+    await q.restorePersistedProjects(); await q.quarantineBlockedRecoveryRecord('quarantined');
+    const quarantined=await getRawEnvelope('quarantine:quarantined');
+    expect(quarantined.rawEnvelopeJson).toBe(JSON.stringify(row,null,2));
+    expect(quarantined.diagnosis).toContain('RECOVERY_VERSION');
+    const restart=new ProjectQueueService(); await restart.restorePersistedProjects();
+    expect(restart.getBlockedRecoveryRecords()).toHaveLength(1);
+    expect(await restart.retryRecovery()).toBeNull();
+    expect(await getRawEnvelope('quarantined')).toEqual(row);
+  });
+  it('synthetic: ambiguous identity collisions preserve the envelope and block recovery', async () => {
+    const row = await seedSynthetic('collision','duplicate');
+    const q = new ProjectQueueService();
+    expect(await q.restorePersistedProjects()).toBeNull();
+    expect(q.getBlockedRecoveryRecords()[0].error).toContain('AMBIGUOUS');
+    expect(await getRawEnvelope('collision')).toEqual(row);
+  });
+  it('synthetic: interrupted identity and historical conversion migrations roll back atomically', async () => {
+    for (const damage of ['missing','v1-reverb'] as const) {
+      await clearIdb();
+      const row = await seedSynthetic(damage,damage), q=new ProjectQueueService();
+      q.setSimulateMigrationWriteFailureForTest(true);
+      expect(await q.restorePersistedProjects()).toBeNull();
+      expect(await getRawEnvelope(damage)).toEqual(row);
+      expect(await getRawEnvelope(`backup:${damage}`)).toBeUndefined();
+      expect(await q.retryRecovery()).not.toBeNull();
+    }
+  });
+  it('synthetic: an unresolved record cannot block unrelated concurrent saves and restart', async () => {
+    const row = await seedSynthetic('unresolved','future'), q=new ProjectQueueService();
+    await q.restorePersistedProjects();
+    // Flush reports write failures only; intact unresolved journals are a separate diagnosis.
+    await expect(q.flushPersistence()).resolves.toBeUndefined();
+    const xml=buildStarterAbletonXml('berghain-134',20,4).xml;
+    const records=await Promise.all([q.enqueueProjectFromXml('healthy-a.als',xml),q.enqueueProjectFromXml('healthy-b.als',xml)]);
+    await q.flushPersistence();
+    const restart=new ProjectQueueService(); await restart.restorePersistedProjects();
+    expect(records.every(r=>restart.getItem(r.queueId))).toBe(true);
+    expect(await getRawEnvelope('unresolved')).toEqual(row);
+    expect(restart.exportOriginalRecoveryData('unresolved')?.rawJson).toBe(JSON.stringify(row,null,2));
   });
 
   it('automatically migrates unversioned, v1, and v2 envelopes containing DrumBuss 102 without conversionRecord', async () => {

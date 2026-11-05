@@ -1,0 +1,1698 @@
+diff --git a/scripts/verify-p0-audio.mjs b/scripts/verify-p0-audio.mjs
+new file mode 100644
+index 0000000..d71df67
+--- /dev/null
++++ b/scripts/verify-p0-audio.mjs
+@@ -0,0 +1,33 @@
++#!/usr/bin/env node
++// Real Web Audio + independent FFmpeg decode. Never substitutes for physical Android.
++import fs from 'node:fs/promises';
++import path from 'node:path';
++import {createRequire} from 'node:module';
++import {createHash} from 'node:crypto';
++import {execFileSync} from 'node:child_process';
++import {createServer} from 'vite';
++const root=path.resolve(import.meta.dirname,'..');
++const output=path.join(root,'docs/p0-resume/evidence/audio');await fs.mkdir(output,{recursive:true});
++const require=createRequire(import.meta.url);
++const {chromium}=require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES||path.join(root,'node_modules'),'playwright'));
++const report={source:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fixture:'SYNTHETIC',status:'BLOCKED',cases:[]};
++let browser,server;
++try {
++  browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH}:{}),args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
++  server=await createServer({root,server:{host:'127.0.0.1',port:0,watch:null,hmr:false}});await server.listen();
++  const page=await browser.newPage();page.setDefaultTimeout(60000);
++  let wave;
++  await page.exposeFunction('saveP0Wav',bytes=>{wave=Buffer.from(bytes);});
++  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/p0-audio-browser.html`);
++  await page.waitForFunction(()=>typeof window.runP0Audio==='function');
++  for(const [replacement,role] of [['Operator','instrument'],['Analog','instrument'],['Wavetable','instrument'],['EQEight','audio_effect'],['Reverb','audio_effect'],['Compressor2','audio_effect']]) {
++    const result=await page.evaluate(([replacement,role])=>window.runP0Audio(replacement,role),[replacement,role]);
++    const file=path.join(output,`${replacement}.wav`);await fs.writeFile(file,wave);
++    const pcm=execFileSync('ffmpeg',['-v','error','-i',file,'-f','f32le','-acodec','pcm_f32le','-'],{maxBuffer:128*1024*1024});
++    let energy=0,peak=0;for(let i=0;i<pcm.length;i+=4){const x=pcm.readFloatLE(i);if(!Number.isFinite(x))throw new Error('NONFINITE_DECODE');energy+=x*x;peak=Math.max(peak,Math.abs(x));}
++    const rms=Math.sqrt(energy/(pcm.length/4));if(!(rms>1e-6))throw new Error('SILENT_INDEPENDENT_DECODE');
++    report.cases.push({...result,wav:{file:path.basename(file),sha256:createHash('sha256').update(wave).digest('hex'),decodedSamples:pcm.length/4,rms,peak,decoder:'FFmpeg f32le'}});
++  }
++  report.status='PASS';
++} catch(e) {report.error=String(e);process.exitCode=1;}
++finally {await browser?.close();await server?.close();await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));}
+diff --git a/src/App.tsx b/src/App.tsx
+index 6765e7e..e506537 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,3 +1,4 @@
++import { isPluginDependency } from './engine/pluginDependencies';
+ import {editArrangementClip,editArrangementNote,toggleArrangementNote} from './engine/arrangementEditing';
+ import type {ArrangementClipEdit,ArrangementNoteEdit} from './engine/arrangementEditing';
+ import {createSongPlan,composeSongPlan,materializeSongPlanTrack,songPlanAutomation} from './engine/songPlanEngine';
+@@ -2131,22 +2132,8 @@ export default function App() {
+     return () => window.removeEventListener('keydown', onKeyDown);
+   }, [handleUndo, handleRedo]);
+ 
+-  const unsupportedPluginCount = useMemo(() => {
+-    let count = 0;
+-    project.tracks.forEach((track) => {
+-      track.devices.forEach((dev) => {
+-        if (
+-          dev.xmlTag === 'AuPluginDevice' ||
+-          dev.xmlTag === 'PluginDevice' ||
+-          dev.xmlTag === 'MxDeviceAudioEffect' ||
+-          dev.isUnsupportedPlugin === true
+-        ) {
+-          count++;
+-        }
+-      });
+-    });
+-    return count;
+-  }, [project.tracks]);
++  const unsupportedPluginCount = useMemo(() => project.tracks.reduce((count, track) =>
++    count + track.devices.filter(isPluginDependency).length, 0), [project.tracks]);
+ 
+   return (
+     <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
+@@ -2242,6 +2229,9 @@ export default function App() {
+ 
+       {/* 4. SOUNDCRAFT PROFESSIONAL DAW WORKSTATION BODY (CSS GRID CELL) */}
+       <div className="min-h-0 min-w-0 flex flex-col overflow-hidden">
++        {unsupportedPluginCount > 0 && <button type="button" className="shrink-0 p-2 text-xs text-amber-200 bg-amber-950/50" onClick={() => setIsUnsupportedPluginModalOpen(true)}>
++          Resolve plugin dependencies ({unsupportedPluginCount})
++        </button>}
+         {activeTab === 'workbench' && (
+           <SoundCraftWorkstation
+             activeTab={activeTab}
+@@ -2472,6 +2462,10 @@ export default function App() {
+         onRetryRecovery={handleRetryRecovery}
+         onRepairLegacyProject={handleRepairLegacyRecovery}
+         onExportOriginalRecoveryData={handleExportOriginalRecoveryData}
++        onQuarantineRecovery={async (queueId) => {
++          try { await projectQueueService.quarantineBlockedRecoveryRecord(queueId); setStatusMessage('Quarantine copy saved with original envelope and diagnosis. Original retained for export and retry.'); }
++          catch (error) { setStatusMessage(`Recovery storage warning: ${error instanceof Error ? error.message : String(error)}`); }
++        }}
+         onOpenSavedProject={() => projectSnapshotInputRef.current?.click()}
+         onStartSeparateProject={handleStartSeparateProject}
+       />
+@@ -2568,25 +2562,6 @@ export default function App() {
+         onReportStatus={setStatusMessage}
+       />
+ 
+-  const [isUnsupportedPluginModalOpen, setIsUnsupportedPluginModalOpen] = useState<boolean>(false);
+-
+-  const unsupportedPluginCount = useMemo(() => {
+-    let count = 0;
+-    project.tracks.forEach((track) => {
+-      track.devices.forEach((dev) => {
+-        if (
+-          dev.xmlTag === 'AuPluginDevice' ||
+-          dev.xmlTag === 'PluginDevice' ||
+-          dev.xmlTag === 'MxDeviceAudioEffect' ||
+-          dev.isUnsupportedPlugin === true
+-        ) {
+-          count++;
+-        }
+-      });
+-    });
+-    return count;
+-  }, [project.tracks]);
+-
+       {/* Interactive Dynamic New Project Modal */}
+       <NewProjectModal
+         isOpen={isNewProjectModalOpen}
+diff --git a/src/__tests__/conversionUnits.test.ts b/src/__tests__/conversionUnits.test.ts
+index 724e29b..3c7db41 100644
+--- a/src/__tests__/conversionUnits.test.ts
++++ b/src/__tests__/conversionUnits.test.ts
+@@ -1,9 +1,11 @@
+ // @vitest-environment jsdom
+ import { describe, it, expect } from "vitest";
++import { buildStarterAbletonXml, parseAlsXmlString } from '../engine/alsXmlEngine';
+ import type { AbletonDevice } from "../types/ableton";
+ import {
+   buildDeviceConversionRecord,
+   migrateCompatibleUnitConversion,
++  migrateCompatibleProjectUnitConversions,
+   verifyDeviceConversionRecord,
+   CURRENT_DEVICE_CONVERSION_VERSION,
+ } from "../engine/abletonCapabilityMatrix";
+@@ -35,8 +37,23 @@ describe("Versioned unit conversion compatibility", () => {
+     expect(migrateCompatibleUnitConversion(result.device).migrated).toBe(false);
+     expect(d.conversionRecord.generatedDescriptor.decaySec).toBe(15);
+   });
++  it('rejects migration of historical records whose native automation is unresolved', () => {
++    const p=parseAlsXmlString(buildStarterAbletonXml('berghain-134',19,4).xml), d=dev();
++    d.conversionRecord=buildDeviceConversionRecord(d,true);p.tracks[0].devices=[d];
++    const doc=new DOMParser().parseFromString(p.rawXml!, 'application/xml');
++    doc.querySelector('MidiTrack Devices')!.innerHTML='<Reverb Id="202"><DecayTime><AutomationTarget Id="555"/></DecayTime></Reverb>';
++    const envelopes=doc.createElement('AutomationEnvelopes');envelopes.innerHTML='<AutomationEnvelope><EnvelopeTarget><PointeeId Value="555"/></EnvelopeTarget></AutomationEnvelope>';
++    doc.querySelector('MidiTrack')!.appendChild(envelopes);p.rawXmlModified=new XMLSerializer().serializeToString(doc);
++    expect(migrateCompatibleProjectUnitConversions(p).migrated).toBe(false);
++    expect(p.tracks[0].devices[0].conversionRecord!.conversionVersion).toBe(1);
++  });
+   it("preserves future, stale, corrupt and ambiguous records for targeted repair", () => {
+     for (const change of [
++      (d: AbletonDevice) => (d.conversionRecord!.conversionVersion = 0),
++      (d: AbletonDevice) => (d.conversionRecord!.sourceDeviceId = 'wrong-device'),
++      (d: AbletonDevice) => (d.conversionRecord!.xmlTag = 'HybridReverb'),
++      (d: AbletonDevice) => (d.parameters[0].unit = 'unknown'),
++      (d: AbletonDevice) => (d.parameters[0].automationTarget = true),
+       (d: AbletonDevice) => (d.conversionRecord!.conversionVersion = 99),
+       (d: AbletonDevice) => (d.conversionRecord!.sourceParameterHash = "bad"),
+       (d: AbletonDevice) =>
+diff --git a/src/__tests__/legacyRecoveryAndSession.test.tsx b/src/__tests__/legacyRecoveryAndSession.test.tsx
+index 84415f4..7c6000e 100644
+--- a/src/__tests__/legacyRecoveryAndSession.test.tsx
++++ b/src/__tests__/legacyRecoveryAndSession.test.tsx
+@@ -7,9 +7,9 @@ import {
+   RECOVERY_IDB_STORE,
+ } from '../services/projectQueueService';
+ import { buildStarterAbletonXml, computeSha256Hex, parseAlsXmlString } from '../engine/alsXmlEngine';
+-import { decodeProjectSnapshot } from '../services/projectSnapshotService';
++import { encodeProjectSnapshot, decodeProjectSnapshot } from '../services/projectSnapshotService';
+ import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT } from '../engine/projectDefaults';
+-import { queueSessionLaunch, storeArrangementClipInSession } from '../services/commandBus';
++import { StudioCommandBus, queueSessionLaunch, storeArrangementClipInSession } from '../services/commandBus';
+ import { synthEngine } from '../engine/webAudioSynth';
+ import {
+   CURRENT_DEVICE_CONVERSION_VERSION,
+@@ -452,6 +452,142 @@ describe('Legacy Recovery, DrumBuss 102 Migration & Safe Recovery Workflow', ()
+     projectQueueService.setSimulateMigrationWriteFailureForTest(false);
+   });
+ 
++  // SYNTHETIC envelopes: exercise the actual restart/recovery entry point.
++  async function seedSynthetic(id: string, damage: 'missing' | 'duplicate' | 'future' | 'v1-reverb' = 'missing') {
++    const p = parseAlsXmlString(buildStarterAbletonXml('berghain-134', 19, 4).xml);
++    const clip = p.tracks[0].clips[0];
++    if (damage === 'missing') { clip.notes[0].id = ''; clip.notes[0].velocity = 117; clip.notes[0].sourceNoteId = 'n0'; }
++    if (damage === 'duplicate') clip.notes[1].id = clip.notes[0].id;
++    if (damage === 'v1-reverb') {
++      const d = {id:'r1',xmlTag:'Reverb',displayName:'Reverb',category:'audio_effect' as const,parameters:[{name:'DecayTime',value:3600,unit:'ms'}]};
++      p.tracks[0].devices = [{...d,conversionRecord:buildDeviceConversionRecord(d,true)}];
++    }
++    // An explicit source reference allows preservation of manually edited velocity.
++    if (damage === 'missing') {
++      const doc = new DOMParser().parseFromString(p.rawXml!, 'application/xml');
++      const source = doc.querySelector('MidiTrack MidiClip MidiNoteEvent')!;
++      clip.notes[0].sourceNoteId = source.getAttribute('Data-AIDAW-LogicalId') || source.getAttribute('Data-Parametric-NoteId') || source.getAttribute('NoteId')!;
++    }
++    const record = {queueId:id,originalFilename:'synthetic.als',workingProjectRevision:3,workingProjectState:p,state:'ready',createdAt:'2026-11-05',updatedAt:'2026-11-05',sourceXmlSnapshot:p.rawXml};
++    const row = {queueId:id,recoveryVersion:damage==='future'?99:1,record,checksum:await computeSha256Hex(JSON.stringify(record)),active:true};
++    await putRawEnvelope(row); return row;
++  }
++  it('synthetic: reaches identity migration, archives originals, preserves edits and repeats recovery', async () => {
++    const row = await seedSynthetic('missing');
++    const queue = new ProjectQueueService();
++    const p = await queue.restorePersistedProjects();
++    expect(p).not.toBeNull();
++    expect(p!.tracks[0].clips[0].notes[0].velocity).toBe(117);
++    expect(p!.tracks[0].clips[0].notes[0].sourceNoteId).toBe(row.record.workingProjectState.tracks[0].clips[0].notes[0].sourceNoteId);
++    expect((await getRawEnvelope('backup:missing')).record).toEqual(row.record);
++    const second = await new ProjectQueueService().restorePersistedProjects();
++    expect(second!.tracks).toEqual(p!.tracks);
++  });
++  it('synthetic: tampered bypassed historical records cannot evade recovery integrity checks', async () => {
++    const row=await seedSynthetic('tampered-bypassed','v1-reverb');
++    const d=row.record.workingProjectState.tracks[0].devices[0];d.bypassed=true;d.conversionRecord!.sourceParameterHash='tampered';
++    row.checksum=await computeSha256Hex(JSON.stringify(row.record));await putRawEnvelope(row);
++    const q=new ProjectQueueService();
++    expect(await q.restorePersistedProjects()).toBeNull();
++    expect(q.getBlockedRecoveryRecords()[0].error).toContain('CONVERSION_REQUIRED');
++    expect(await getRawEnvelope('tampered-bypassed')).toEqual(row);
++    expect(()=>decodeProjectSnapshot(JSON.stringify({format:'parametric-als-daw',version:2,project:{...row.record.workingProjectState,audioSettings:{humanization:DEFAULT_HUMANIZATION,masterBus:DEFAULT_MASTER_BUS,transport:DEFAULT_TRANSPORT}}}))).toThrow(/CONVERSION_REQUIRED/);
++  });
++  it('synthetic: a concurrent committed edit wins over stale migration', async () => {
++    const original = await seedSynthetic('concurrent');
++    const q = new ProjectQueueService();
++    const commit = (q as any).persistMigratedEnvelopeAtomically.bind(q);
++    const newer = structuredClone(original);
++    newer.record.workingProjectState.tracks[0].clips[0].notes[0].velocity=83;
++    newer.checksum=await computeSha256Hex(JSON.stringify(newer.record));
++    (q as any).persistMigratedEnvelopeAtomically = async (...args:any[]) => {await putRawEnvelope(newer);return commit(...args);};
++    expect(await q.restorePersistedProjects()).toBeNull();
++    expect(await getRawEnvelope('concurrent')).toEqual(newer);
++    expect(await getRawEnvelope('backup:concurrent')).toBeUndefined();
++  });
++  it('synthetic: recovers a lone valid backup without inventing a primary envelope', async () => {
++    const row=await seedSynthetic('backup-only','v1-reverb');
++    await clearIdb(); await putRawEnvelope({...row,queueId:'backup:backup-only',originalQueueId:'backup-only'});
++    const q=new ProjectQueueService();
++    expect(await q.restorePersistedProjects()).not.toBeNull();
++    const hash=await computeSha256Hex(JSON.stringify({...row,queueId:'backup:backup-only',originalQueueId:'backup-only'}));
++    expect((await getRawEnvelope(`archive:backup-only:${hash}`)).rawEnvelopeJson).toBe(JSON.stringify({...row,queueId:'backup:backup-only',originalQueueId:'backup-only'}));
++  });
++  it('synthetic: recovered identities survive native save, undo and XML export', async () => {
++    await seedSynthetic('native-save');
++    const q = new ProjectQueueService(), p = (await q.restorePersistedProjects())!;
++    const saved = encodeProjectSnapshot(p,DEFAULT_HUMANIZATION,DEFAULT_MASTER_BUS,DEFAULT_TRANSPORT);
++    const reopened = decodeProjectSnapshot(saved).project;
++    expect(reopened.tracks).toEqual(p.tracks);
++    const bus = new StudioCommandBus();
++    const edited = bus.executeMutation('native-save','Manual pitch','clip_edit',reopened,draft=>{
++      draft.tracks[0].clips[0].notes[0].pitch=51;return draft;
++    });
++    expect(edited.tracks[0].clips[0].notes[0].pitch).toBe(51);
++    expect(bus.undo('native-save')!.tracks).toEqual(reopened.tracks);
++    expect(bus.redo('native-save')!.tracks[0].clips[0].notes[0].pitch).toBe(51);
++    expect(edited.rawXmlModified).toContain('MidiNoteEvent');
++    expect(p.identityMigration?.sourceEnvelopeSha256).toMatch(/^[a-f0-9]{64}$/);
++  });
++  it('synthetic: independent record write failures do not poison healthy saves', async () => {
++    const q = new ProjectQueueService();
++    const originalOpen = (q as any).openRecoveryDb.bind(q);
++    (q as any).openRecoveryDb = async () => {throw new Error('SYNTHETIC_WRITE_FAILURE');};
++    const failed = await q.enqueueProjectFromXml('write-failure.als',buildStarterAbletonXml('berghain-134',20,4).xml);
++    expect(q.getStorageStatus(failed.queueId)).toBe('error');
++    (q as any).openRecoveryDb = originalOpen;
++    const healthy = await q.enqueueProjectFromXml('healthy.als',buildStarterAbletonXml('berghain-134',21,4).xml);
++    await expect(q.flushPersistence(healthy.queueId)).resolves.toBeUndefined();
++    expect(q.getStorageStatus(healthy.queueId)).toBe('saved');
++    await expect(q.flushPersistence(failed.queueId)).rejects.toThrow('SYNTHETIC_WRITE_FAILURE');
++    q.updateWorkingProjectState(failed.queueId,failed.workingProjectState);
++    await q.flushPersistence(failed.queueId);
++    const restart = new ProjectQueueService(); await restart.restorePersistedProjects();
++    expect(restart.getItem(healthy.queueId)).toBeDefined(); expect(restart.getItem(failed.queueId)).toBeDefined();
++  });
++  it('synthetic: quarantine preserves raw data, diagnosis and retry after restart', async () => {
++    const row = await seedSynthetic('quarantined','future'), q = new ProjectQueueService();
++    await q.restorePersistedProjects(); await q.quarantineBlockedRecoveryRecord('quarantined');
++    const quarantined=await getRawEnvelope('quarantine:quarantined');
++    expect(quarantined.rawEnvelopeJson).toBe(JSON.stringify(row,null,2));
++    expect(quarantined.diagnosis).toContain('RECOVERY_VERSION');
++    const restart=new ProjectQueueService(); await restart.restorePersistedProjects();
++    expect(restart.getBlockedRecoveryRecords()).toHaveLength(1);
++    expect(await restart.retryRecovery()).toBeNull();
++    expect(await getRawEnvelope('quarantined')).toEqual(row);
++  });
++  it('synthetic: ambiguous identity collisions preserve the envelope and block recovery', async () => {
++    const row = await seedSynthetic('collision','duplicate');
++    const q = new ProjectQueueService();
++    expect(await q.restorePersistedProjects()).toBeNull();
++    expect(q.getBlockedRecoveryRecords()[0].error).toContain('AMBIGUOUS');
++    expect(await getRawEnvelope('collision')).toEqual(row);
++  });
++  it('synthetic: interrupted identity and historical conversion migrations roll back atomically', async () => {
++    for (const damage of ['missing','v1-reverb'] as const) {
++      await clearIdb();
++      const row = await seedSynthetic(damage,damage), q=new ProjectQueueService();
++      q.setSimulateMigrationWriteFailureForTest(true);
++      expect(await q.restorePersistedProjects()).toBeNull();
++      expect(await getRawEnvelope(damage)).toEqual(row);
++      expect(await getRawEnvelope(`backup:${damage}`)).toBeUndefined();
++      expect(await q.retryRecovery()).not.toBeNull();
++    }
++  });
++  it('synthetic: an unresolved record cannot block unrelated concurrent saves and restart', async () => {
++    const row = await seedSynthetic('unresolved','future'), q=new ProjectQueueService();
++    await q.restorePersistedProjects();
++    // Flush reports write failures only; intact unresolved journals are a separate diagnosis.
++    await expect(q.flushPersistence()).resolves.toBeUndefined();
++    const xml=buildStarterAbletonXml('berghain-134',20,4).xml;
++    const records=await Promise.all([q.enqueueProjectFromXml('healthy-a.als',xml),q.enqueueProjectFromXml('healthy-b.als',xml)]);
++    await q.flushPersistence();
++    const restart=new ProjectQueueService(); await restart.restorePersistedProjects();
++    expect(records.every(r=>restart.getItem(r.queueId))).toBe(true);
++    expect(await getRawEnvelope('unresolved')).toEqual(row);
++    expect(restart.exportOriginalRecoveryData('unresolved')?.rawJson).toBe(JSON.stringify(row,null,2));
++  });
++
+   it('automatically migrates unversioned, v1, and v2 envelopes containing DrumBuss 102 without conversionRecord', async () => {
+     const project = createDrumBussProjectFixture();
+     const queueId = 'legacy_drumbuss_unversioned';
+diff --git a/src/__tests__/p0ReleaseBlockers.test.ts b/src/__tests__/p0ReleaseBlockers.test.ts
+index b20aab4..d05be81 100644
+--- a/src/__tests__/p0ReleaseBlockers.test.ts
++++ b/src/__tests__/p0ReleaseBlockers.test.ts
+@@ -1,5 +1,6 @@
++// SYNTHETIC fixtures only; these are not recovered user projects.
+ import { describe, expect, it, beforeAll } from 'vitest';
+-import { JSDOM } from 'jsdom';
++// @vitest-environment jsdom
+ import {
+   AbletonDevice,
+   AbletonProjectState,
+@@ -8,21 +9,14 @@ import {
+   TrackMixerParams,
+ } from '../types/ableton';
+ 
+-beforeAll(() => {
+-  if (typeof globalThis.DOMParser === 'undefined') {
+-    const dom = new JSDOM();
+-    globalThis.DOMParser = dom.window.DOMParser;
+-    globalThis.XMLSerializer = dom.window.XMLSerializer;
+-  }
+-});
+-
+ import { assertProjectState, repairProjectNoteIdentities } from '../engine/projectStateContracts';
+ import {
+   migrateCompatibleProjectUnitConversions,
+   determineLegacyConversionMigrationEligibility,
+   CURRENT_DEVICE_CONVERSION_VERSION,
++  buildDeviceConversionRecord,
+ } from '../engine/abletonCapabilityMatrix';
+-import { parseAbletonXmlDom, synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
++import { buildStarterAbletonXml, parseAbletonXmlDom, synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
+ import { substituteUnsupportedDevice } from '../services/commandBus';
+ 
+ const defaultMixer: TrackMixerParams = {
+@@ -37,7 +31,7 @@ const defaultMixer: TrackMixerParams = {
+   filterResonance: 0.25,
+ };
+ 
+-describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
++describe('P0 synthetic state regression; audio and device qualification remain separate', () => {
+   describe('P0-001: Unsupported AU/VST Plugin Handling & Substitution', () => {
+     const sampleXml = `<Ableton MajorVersion="5" MinorVersion="12.0_12000" SchemaChangeCount="1" Creator="Ableton Live 12.0" Revision="100">
+         <LiveSet>
+@@ -75,7 +69,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+         </LiveSet>
+       </Ableton>`;
+ 
+-    it('parses imported AuPluginDevice cleanly, sets bypassed by default, and preserves original XML', () => {
++    it('parses imported AuPluginDevice cleanly, retains the source enabled state, and preserves original XML', () => {
+       const parsed = parseAbletonXmlDom(sampleXml, '2-Kick.als');
+       expect(parsed.tracks.length).toBeGreaterThan(0);
+       const track = parsed.tracks.find((t) => t.name.includes('2-Kick 3')) || parsed.tracks[0];
+@@ -83,7 +77,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+ 
+       const auDevice = track.devices.find((d) => d.xmlTag === 'AuPluginDevice');
+       expect(auDevice).toBeDefined();
+-      expect(auDevice?.bypassed).toBe(true);
++      expect(auDevice?.bypassed).toBe(false);
+ 
+       // Project state assertion must pass because unsupported plugin is bypassed
+       expect(() => assertProjectState(parsed)).not.toThrow();
+@@ -95,6 +89,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+ 
+     it('substitutes active browser synthesis for AuPluginDevice while preserving original XML for export', () => {
+       const initialProject: AbletonProjectState = {
++        ...parseAbletonXmlDom(buildStarterAbletonXml('berghain-134', 1, 4).xml, 'synthetic.als'),
+         fileName: 'Au_Plugin_Project.als',
+         rawXml: sampleXml,
+         rawXmlModified: sampleXml,
+@@ -105,7 +100,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+           {
+             id: '1',
+             name: '2-Kick 3',
+-            type: 'midi',
++            type: 'midi', isGenerated: false, colorIndex: 0,
+             archetype: 'kick',
+             hexColor: '#F59E0B',
+             muted: false,
+@@ -127,7 +122,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+                     quantizedTime: 0,
+                     duration: 1,
+                     pitch: 36,
+-                    velocity: 100,
++                    velocity: 100, isGhost: false,
+                   },
+                 ],
+               },
+@@ -148,12 +143,12 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+         ],
+       };
+ 
+-      const updated = substituteUnsupportedDevice(initialProject, '1', '31', 'Operator');
++      const updated = substituteUnsupportedDevice(initialProject, '1', '31', 'Operator', 'instrument');
+       const updatedDev = updated.tracks[0].devices[0];
+ 
+       expect(updatedDev.bypassed).toBe(false);
+-      expect(updatedDev.displayName).toContain('Operator');
+-      expect(updatedDev.opaqueSubtreeXml).toContain('AuPluginDevice');
++      expect(updatedDev.xmlTag).toBe('Operator');
++      expect(updatedDev.originalPlugin?.opaqueSubtreeXml).toContain('AuPluginDevice');
+ 
+       // Export retains original AuPluginDevice XML structure
+       const exportedXml = synchronizeProjectStateToXml(updated, initialProject);
+@@ -164,6 +159,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+   describe('P0-002: Deterministic Note Identity Repair', () => {
+     it('repairs missing or duplicate note identities without changing pitch, time, duration, or velocity', () => {
+       const corruptProject: AbletonProjectState = {
++        ...parseAbletonXmlDom(buildStarterAbletonXml('berghain-134', 1, 4).xml, 'synthetic.als'),
+         fileName: 'Berghain_Core_133.5BPM_541.als',
+         projectRevision: 1,
+         ppq: 96,
+@@ -172,7 +168,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+           {
+             id: 't1',
+             name: 'Bass Track',
+-            type: 'midi',
++            type: 'midi', isGenerated: false, colorIndex: 0,
+             archetype: 'acid',
+             hexColor: '#EC4899',
+             muted: false,
+@@ -195,15 +191,15 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+                     quantizedTime: 0,
+                     duration: 0.25,
+                     pitch: 36,
+-                    velocity: 110,
++                    velocity: 110, isGhost: false,
+                   },
+                   {
+-                    id: 'dup_1',
++                    id: '',
+                     time: 0.25,
+                     quantizedTime: 0.25,
+                     duration: 0.25,
+                     pitch: 48,
+-                    velocity: 95,
++                    velocity: 95, isGhost: false,
+                   },
+                   // Empty note ID ''
+                   {
+@@ -212,7 +208,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+                     quantizedTime: 0.5,
+                     duration: 0.5,
+                     pitch: 36,
+-                    velocity: 105,
++                    velocity: 105, isGhost: false,
+                   },
+                 ],
+               },
+@@ -270,7 +266,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+           xmlTag: 'Reverb',
+           sourceParameterHash: 'legacy_hash_v1',
+           conversionVersion: 1,
+-          conversionKind: 'converted_approximation',
++          conversionKind: 'audio_insert_dsp',
+           generatedDescriptor: { reverbDecaySec: 3.6, reverbReturnLevel: 0.4 },
+           supportedSemantics: ['DecayTime (3600 ms)', 'DryWet (0.4)'],
+           limitations: ['Converted browser approximation.'],
+@@ -278,8 +274,11 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+         },
+       };
+ 
++      v1ReverbDevice.conversionRecord = buildDeviceConversionRecord(v1ReverbDevice, true);
++
+       const legacyProject: AbletonProjectState = {
+-        fileName: 'Tresor_Vault_133.5BPM_577.als',
++        ...parseAbletonXmlDom(buildStarterAbletonXml('berghain-134', 1, 4).xml, 'synthetic.als'),
++        fileName: 'Tresor_Vault_138.5BPM_577.als',
+         projectRevision: 1,
+         ppq: 96,
+         tempo: 133.5,
+@@ -287,7 +286,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+           {
+             id: 't1',
+             name: 'Reverb Bus',
+-            type: 'audio',
++            type: 'audio', isGenerated: false, colorIndex: 0,
+             archetype: 'existing',
+             hexColor: '#10B981',
+             muted: false,
+diff --git a/src/__tests__/p0Resume.test.ts b/src/__tests__/p0Resume.test.ts
+new file mode 100644
+index 0000000..3e5c9fc
+--- /dev/null
++++ b/src/__tests__/p0Resume.test.ts
+@@ -0,0 +1,92 @@
++// @vitest-environment jsdom
++// All projects in this suite are SYNTHETIC, not the user's recovery envelopes.
++import { describe, expect, it } from 'vitest';
++import { buildStarterAbletonXml, parseAlsXmlString, parseAbletonXmlDom } from '../engine/alsXmlEngine';
++import { StudioCommandBus, substituteUnsupportedDevice } from '../services/commandBus';
++import { buildDeviceInsertProcessor, resolveTrackInstrumentSynthesis } from '../engine/webAudioSynth';
++import { restoreOriginalPlugin, bypassUnsupportedPlugin } from '../engine/pluginDependencies';
++import { encodeProjectSnapshot, decodeProjectSnapshot } from '../services/projectSnapshotService';
++import { synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
++import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT } from '../engine/projectDefaults';
++import { repairProjectNoteIdentities } from '../engine/projectStateContracts';
++
++function fixture() {
++  const p = parseAlsXmlString(buildStarterAbletonXml('berghain-134', 123, 4).xml);
++  p.tracks[0].devices = [{ id: '31', xmlTag: 'AuPluginDevice', displayName: 'Unknown AU', category: 'instrument',
++    isUserCreated: true, bypassed: false, browserDspSupported: false, parameters: [{name:'Private',value:17}],
++    opaqueSubtreeXml: '<AuPluginDevice Id="31"><Private Value="17"/></AuPluginDevice>' }];
++  const doc = new DOMParser().parseFromString(p.rawXml!, 'application/xml');
++  doc.querySelector('MidiTrack Devices')!.innerHTML = p.tracks[0].devices[0].opaqueSubtreeXml!;
++  p.rawXml = p.rawXmlModified = new XMLSerializer().serializeToString(doc);
++  return p;
++}
++describe('P0 resume synthetic regression', () => {
++  it('serializes imported GroupTrack state without dropping opaque group XML', () => {
++    const xml=buildStarterAbletonXml('berghain-134',1,4).xml;
++    const doc=new DOMParser().parseFromString(xml,'application/xml');
++    const group=doc.createElement('GroupTrack');group.setAttribute('Id','91000');
++    group.innerHTML='<Name><EffectiveName Value="Synthetic group"/></Name><OpaqueGroupData Value="preserve"/><DeviceChain><Devices/></DeviceChain>';
++    doc.querySelector('LiveSet > Tracks')!.prepend(group);
++    const p=parseAbletonXmlDom(new XMLSerializer().serializeToString(doc),'synthetic-group.als');
++    expect(p.tracks.some(t=>t.isGroupTrack)).toBe(true);
++    const out=synchronizeProjectStateToXml(p);
++    expect(out).toContain('OpaqueGroupData');
++    expect(parseAbletonXmlDom(out,'synthetic-group.als').tracks.filter(t=>t.isGroupTrack)).toHaveLength(1);
++  });
++  it('requires evidence or explicit user role for ambiguous AU containers', () => {
++    const p = fixture();
++    expect(() => substituteUnsupportedDevice(p,p.tracks[0].id,'31','Operator')).toThrow(/ROLE/);
++  });
++  it('dispatches registered factories, preserves originals, restores and saves history independently', () => {
++    const p = fixture(), id = p.tracks[0].id;
++    const original = structuredClone(p.tracks[0].devices[0]);
++    const bus = new StudioCommandBus();
++    const updated = bus.executeMutation('synthetic','Replace plugin','clip_edit',p,draft=>substituteUnsupportedDevice(draft,id,'31','Analog','instrument'));
++    const d = updated.tracks[0].devices[0];
++    expect(d.xmlTag).toBe('UltraAnalog');
++    expect(d.originalPlugin).toEqual(original);
++    expect(resolveTrackInstrumentSynthesis(updated.tracks[0]).instrumentTag).toBe('UltraAnalog');
++    const ctx = {createGain:()=>({gain:{value:1},disconnect(){},connect(){}})} as unknown as BaseAudioContext;
++    expect(buildDeviceInsertProcessor(ctx,d).xmlTag).toBe('UltraAnalog');
++    expect(bus.undo('synthetic')!.tracks[0].devices[0]).toEqual(original);
++    expect(bus.redo('synthetic')!.tracks[0].devices[0].xmlTag).toBe('UltraAnalog');
++    const saved = encodeProjectSnapshot(updated,DEFAULT_HUMANIZATION,DEFAULT_MASTER_BUS,DEFAULT_TRANSPORT);
++    const reopened = decodeProjectSnapshot(saved).project;
++    expect(reopened.tracks[0].devices[0]).toEqual(d);
++    expect(restoreOriginalPlugin(reopened,id,'31').tracks[0].devices[0]).toEqual(original);
++    const exported = new DOMParser().parseFromString(synchronizeProjectStateToXml(updated), 'application/xml');
++    expect(exported.querySelector('AuPluginDevice')!.outerHTML).toBe(original.opaqueSubtreeXml);
++    expect(() => resolveTrackInstrumentSynthesis(p.tracks[0])).toThrow(/UNRESOLVED/);
++    expect(() => resolveTrackInstrumentSynthesis(bypassUnsupportedPlugin(p,id,'31').tracks[0])).not.toThrow();
++  });
++  it('rejects incompatible replacements, sample dependencies and forged support flags', () => {
++    const p=fixture(),id=p.tracks[0].id;
++    expect(()=>substituteUnsupportedDevice(p,id,'31','Reverb','instrument')).toThrow(/ROLE/);
++    expect(()=>substituteUnsupportedDevice(p,id,'31','Simpler','instrument')).toThrow(/SAMPLE/);
++    p.tracks[0].devices[0].browserDspSupported=true;
++    expect(()=>resolveTrackInstrumentSynthesis(p.tracks[0])).toThrow(/UNRESOLVED/);
++  });
++  it('blocks legacy automatic bypass flags without an explicit dependency action', () => {
++    const p=fixture();p.tracks[0].devices[0].bypassed=true;
++    expect(()=>resolveTrackInstrumentSynthesis(p.tracks[0])).toThrow(/UNRESOLVED/);
++  });
++  it('rejects replacement that would exceed the registered instrument count', () => {
++    const p=fixture(),id=p.tracks[0].id;
++    p.tracks[0].devices.unshift({id:'existing-synth',xmlTag:'Operator',displayName:'Operator',category:'instrument',parameters:[]});
++    expect(()=>substituteUnsupportedDevice(p,id,'31','Analog','instrument')).toThrow(/COMPATIBILITY/);
++  });
++  it('does not steal a valid later note identity during repair', () => {
++    const p = fixture(), clip = p.tracks[0].clips[0];
++    const note = clip.notes[0];
++    const reserved = `${clip.id}_n0_p${note.pitch}_t${Math.round(note.time*1000)}`;
++    clip.notes = [{...note,id:''},{...note,id:reserved,time:1}];
++    const result = repairProjectNoteIdentities(p).project.tracks[0].clips[0].notes;
++    expect(result[1].id).toBe(reserved);
++    expect(result[0].id).not.toBe(reserved);
++  });
++  it('rejects duplicate identities inside a source scope as ambiguous', () => {
++    const p = fixture(), clip = p.tracks[0].clips[0];
++    clip.notes = [{...clip.notes[0],id:'duplicate'},{...clip.notes[0],id:'duplicate',pitch:70}];
++    expect(() => repairProjectNoteIdentities(p)).toThrow(/AMBIGUOUS/);
++  });
++});
+diff --git a/src/components/StudioStatusBar.tsx b/src/components/StudioStatusBar.tsx
+index 5ff0bdb..4498319 100644
+--- a/src/components/StudioStatusBar.tsx
++++ b/src/components/StudioStatusBar.tsx
+@@ -44,6 +44,7 @@ interface StudioStatusBarProps {
+   onRetryRecovery?: () => void;
+   onRepairLegacyProject?: (queueId?: string) => void;
+   onExportOriginalRecoveryData?: (queueId?: string) => void;
++  onQuarantineRecovery?: (queueId: string) => void;
+   onOpenSavedProject?: () => void;
+   onStartSeparateProject?: () => void;
+ }
+@@ -69,6 +70,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
+   onRetryRecovery,
+   onRepairLegacyProject,
+   onExportOriginalRecoveryData,
++  onQuarantineRecovery,
+   onOpenSavedProject,
+   onStartSeparateProject,
+ }) => {
+@@ -226,6 +228,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
+                         Repair {rec.originalFilename}
+                       </button>
+                     )}
++                    {onQuarantineRecovery && <button type="button" className="px-2 py-0.5 rounded bg-slate-800 border border-slate-600" onClick={() => onQuarantineRecovery(rec.queueId)}>Quarantine copy</button>}
+                     {onExportOriginalRecoveryData && (
+                       <button
+                         type="button"
+diff --git a/src/components/UnsupportedPluginModal.tsx b/src/components/UnsupportedPluginModal.tsx
+index 4c3d76f..65e0da1 100644
+--- a/src/components/UnsupportedPluginModal.tsx
++++ b/src/components/UnsupportedPluginModal.tsx
+@@ -1,237 +1,33 @@
+ import React, { useState } from 'react';
+-import { AbletonDevice, AbletonProjectState, AbletonTrack } from '../types/ableton';
++import type { AbletonProjectState } from '../types/ableton';
+ import { substituteUnsupportedDevice } from '../services/commandBus';
+-import { AlertTriangle, CheckCircle2, Cpu, Download, HardDrive, ShieldCheck, X } from 'lucide-react';
++import { bypassUnsupportedPlugin, isPluginDependency, pluginRole, restoreOriginalPlugin, type PluginRole, type ReplacementType } from '../engine/pluginDependencies';
+ 
+-interface UnsupportedPluginModalProps {
+-  project: AbletonProjectState;
+-  isOpen: boolean;
+-  onClose: () => void;
+-  onUpdateProject: (updated: AbletonProjectState) => void;
+-}
+-
+-export const UnsupportedPluginModal: React.FC<UnsupportedPluginModalProps> = ({
+-  project,
+-  isOpen,
+-  onClose,
+-  onUpdateProject,
+-}) => {
++interface Props { project: AbletonProjectState; isOpen: boolean; onClose: () => void; onUpdateProject: (p:AbletonProjectState)=>void }
++export const UnsupportedPluginModal: React.FC<Props> = ({project,isOpen,onClose,onUpdateProject}) => {
++  const [roles,setRoles] = useState<Record<string,PluginRole>>({});
++  const [error,setError] = useState('');
+   if (!isOpen) return null;
+-
+-  // Locate all tracks and devices containing unsupported devices (<AuPluginDevice>, <PluginDevice>, etc.)
+-  const unsupportedItems: { track: AbletonTrack; device: AbletonDevice }[] = [];
+-  project.tracks.forEach((track) => {
+-    track.devices.forEach((dev) => {
+-      const isUnsupported =
+-        dev.xmlTag === 'AuPluginDevice' ||
+-        dev.xmlTag === 'PluginDevice' ||
+-        dev.xmlTag === 'MxDeviceAudioEffect' ||
+-        dev.isUnsupportedPlugin === true;
+-      if (isUnsupported) {
+-        unsupportedItems.push({ track, device: dev });
+-      }
+-    });
+-  });
+-
+-  const handleSubstitute = (
+-    trackId: string,
+-    deviceId: string,
+-    replacement: 'Operator' | 'Analog' | 'Wavetable' | 'Simpler' | 'EQEight' | 'Reverb' | 'Compressor2'
+-  ) => {
+-    const updated = substituteUnsupportedDevice(project, trackId, deviceId, replacement);
+-    onUpdateProject(updated);
+-  };
+-
+-  const handleToggleBypass = (trackId: string, deviceId: string) => {
+-    const updatedTracks = project.tracks.map((t) => {
+-      if (t.id !== trackId) return t;
+-      const updatedDevs = t.devices.map((d) => {
+-        if (d.id !== deviceId) return d;
+-        return { ...d, bypassed: !d.bypassed };
+-      });
+-      return { ...t, devices: updatedDevs };
+-    });
+-    onUpdateProject({ ...project, tracks: updatedTracks });
+-  };
+-
+-  return (
+-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+-      <div
+-        className="w-full max-w-2xl bg-[#0F131A] border border-[#232B3A] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-slate-100 font-mono"
+-        onClick={(e) => e.stopPropagation()}
+-      >
+-        {/* Header */}
+-        <div className="px-5 py-4 bg-[#141A24] border-b border-[#232B3A] flex items-center justify-between shrink-0">
+-          <div className="flex items-center gap-2.5">
+-            <AlertTriangle className="w-5 h-5 text-amber-400" />
+-            <div>
+-              <h2 className="text-sm font-bold text-amber-300 uppercase tracking-wide">
+-                Third-Party Plugin Dependencies ({unsupportedItems.length})
+-              </h2>
+-              <p className="text-[11px] text-slate-400">
+-                Preserve original plugin XML &amp; parameters while driving browser playback with built-in DSP
+-              </p>
+-            </div>
+-          </div>
+-          <button
+-            type="button"
+-            onClick={onClose}
+-            className="p-1 rounded-lg hover:bg-[#1E2736] text-slate-400 hover:text-slate-100 transition-colors"
+-          >
+-            <X className="w-5 h-5" />
+-          </button>
+-        </div>
+-
+-        {/* Content Body */}
+-        <div className="p-5 overflow-y-auto space-y-4 flex-1">
+-          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+-            <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+-            <div>
+-              <span className="font-bold">Non-Destructive XML Provenance Guarantee:</span>
+-              <p className="mt-0.5 text-[11px] text-amber-200/90 leading-relaxed">
+-                Imported VST3/AU binary plugin state (<code className="text-amber-100">&lt;AuPluginDevice&gt;</code>) is preserved 100% intact in original XML. Substituting a browser synthesis engine allows immediate sample-accurate audio playback &amp; WAV export without corrupting your original Ableton Live set.
+-              </p>
+-            </div>
++  const items=project.tracks.flatMap(track=>track.devices.filter(isPluginDependency).map(device=>({track,device})));
++  const run=(action:()=>AbletonProjectState)=>{try {onUpdateProject(action());setError('');} catch(e){setError(e instanceof Error?e.message:String(e));}};
++  return <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80">
++    <div role="dialog" aria-modal="true" aria-label="Plugin dependencies" className="w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5 bg-[#0F131A] border border-slate-700 rounded-xl text-slate-100 space-y-4">
++      <div className="flex justify-between"><h2>Plugin dependencies ({items.length})</h2><button onClick={onClose}>Close</button></div>
++      <p className="text-xs text-amber-200">Choose a replacement or explicitly bypass each enabled dependency. Original plugin XML, parameters and enabled state are retained. ALS export preserves the original plugin for Ableton; AIDAW metadata and native projects retain your browser replacement. Replacement sound differs from the original plugin.</p>
++      {error && <p role="alert" className="text-red-300">{error}</p>}
++      {items.map(({track,device})=>{
++        const key=`${track.id}/${device.id}`, role=pluginRole(device)||roles[key]||device.pluginResolution?.role;
++        const replacements:ReplacementType[]=role==='instrument'?['Operator','Analog','Wavetable']:role==='audio_effect'?['EQEight','Reverb','Compressor2']:[];
++        return <div key={key} className="p-4 border border-slate-700 rounded space-y-3">
++          <p>{track.name} · {(device.originalPlugin||device).displayName} · {device.pluginResolution?.action|| (device.bypassed && device.pluginOriginalEnabled === false?'Originally disabled':'Unresolved')}</p>
++          {!pluginRole(device) && <label>Plugin role <select aria-label={`Role for ${device.id}`} value={role||''} onChange={e=>setRoles({...roles,[key]:e.target.value as PluginRole})} className="bg-slate-800 p-2"><option value="">Select role</option><option value="instrument">Instrument</option><option value="audio_effect">Audio effect</option></select></label>}
++          <div className="flex flex-wrap gap-3">
++            {replacements.map(replacement=><button key={replacement} disabled={track.locked} className="p-2 border rounded" onClick={()=>run(()=>substituteUnsupportedDevice(project,track.id,device.id,replacement,role))}>Use {replacement}</button>)}
++            <button disabled={track.locked} onClick={()=>run(()=>bypassUnsupportedPlugin(project,track.id,device.id))}>Bypass explicitly</button>
++            {device.originalPlugin && <button onClick={()=>run(()=>restoreOriginalPlugin(project,track.id,device.id))}>Restore original</button>}
+           </div>
+-
+-          {unsupportedItems.length === 0 ? (
+-            <div className="py-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+-              <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+-              <span>No unsupported plugin dependencies in current project!</span>
+-            </div>
+-          ) : (
+-            <div className="space-y-3">
+-              {unsupportedItems.map(({ track, device }) => {
+-                const isSubstituted = Boolean(device.substitutedActiveType);
+-                const isBypassed = Boolean(device.bypassed);
+-
+-                return (
+-                  <div
+-                    key={`${track.id}_${device.id}`}
+-                    className="p-4 rounded-lg bg-[#121721] border border-[#232B3A] space-y-3"
+-                  >
+-                    <div className="flex items-center justify-between text-xs">
+-                      <div>
+-                        <div className="font-bold text-slate-100 flex items-center gap-2">
+-                          <span
+-                            className="w-2 h-2 rounded-full"
+-                            style={{ backgroundColor: track.hexColor || '#F59E0B' }}
+-                          />
+-                          <span>{track.name}</span>
+-                          <span className="text-slate-500">·</span>
+-                          <span className="text-sky-300">&lt;{device.xmlTag}&gt;</span>
+-                        </div>
+-                        <p className="text-[10.5px] text-slate-400 mt-0.5">
+-                          ID {device.id} · {device.displayName}
+-                        </p>
+-                      </div>
+-
+-                      <div className="flex items-center gap-2 text-[10px]">
+-                        {isSubstituted ? (
+-                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+-                            Substituted ({device.substitutedActiveType})
+-                          </span>
+-                        ) : isBypassed ? (
+-                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+-                            Bypassed (Original XML Safe)
+-                          </span>
+-                        ) : (
+-                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">
+-                            Un-bypassed
+-                          </span>
+-                        )}
+-                      </div>
+-                    </div>
+-
+-                    {/* Action Row */}
+-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#1C2330] text-[11px]">
+-                      <button
+-                        type="button"
+-                        onClick={() => handleToggleBypass(track.id, device.id)}
+-                        className={`px-2.5 py-1 rounded border font-semibold transition-colors ${
+-                          isBypassed
+-                            ? 'bg-amber-500/25 text-amber-300 border-amber-500/50 hover:bg-amber-500/35'
+-                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+-                        }`}
+-                      >
+-                        {isBypassed ? 'Keep Bypassed' : 'Bypass Plugin'}
+-                      </button>
+-
+-                      <div className="h-4 w-px bg-slate-800 my-auto" />
+-
+-                      <span className="text-slate-400 text-[10px]">Substitute Active DSP:</span>
+-
+-                      {device.category === 'instrument' || device.xmlTag === 'AuPluginDevice' || device.xmlTag === 'PluginDevice' ? (
+-                        <>
+-                          <button
+-                            type="button"
+-                            onClick={() => handleSubstitute(track.id, device.id, 'Operator')}
+-                            className="px-2.5 py-1 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 font-semibold"
+-                          >
+-                            + Operator Synth
+-                          </button>
+-                          <button
+-                            type="button"
+-                            onClick={() => handleSubstitute(track.id, device.id, 'Analog')}
+-                            className="px-2.5 py-1 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 font-semibold"
+-                          >
+-                            + Analog 303
+-                          </button>
+-                          <button
+-                            type="button"
+-                            onClick={() => handleSubstitute(track.id, device.id, 'Simpler')}
+-                            className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold"
+-                          >
+-                            + Simpler Sampler
+-                          </button>
+-                        </>
+-                      ) : (
+-                        <>
+-                          <button
+-                            type="button"
+-                            onClick={() => handleSubstitute(track.id, device.id, 'EQEight')}
+-                            className="px-2.5 py-1 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 font-semibold"
+-                          >
+-                            + EQ Eight
+-                          </button>
+-                          <button
+-                            type="button"
+-                            onClick={() => handleSubstitute(track.id, device.id, 'Reverb')}
+-                            className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold"
+-                          >
+-                            + Hybrid Reverb
+-                          </button>
+-                          <button
+-                            type="button"
+-                            onClick={() => handleSubstitute(track.id, device.id, 'Compressor2')}
+-                            className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-semibold"
+-                          >
+-                            + Compressor
+-                          </button>
+-                        </>
+-                      )}
+-                    </div>
+-                  </div>
+-                );
+-              })}
+-            </div>
+-          )}
+-        </div>
+-
+-        {/* Footer */}
+-        <div className="px-5 py-3 bg-[#141A24] border-t border-[#232B3A] flex items-center justify-between text-xs shrink-0">
+-          <span className="text-slate-400 text-[11px]">
+-            Original XML preserved for round-trip .als export
+-          </span>
+-          <button
+-            type="button"
+-            onClick={onClose}
+-            className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-colors"
+-          >
+-            Done
+-          </button>
+-        </div>
+-      </div>
++        </div>;
++      })}
+     </div>
+-  );
++  </div>;
+ };
+diff --git a/src/engine/abletonCapabilityMatrix.ts b/src/engine/abletonCapabilityMatrix.ts
+index c0e26d7..6495030 100644
+--- a/src/engine/abletonCapabilityMatrix.ts
++++ b/src/engine/abletonCapabilityMatrix.ts
+@@ -1168,16 +1168,43 @@ export function buildDeviceConversionRecord(device: AbletonDevice, legacyV1 = fa
+ /** V1 -> V2 unit semantics: converts valid legacy v1 conversion records to v2 conversion schema. */
+ export function migrateCompatibleUnitConversion(device: AbletonDevice): { device: AbletonDevice; migrated: boolean } {
+   const rec = device.conversionRecord;
+-  if (!rec || rec.conversionVersion >= CURRENT_DEVICE_CONVERSION_VERSION || rec.status !== 'valid' || !CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
++  if (!rec || rec.conversionVersion !== 1 || rec.status !== 'valid' || !CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
++    return { device, migrated: false };
++  }
++  // The only supported historical structure is the reproducible v1 contract.
++  // A status flag is not integrity evidence. Validate identity, hash, descriptors,
++  // semantics, limitations, units and automation provenance before upgrading.
++  const canonical = (value: unknown): string => JSON.stringify(value && typeof value === 'object' && !Array.isArray(value)
++    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
++  const expected = buildDeviceConversionRecord(device, true);
++  const matches = Object.keys(expected).every(key => canonical(rec[key as keyof DeviceConversionRecord]) === canonical(expected[key as keyof DeviceConversionRecord]))
++    && Object.keys(rec).length === Object.keys(expected).length;
++  const units = new Set(['', 'ms', 's', 'Hz', 'kHz', '%', 'dB', 'st', 'ct', 'beats']);
++  if (!matches || device.parameters.some(p => (p.unit !== undefined && !units.has(p.unit)) || p.automationTarget === true)) {
+     return { device, migrated: false };
+   }
+   const upgradedRecord = buildDeviceConversionRecord(device);
+   return { device: { ...device, conversionRecord: upgradedRecord }, migrated: true };
+ }
+-export function migrateCompatibleProjectUnitConversions(project:AbletonProjectState):{project:AbletonProjectState;migrated:boolean} {
+-  let migrated=false;
+-  const tracks=project.tracks.map(track=>({...track,devices:track.devices.map(device=>{const result=migrateCompatibleUnitConversion(device);migrated ||= result.migrated;return result.device;})}));
+-  return {project:migrated?{...project,tracks,conversionSchemaVersion:CURRENT_DEVICE_CONVERSION_VERSION}:project,migrated};
++function historicalAutomationIsUnresolved(project: AbletonProjectState, track: AbletonTrack, device: AbletonDevice): boolean {
++  const xml = project.rawXmlModified || project.rawXml || '';
++  if (!device.conversionRecord || device.conversionRecord.conversionVersion !== 1 || !xml.includes('AutomationEnvelope')) return false;
++  if (typeof DOMParser === 'undefined') return true;
++  const doc = new DOMParser().parseFromString(xml, 'application/xml');
++  if (doc.querySelector('parsererror')) return true;
++  const sourceTrack = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === track.id);
++  const source = sourceTrack && Array.from(sourceTrack.querySelectorAll(device.xmlTag)).find(el => el.getAttribute('Id') === device.id);
++  if (!source) return false; // Native browser-only device; no source automation target exists.
++  const targets = new Set(Array.from(source.querySelectorAll('AutomationTarget, ModulationTarget')).map(el => el.getAttribute('Id')).filter(Boolean));
++  return Array.from(doc.querySelectorAll('AutomationEnvelope EnvelopeTarget PointeeId')).some(el => targets.has(el.getAttribute('Value')));
++}
++export function migrateCompatibleProjectUnitConversions(project: AbletonProjectState): {project: AbletonProjectState; migrated: boolean} {
++  let migrated = false;
++  const tracks = project.tracks.map(track => ({...track, devices: track.devices.map(device => {
++    if (historicalAutomationIsUnresolved(project, track, device)) return device;
++    const result = migrateCompatibleUnitConversion(device); migrated ||= result.migrated; return result.device;
++  })}));
++  return {project: migrated ? {...project, tracks, conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION} : project, migrated};
+ }
+ 
+ export function verifyDeviceConversionRecord(device: AbletonDevice): {
+diff --git a/src/engine/alsXmlEngine.ts b/src/engine/alsXmlEngine.ts
+index 85b74ae..0e4f2af 100644
+--- a/src/engine/alsXmlEngine.ts
++++ b/src/engine/alsXmlEngine.ts
+@@ -2085,7 +2085,9 @@ export function parseAbletonXmlDom(
+         tag === 'AuPluginDevice' ||
+         tag === 'PluginDevice' ||
+         tag === 'MxDeviceAudioEffect';
+-      const bypassed = isOnManual === 'false' || isUnsupportedPlugin;
++      const bypassed = isOnManual === 'false';
++      const instrumentEvidence = devEl.querySelector('PluginDesc IsInstrument, PluginDesc IsSynth')?.getAttribute('Value');
++      const pluginRole = tag === 'MxDeviceAudioEffect' || instrumentEvidence === 'false' ? 'audio_effect' as const : instrumentEvidence === 'true' ? 'instrument' as const : undefined;
+       const isAutoDuckInjected =
+         devEl.getAttribute('Data-Parametric-AutoDuck') === 'true' ||
+         devId === '8801' ||
+@@ -2102,9 +2104,7 @@ export function parseAbletonXmlDom(
+           tag === 'OriginalSimpler' ||
+           tag === 'DrumGroupDevice' ||
+           tag === 'UltraAnalog' ||
+-          tag === 'Drift' ||
+-          tag === 'AuPluginDevice' ||
+-          tag === 'PluginDevice'
++          tag === 'Drift'
+             ? 'instrument'
+             : tag === 'MidiChord' || tag === 'MidiArpeggiator'
+             ? 'midi_effect'
+@@ -2117,6 +2117,7 @@ export function parseAbletonXmlDom(
+         browserDspSupported: !isUnsupportedPlugin && BROWSER_SUPPORTED_DEVICE_TAGS.has(tag),
+         opaqueSubtreeXml: devEl.outerHTML,
+         isUnsupportedPlugin,
++        ...(isUnsupportedPlugin ? {pluginRole, pluginOriginalEnabled: isOnManual !== 'false'} : {}),
+       });
+     });
+ 
+@@ -3242,7 +3243,7 @@ export function syncLocatorsAndMixerToXml(
+   }
+ 
+   tracks.forEach((t) => {
+-    const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack')).find(
++    const trackEl = Array.from(xmlDoc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack')).find(
+       (el) => readAlsIdentity(el) === t.id
+     );
+     if (!trackEl) return;
+@@ -3264,7 +3265,7 @@ export function syncLocatorsAndMixerToXml(
+ export function parseNativeDeviceEdit(xml: string, fileName: string, baseline: string): AbletonProjectState {
+   const doc = new DOMParser().parseFromString(xml, 'application/xml');
+   const projected = new Map<string, AbletonDevice[]>();
+-  for (const track of Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'))) {
++  for (const track of Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack'))) {
+     const node = track.querySelector(':scope > ParametricTrackState');
+     if (!node) continue;
+     const state = JSON.parse(node.textContent || '{}');
+@@ -3293,8 +3294,8 @@ export function synchronizeProjectStateToXml(
+   }
+   const tracksNode = doc.querySelector('LiveSet > Tracks');
+   if (!tracksNode) throw new Error('PROJECT_XML: missing Tracks');
+-  // Reconcile only the track kinds represented by the editable domain. Groups,
+-  // returns and future track types remain opaque, in their existing positions.
++  // Imported groups participate in the editable projection. Groups absent from
++  // older snapshots, returns and future track kinds remain opaque.
+   const desiredIds = new Set(project.tracks.map(track => track.id));
+   for (const node of Array.from(tracksNode.children)) {
+     if (['MidiTrack', 'AudioTrack'].includes(node.tagName) && !desiredIds.has(readAlsIdentity(node))) node.remove();
+@@ -3317,7 +3318,8 @@ export function synchronizeProjectStateToXml(
+     tracksNode.appendChild(node);
+     injectMultipleMidiClipsXmlNodes(doc, node, track.clips);
+   }
+-  const represented = Array.from(tracksNode.children).filter(node => ['MidiTrack', 'AudioTrack'].includes(node.tagName));
++  const represented = Array.from(tracksNode.children).filter(node =>
++    ['MidiTrack', 'AudioTrack'].includes(node.tagName) || (node.tagName === 'GroupTrack' && desiredIds.has(readAlsIdentity(node))));
+   const byId = new Map<string, Element>();
+   for (const node of represented) {
+     const id = readAlsIdentity(node);
+@@ -3328,7 +3330,8 @@ export function synchronizeProjectStateToXml(
+     const slot = doc.createComment('track'); tracksNode.replaceChild(slot, node); return slot;
+   });
+   project.tracks.forEach((track, index) => {
+-    const node = byId.get(track.id)!;
++    const node = byId.get(track.id);
++    if (!node) throw new Error(`PROJECT_XML: missing native track ${track.id}`);
+     let name = node.querySelector(':scope > Name');
+     if (!name) { name = doc.createElement('Name'); node.appendChild(name); }
+     // Avoid rewriting an untouched native name representation on unrelated edits.
+@@ -4515,7 +4518,7 @@ export function validateAlsStructuralIntegrity(
+   if (!liveSet) {
+     errors.push('Missing <Ableton><LiveSet> root hierarchy');
+   }
+-  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack'));
++  const trackEls = Array.from(doc.querySelectorAll('Tracks > MidiTrack, Tracks > AudioTrack, Tracks > GroupTrack'));
+   if (typeof expectedTrackCount === 'number' && trackEls.length < expectedTrackCount) {
+     errors.push(`Expected at least ${expectedTrackCount} tracks, found ${trackEls.length}`);
+   }
+diff --git a/src/engine/pluginDependencies.ts b/src/engine/pluginDependencies.ts
+new file mode 100644
+index 0000000..df4d3bf
+--- /dev/null
++++ b/src/engine/pluginDependencies.ts
+@@ -0,0 +1,58 @@
++import type { AbletonDevice, AbletonProjectState } from '../types/ableton';
++import { ABLETON_DEVICE_REGISTRY, buildDeviceConversionRecord, classifyAbletonDeviceTag } from './abletonCapabilityMatrix';
++
++export type PluginRole = 'instrument' | 'audio_effect';
++export type ReplacementType = 'Operator' | 'Analog' | 'Wavetable' | 'Simpler' | 'EQEight' | 'Reverb' | 'Compressor2';
++const tags: Record<ReplacementType, string> = {Operator:'Operator',Analog:'UltraAnalog',Wavetable:'InstrumentVector',Simpler:'OriginalSimpler',EQEight:'EQEight',Reverb:'Reverb',Compressor2:'Compressor2'};
++export const isPluginDependency = (d: AbletonDevice) => !!d.originalPlugin || d.isUnsupportedPlugin === true || ['AuPluginDevice','PluginDevice','MxDeviceAudioEffect'].includes(d.xmlTag);
++export function pluginRole(d: AbletonDevice): PluginRole | undefined {
++  const source = d.originalPlugin || d;
++  return source.pluginRole || (source.xmlTag === 'MxDeviceAudioEffect' ? 'audio_effect' : undefined);
++}
++export function replacePlugin(source: AbletonDevice, requested: ReplacementType, chosenRole?: PluginRole): AbletonDevice {
++  if (!isPluginDependency(source)) throw new Error('DEPENDENCY_TARGET: device is not an imported plugin');
++  const original = structuredClone(source.originalPlugin || source);
++  const evidenceRole = pluginRole(original);
++  if (evidenceRole && chosenRole && evidenceRole !== chosenRole) throw new Error('DEPENDENCY_ROLE: conflicts with imported evidence');
++  const role = evidenceRole || chosenRole;
++  if (!role) throw new Error('DEPENDENCY_ROLE_REQUIRED: select instrument or audio effect');
++  const tag = tags[requested], contract = ABLETON_DEVICE_REGISTRY[tag];
++  if (!contract || !['executable','converted'].includes(classifyAbletonDeviceTag(tag))) throw new Error('DEPENDENCY_EXECUTABLE: replacement is not registered');
++  if (contract.kind !== role) throw new Error('DEPENDENCY_ROLE: incompatible replacement');
++  // The browser does not resolve imported sample assets for this replacement path.
++  if (requested === 'Simpler') throw new Error('DEPENDENCY_SAMPLE_REQUIRED: resolve and validate sample assets before selecting a sampler');
++  const device: AbletonDevice = { id: original.id, xmlTag: tag, displayName: `${contract.displayName} (replacement)`, category: role,
++    bypassed: false, browserDspSupported: true, parameters: contract.parameterSpecs.map(p => ({name:p.name,value:p.defaultValue,unit:p.unit})),
++    originalPlugin: original, pluginRole: role, substitutedActiveType: tag,
++    pluginResolution: { action: 'replace', role, alsExport: 'original-plugin' },
++  };
++  if (classifyAbletonDeviceTag(tag) === 'converted') device.conversionRecord = buildDeviceConversionRecord(device);
++  return device;
++}
++export function assertPluginExecutable(d: AbletonDevice): void {
++  if (d.originalPlugin) {
++    const contract = ABLETON_DEVICE_REGISTRY[d.xmlTag];
++    if (!d.pluginResolution || d.pluginResolution.alsExport !== 'original-plugin') throw new Error('DEPENDENCY_RESOLUTION: missing explicit action');
++    if (d.pluginResolution.action === 'replace' && (!contract || contract.kind !== d.pluginResolution.role || !['executable','converted'].includes(classifyAbletonDeviceTag(d.xmlTag)))) throw new Error('DEPENDENCY_EXECUTABLE: invalid replacement');
++    if (d.pluginResolution.action === 'bypass' && !d.bypassed) throw new Error('DEPENDENCY_RESOLUTION: explicit bypass must be disabled');
++  } else if (isPluginDependency(d) && !(d.bypassed && d.pluginOriginalEnabled === false)) {
++    throw new Error('DEPENDENCY_UNRESOLVED: explicitly replace or bypass the imported plugin');
++  }
++}
++export function restoreOriginalPlugin(project: AbletonProjectState, trackId: string, deviceId: string): AbletonProjectState {
++  return editDependency(project, trackId, deviceId, d => {
++    const original = structuredClone(d.originalPlugin || d);
++    return original.pluginOriginalEnabled === undefined ? original : {...original,bypassed:!original.pluginOriginalEnabled};
++  });
++}
++export function bypassUnsupportedPlugin(project: AbletonProjectState, trackId: string, deviceId: string): AbletonProjectState {
++  return editDependency(project, trackId, deviceId, d => {
++    const original = structuredClone(d.originalPlugin || d);
++    return {...original, originalPlugin: original, bypassed:true, pluginResolution:{action:'bypass',alsExport:'original-plugin'}};
++  });
++}
++export function editDependency(project: AbletonProjectState, trackId: string, deviceId: string, edit: (d:AbletonDevice)=>AbletonDevice): AbletonProjectState {
++  const track = project.tracks.find(t=>t.id===trackId);
++  if (!track || track.locked || !track.devices.some(d=>d.id===deviceId)) throw new Error('DEPENDENCY_TARGET: missing or locked track/device');
++  return {...project, projectRevision:(project.projectRevision || 1)+1, tracks:project.tracks.map(t=>t.id===trackId?{...t,devices:t.devices.map(d=>d.id===deviceId?edit(d):d)}:t)};
++}
+diff --git a/src/engine/projectStateContracts.ts b/src/engine/projectStateContracts.ts
+index 65e737a..e76f25a 100644
+--- a/src/engine/projectStateContracts.ts
++++ b/src/engine/projectStateContracts.ts
+@@ -13,86 +13,94 @@ import {
+ } from './timelineCoordinates';
+ import type { AbletonProjectState } from '../types/ableton';
+ 
+-/**
+- * Deterministically repairs missing or duplicate note identities across all tracks and clips,
+- * guaranteeing stable, unique IDs without altering pitch, timing, velocity, duration,
+- * probability, or clip ownership.
++/** Repairs only missing identities; duplicate identities in one source clip are ambiguous.
++ * sourceNoteId/sourceNoteClipId refer to native XML templates, not edited event IDs,
++ * and must remain unchanged. IDs in different clips have distinct source scopes.
+  */
+ export function repairProjectNoteIdentities(project: AbletonProjectState): {
+-  project: AbletonProjectState;
+-  repairedNoteCount: number;
++  project: AbletonProjectState; repairedNoteCount: number;
+ } {
+-  if (!project || !Array.isArray(project.tracks)) {
+-    return { project, repairedNoteCount: 0 };
+-  }
+-
+   let repairedNoteCount = 0;
+-  const projectNoteIds = new Set<string>();
+-
+-  const updatedTracks = project.tracks.map((track) => {
+-    const updatedClips = (track.clips || []).map((clip) => {
+-      const clipNoteIds = new Set<string>();
+-      const updatedNotes = (clip.notes || []).map((note, idx) => {
+-        const needsRepair =
+-          !note.id ||
+-          typeof note.id !== 'string' ||
+-          clipNoteIds.has(note.id) ||
+-          projectNoteIds.has(note.id);
+-
+-        let finalId = note.id;
+-        if (needsRepair) {
+-          repairedNoteCount++;
+-          finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
+-          let suffix = 1;
+-          while (projectNoteIds.has(finalId) || clipNoteIds.has(finalId)) {
+-            finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}_${suffix++}`;
+-          }
++  const reserved = new Set<string>();
++  for (const track of project.tracks) for (const clips of [track.clips, track.sessionClips || []]) {
++    for (const clip of clips) for (const note of clip.notes) if (typeof note.id === 'string' && note.id) reserved.add(note.id);
++  }
++  const tracks = project.tracks.map(track => {
++    const repair = (clips: typeof track.clips, scope: string) => clips.map(clip => {
++      const seen = new Set<string>();
++      const notes = clip.notes.map((note, index) => {
++        if (typeof note.id === 'string' && note.id) {
++          if (seen.has(note.id)) throw new Error(`IDENTITY_AMBIGUOUS: ${track.id}/${scope}/${clip.id}/${note.id}`);
++          seen.add(note.id); return note;
+         }
+-
+-        clipNoteIds.add(finalId);
+-        projectNoteIds.add(finalId);
+-
+-        return needsRepair ? { ...note, id: finalId } : note;
++        if (note.id !== undefined && note.id !== null && note.id !== '') throw new Error('IDENTITY_TYPE: invalid note identity');
++        const base = `${clip.id}_n${index}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
++        let id = base, suffix = 1;
++        while (reserved.has(id)) id = `${base}_${suffix++}`;
++        reserved.add(id); seen.add(id); repairedNoteCount++;
++        return { ...note, id };
+       });
+-
+-      return { ...clip, notes: updatedNotes };
++      return { ...clip, notes };
+     });
+-
+-    const updatedSessionClips = (track.sessionClips || []).map((clip) => {
+-      const clipNoteIds = new Set<string>();
+-      const updatedNotes = (clip.notes || []).map((note, idx) => {
+-        const needsRepair =
+-          !note.id ||
+-          typeof note.id !== 'string' ||
+-          clipNoteIds.has(note.id) ||
+-          projectNoteIds.has(note.id);
+-
+-        let finalId = note.id;
+-        if (needsRepair) {
+-          repairedNoteCount++;
+-          finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
+-          let suffix = 1;
+-          while (projectNoteIds.has(finalId) || clipNoteIds.has(finalId)) {
+-            finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}_${suffix++}`;
+-          }
+-        }
+-
+-        clipNoteIds.add(finalId);
+-        projectNoteIds.add(finalId);
+-
+-        return needsRepair ? { ...note, id: finalId } : note;
+-      });
+-
+-      return { ...clip, notes: updatedNotes };
+-    });
+-
+-    return { ...track, clips: updatedClips, sessionClips: updatedSessionClips };
++    return { ...track, clips: repair(track.clips, 'arrangement'),
++      ...(track.sessionClips ? {sessionClips: repair(track.sessionClips, 'session')} : {}) };
+   });
++  return { project: repairedNoteCount ? { ...project, tracks } : project, repairedNoteCount };
++}
+ 
+-  return {
+-    project: { ...project, tracks: updatedTracks },
+-    repairedNoteCount,
+-  };
++/** Recovery-only preflight. Strict validation runs against temporary unique IDs,
++ * so malformed musical fields are rejected before any repair is considered.
++ * This does not weaken the public structural or identity validators.
++ */
++export function migrateLegacyRecoveryNoteIdentities(project: AbletonProjectState, sourceXml: string, legacyEnvelope = false): {
++  project: AbletonProjectState; repairedNoteCount: number;
++} {
++  if (!project || !Array.isArray(project.tracks)) throw new Error('IDENTITY_SHAPE: missing tracks');
++  const safe = structuredClone(project);
++  for (const track of safe.tracks) {
++    if (!track || !Array.isArray(track.clips) || (track.sessionClips !== undefined && !Array.isArray(track.sessionClips))) throw new Error('IDENTITY_SHAPE: invalid clips');
++    for (const clips of [track.clips, track.sessionClips || []]) for (const clip of clips) {
++      if (!clip || !Array.isArray(clip.notes)) throw new Error('IDENTITY_SHAPE: invalid notes');
++      clip.notes = clip.notes.map((note, i) => {
++        if (!note || typeof note !== 'object') throw new Error('IDENTITY_SHAPE: invalid note');
++        return { ...note, id: `preflight_${i}` };
++      });
++    }
++  }
++  assertStructuralProjectState(safe);
++  // Identity repair cannot be applied to arbitrary current records or source-less data.
++  const result = repairProjectNoteIdentities(project);
++  if (result.repairedNoteCount && (!legacyEnvelope || !sourceXml || !sourceXml.includes('<Ableton') || project.identityMigration)) {
++    throw new Error('IDENTITY_PROVENANCE: original Ableton source required; repeated identity damage rejected');
++  }
++  if (result.repairedNoteCount) {
++    const doc = new DOMParser().parseFromString(sourceXml, 'application/xml');
++    if (doc.querySelector('parsererror')) throw new Error('IDENTITY_PROVENANCE: malformed source XML');
++    const identity = (el: Element, attr = 'Id') => el.getAttribute('Data-AIDAW-LogicalId') || el.getAttribute(attr === 'NoteId' ? 'Data-Parametric-NoteId' : 'Data-Parametric-ClipId') || el.getAttribute(attr);
++    result.project.tracks = result.project.tracks.map((track, ti) => ({ ...track,
++      clips: track.clips.map((clip, ci) => ({ ...clip, notes: clip.notes.map((note, ni) => {
++        if (project.tracks[ti].clips[ci].notes[ni].id) return note;
++        const sourceTrack = Array.from(doc.querySelectorAll('Tracks > MidiTrack')).find(el => (el.getAttribute('Data-Parametric-TrackId') || el.getAttribute('Id')) === track.id);
++        const sourceClip = sourceTrack && Array.from(sourceTrack.querySelectorAll('MidiClip')).filter(el => identity(el) === (note.sourceNoteClipId || clip.sourceClipId || clip.id));
++        if (!sourceClip || sourceClip.length !== 1) throw new Error('IDENTITY_PROVENANCE: source clip scope is ambiguous');
++        const matches = Array.from(sourceClip[0].querySelectorAll('MidiNoteEvent')).filter(el => note.sourceNoteId
++          ? identity(el, 'NoteId') === note.sourceNoteId
++          : Number(el.getAttribute('Time')) === note.time && Number(el.getAttribute('Duration')) === note.duration
++            && Number(el.getAttribute('Velocity')) === note.velocity
++            && Number(el.parentElement?.parentElement?.querySelector('Key')?.getAttribute('Value')) === note.pitch);
++        if (matches.length !== 1 || !identity(matches[0], 'NoteId')) throw new Error('IDENTITY_PROVENANCE: source note scope is ambiguous; manual edits retained');
++        return { ...note, sourceNoteId: identity(matches[0], 'NoteId')!, sourceNoteClipId: identity(sourceClip[0])! };
++      }) })),
++    }));
++    for (let ti = 0; ti < project.tracks.length; ti++) {
++      for (const clip of project.tracks[ti].sessionClips || []) if (clip.notes.some(n => !n.id)) {
++        throw new Error('IDENTITY_PROVENANCE: legacy Session identity migration is not supported');
++      }
++    }
++    result.project.identityMigration = { version: 1, repairedNoteCount: result.repairedNoteCount, source: 'preserved-envelope-xml' };
++  }
++  assertStructuralProjectState(result.project);
++  return result;
+ }
+ 
+ /**
+diff --git a/src/engine/webAudioSynth.ts b/src/engine/webAudioSynth.ts
+index 2a42633..e5ef42a 100644
+--- a/src/engine/webAudioSynth.ts
++++ b/src/engine/webAudioSynth.ts
+@@ -1,3 +1,4 @@
++import { assertPluginExecutable } from './pluginDependencies';
+ import { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
+ import { estimateArrangementTailSeconds, estimateContinuousExportMemory } from './wavExportPolicy';
+ export { encodeAudioBufferToWavChunks, encodeAudioBufferToWavBlob } from './wavEncoding';
+@@ -467,6 +468,7 @@ export function buildDeviceInsertProcessor(
+   ctx: BaseAudioContext,
+   device: AbletonDevice
+ ): InsertProcessorInstance {
++  assertPluginExecutable(device);
+   const rawTag = device.xmlTag || device.type || '';
+   const parameterHash = computeDeviceParameterHash({
+     xmlTag: rawTag,
+@@ -1686,6 +1688,7 @@ export interface ResolvedTrackInstrumentSpec {
+ }
+ 
+ export function resolveTrackInstrumentSynthesis(track: AbletonTrack): ResolvedTrackInstrumentSpec {
++  track.devices.forEach(assertPluginExecutable);
+   const defaultRole: ResolvedTrackInstrumentSpec['synthesisRole'] =
+     track.archetype === 'existing' ? 'synth' : track.archetype;
+ 
+diff --git a/src/services/commandBus.ts b/src/services/commandBus.ts
+index 61dc819..2717240 100644
+--- a/src/services/commandBus.ts
++++ b/src/services/commandBus.ts
+@@ -1,5 +1,8 @@
++import { validateTrackDeviceChainOrderingAndCounts } from '../engine/abletonCapabilityMatrix';
++import { editDependency, replacePlugin, type ReplacementType, type PluginRole } from '../engine/pluginDependencies';
+ import {
+   AbletonProjectState,
++  AbletonDevice,
+   AbletonTrack,
+   AudioActiveRegion,
+   AudioStripSilenceConfig,
+@@ -914,62 +917,11 @@ export const STUDIO_COMMAND_DEFINITIONS: StudioCommandDefinition[] = [
+ ];
+ 
+ export function substituteUnsupportedDevice(
+-  project: AbletonProjectState,
+-  trackId: string,
+-  deviceId: string,
+-  replacementType: 'Operator' | 'Analog' | 'Wavetable' | 'Simpler' | 'EQEight' | 'Reverb' | 'Compressor2'
++  project: AbletonProjectState, trackId: string, deviceId: string,
++  replacementType: ReplacementType, role?: PluginRole
+ ): AbletonProjectState {
+-  const track = project.tracks.find((t) => t.id === trackId);
+-  if (!track) throw new Error(`SUBSTITUTE_DEVICE: track ${trackId} not found`);
+-
+-  const devIndex = track.devices.findIndex((d) => d.id === deviceId);
+-  if (devIndex < 0) throw new Error(`SUBSTITUTE_DEVICE: device ${deviceId} not found on track ${trackId}`);
+-
+-  const targetDev = track.devices[devIndex];
+-  const opaqueXml =
+-    targetDev.opaqueSubtreeXml ||
+-    targetDev.originalAuPluginXml ||
+-    `<${targetDev.xmlTag} Id="${targetDev.id}"/>`;
+-
+-  const displayMap: Record<string, string> = {
+-    Operator: 'Operator (Substituted)',
+-    Analog: 'Analog 303 (Substituted)',
+-    Wavetable: 'Wavetable Synth (Substituted)',
+-    Simpler: 'Simpler Sampler (Substituted)',
+-    EQEight: 'EQ Eight (Substituted)',
+-    Reverb: 'Hybrid Reverb (Substituted)',
+-    Compressor2: 'Compressor (Substituted)',
+-  };
+-
+-  const isInstrument = ['Operator', 'Analog', 'Wavetable', 'Simpler'].includes(replacementType);
+-
+-  const substitutedDevice: AbletonDevice = {
+-    ...targetDev,
+-    xmlTag: targetDev.xmlTag, // Preserve original XML tag name for export!
+-    displayName: `${displayMap[replacementType] || replacementType} [Orig: ${targetDev.displayName || targetDev.xmlTag}]`,
+-    category: isInstrument ? 'instrument' : 'audio_effect',
+-    bypassed: false, // Un-bypass so browser DSP plays audio using substituted synth/effect
+-    browserDspSupported: true,
+-    opaqueSubtreeXml: opaqueXml,
+-    substitutedActiveType: replacementType,
+-    parameters: [
+-      { name: 'SubstitutedActiveType', value: replacementType },
+-      { name: 'OriginalPluginTag', value: targetDev.xmlTag },
+-      { name: 'Drive', value: 0.5 },
+-      { name: 'DryWet', value: 1.0 },
+-    ],
+-  };
+-
+-  const updatedDevices = [...track.devices];
+-  updatedDevices[devIndex] = substitutedDevice;
+-
+-  const updatedTracks = project.tracks.map((t) =>
+-    t.id === trackId ? { ...t, devices: updatedDevices } : t
+-  );
+-
+-  return {
+-    ...project,
+-    tracks: updatedTracks,
+-    projectRevision: (project.projectRevision || 1) + 1,
+-  };
++  const candidate = editDependency(project, trackId, deviceId, d => replacePlugin(d, replacementType, role));
++  const violations = validateTrackDeviceChainOrderingAndCounts(candidate.tracks.find(t => t.id === trackId)!);
++  if (violations.length) throw new Error(`DEPENDENCY_COMPATIBILITY: ${violations[0].reason}`);
++  return candidate;
+ }
+diff --git a/src/services/projectQueueService.ts b/src/services/projectQueueService.ts
+index 6b14e7c..5dc57ae 100644
+--- a/src/services/projectQueueService.ts
++++ b/src/services/projectQueueService.ts
+@@ -1,4 +1,4 @@
+-import { assertProjectState, assertStructuralProjectState, repairProjectNoteIdentities } from '../engine/projectStateContracts';
++import { assertProjectState, assertStructuralProjectState, migrateLegacyRecoveryNoteIdentities } from '../engine/projectStateContracts';
+ import {
+   AbletonProjectState,
+   BatchWavExportItemResult,
+@@ -196,6 +196,7 @@ export class ProjectQueueService {
+               store.put({
+                 queueId: snapshot.queueId,
+                 recoveryVersion,
++                identitySchemaVersion: 1,
+                 conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
+                 record: snapshot,
+                 checksum,
+@@ -224,7 +225,8 @@ export class ProjectQueueService {
+     queueId: string,
+     preservedPreviousEnvelope: Record<string, unknown>,
+     migratedRecord: QueuedProjectRecord,
+-    active: boolean
++    active: boolean,
++    expectedPrimaryEnvelope: unknown = preservedPreviousEnvelope
+   ): Promise<void> {
+     if (typeof indexedDB === 'undefined') {
+       throw new Error('RECOVERY_UNAVAILABLE: IndexedDB is unavailable');
+@@ -237,6 +239,8 @@ export class ProjectQueueService {
+       snapshot.workingProjectState.audioSettings?.transport.arrangementMode === 'session'
+         ? 2
+         : 1;
++    const preservedEnvelopeHash = await computeSha256Hex(JSON.stringify(preservedPreviousEnvelope));
++    const primaryEnvelopeHash = expectedPrimaryEnvelope ? await computeSha256Hex(JSON.stringify(expectedPrimaryEnvelope)) : undefined;
+     const shouldSimulateAbort = this.failNextMigrationWrite;
+     this.failNextMigrationWrite = false;
+ 
+@@ -249,47 +253,47 @@ export class ProjectQueueService {
+         tx.onabort = () =>
+           reject(tx.error || new Error('RECOVERY_MIGRATION_ABORT: atomic migration write aborted'));
+         const store = tx.objectStore(IDB_STORE);
+-        try {
+-          store.put({
+-            ...preservedPreviousEnvelope,
+-            queueId: `backup:${queueId}`,
+-            originalQueueId: queueId,
+-          });
+-          store.put({
+-            queueId,
+-            recoveryVersion,
+-            conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
+-            record: snapshot,
+-            checksum,
+-            active,
+-          });
+-          if (shouldSimulateAbort) {
+-            tx.abort();
+-          }
+-        } catch {
+-          tx.abort();
+-        }
++        const prior = store.get(queueId);
++        prior.onsuccess = () => {
++          try {
++            // Compare inside the transaction: a concurrent save wins over stale recovery.
++            if (JSON.stringify(prior.result ?? null) !== JSON.stringify(expectedPrimaryEnvelope ?? null)) {
++              tx.abort(); return;
++            }
++            const archiveKey = `archive:${queueId}:${preservedEnvelopeHash}`;
++            store.put({ ...preservedPreviousEnvelope, queueId: archiveKey, originalQueueId: queueId, rawEnvelopeJson: JSON.stringify(preservedPreviousEnvelope) });
++            if (prior.result && primaryEnvelopeHash) store.put({...prior.result,queueId:`archive:${queueId}:${primaryEnvelopeHash}`,originalQueueId:queueId,rawEnvelopeJson:JSON.stringify(prior.result)});
++            store.put({ ...preservedPreviousEnvelope, queueId: `backup:${queueId}`, originalQueueId: queueId });
++            store.put({ queueId, recoveryVersion, identitySchemaVersion: 1, conversionSchemaVersion: CURRENT_DEVICE_CONVERSION_VERSION,
++              record: snapshot, checksum, active });
++            if (shouldSimulateAbort) tx.abort();
++          } catch { tx.abort(); }
++        };
++
+       });
+     } finally {
+       db.close();
+     }
+   }
+ 
+-  public getStorageStatus(): StorageStatus {
+-    const p = this.getPersistenceStatus();
++  public getStorageStatus(queueId?: string): StorageStatus {
++    if (queueId && this.blockedRecoveryRecords.has(queueId)) return 'blocked';
++    const p = this.getPersistenceStatus(queueId);
+     if (p.status === 'error') return 'error';
+     if (p.status === 'pending') return 'pending';
+     if (p.status === 'unavailable') return 'unavailable';
+     return 'saved';
+   }
+ 
+-  public getPersistenceStatus(): { status: string; error?: string } {
++  public getPersistenceStatus(queueId?: string): { status: string; error?: string } {
++    if (queueId) return {status: this.persistenceFailures.has(queueId) ? 'error' : this.pendingRecoveryWrites ? 'pending' : typeof indexedDB === 'undefined' ? 'unavailable' : 'saved', error: this.persistenceFailures.get(queueId)};
+     return { status: this.persistenceFailures.size ? 'error' : this.pendingRecoveryWrites ? 'pending' : this.persistenceStatus, error: this.persistenceFailures.values().next().value || this.persistenceError };
+   }
+ 
+-  public async flushPersistence(): Promise<void> {
++  public async flushPersistence(queueId?: string): Promise<void> {
+     await this.persistenceTail;
+-    if (this.getPersistenceStatus().status === 'error') throw new Error(this.getPersistenceStatus().error || 'RECOVERY_WRITE');
++    const failure = queueId ? this.persistenceFailures.get(queueId) : this.persistenceFailures.values().next().value;
++    if (failure) throw new Error(failure);
+     if (this.persistenceStatus === 'unavailable') throw new Error('RECOVERY_UNAVAILABLE: IndexedDB is unavailable');
+   }
+ 
+@@ -347,7 +351,7 @@ export class ProjectQueueService {
+     // 1. Read original envelope and preserve its bytes
+     const preservedOriginalEnvelope = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+     // 2. Verify supported envelope versions, identity, and original checksum
+-    if (row.recoveryVersion !== undefined && ![1, 2].includes(row.recoveryVersion)) {
++    if ((row.identitySchemaVersion !== undefined && row.identitySchemaVersion !== 1) || (row.recoveryVersion !== undefined && ![1, 2].includes(row.recoveryVersion))) {
+       throw new Error('RECOVERY_VERSION: unsupported journal; preserved without downgrade');
+     }
+     const rawRecord: QueuedProjectRecord =
+@@ -482,6 +486,20 @@ export class ProjectQueueService {
+     return null;
+   }
+ 
++  public async quarantineBlockedRecoveryRecord(queueId: string): Promise<void> {
++    const blocked = this.blockedRecoveryRecords.get(queueId);
++    if (!blocked) throw new Error('QUARANTINE_TARGET: blocked record not found');
++    const db = await this.openRecoveryDb();
++    try {
++      await new Promise<void>((resolve, reject) => {
++        const tx = db.transaction(IDB_STORE, 'readwrite');
++        tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error || new Error('QUARANTINE_WRITE'));
++        tx.onerror = () => {};
++        tx.objectStore(IDB_STORE).put({queueId:`quarantine:${queueId}`,originalQueueId:queueId,diagnosis:blocked.error,rawEnvelopeJson:blocked.rawEnvelopeJson});
++      });
++    } finally {db.close();}
++  }
++
+   private async restoreRecoveryRecords(): Promise<AbletonProjectState | null> {
+     if (typeof indexedDB === 'undefined') { this.persistenceStatus = 'unavailable'; return null; }
+     const db = await this.openRecoveryDb();
+@@ -497,10 +515,11 @@ export class ProjectQueueService {
+     this.recoveryBannerDismissed = false;
+     let anyMigrated = false;
+ 
+-    const ids = new Set(rows.map(row => row.originalQueueId || row.queueId).filter(id => typeof id === 'string' && !id.startsWith('backup:')));
++    const ids = new Set(rows.filter(row => !String(row.queueId).startsWith('archive:') && !String(row.queueId).startsWith('quarantine:')).map(row => row.originalQueueId || row.queueId).filter(id => typeof id === 'string' && !id.startsWith('backup:')));
+     const restored: { record: QueuedProjectRecord; active: boolean }[] = [];
+ 
+     for (const id of ids) {
++      if (this.items.has(id)) { restored.push({record: this.items.get(id)!, active: id === this.activeQueueId}); continue; }
+       const candidates = [rows.find(row => row.queueId === id), rows.find(row => row.queueId === `backup:${id}`)];
+       if (candidates[0]?.recoveryVersion !== undefined && ![1,2].includes(candidates[0].recoveryVersion)) {
+         const errMsg = 'RECOVERY_VERSION: unsupported journal; preserved without downgrade';
+@@ -536,7 +555,7 @@ export class ProjectQueueService {
+           const preservedEnvelope = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+ 
+           // 2. Verify supported envelope versions, identity, and original checksum
+-          if (row.recoveryVersion !== undefined && ![1, 2].includes(row.recoveryVersion)) {
++          if ((row.identitySchemaVersion !== undefined && row.identitySchemaVersion !== 1) || (row.recoveryVersion !== undefined && ![1, 2].includes(row.recoveryVersion))) {
+             throw new Error('RECOVERY_VERSION: unsupported journal');
+           }
+           const record: QueuedProjectRecord =
+@@ -556,7 +575,14 @@ export class ProjectQueueService {
+           }
+ 
+           // 3. Validate the structural project shape and source device parameters
+-          assertStructuralProjectState(record.workingProjectState);
++          if (row === candidates[0]) stopFallbackToBackup = true;
++          const noteMigration = migrateLegacyRecoveryNoteIdentities(record.workingProjectState,
++            record.sourceXmlSnapshot || record.workingProjectState?.rawXml || '',
++            row.identitySchemaVersion === undefined && row.recoveryVersion !== 2);
++          if (noteMigration.repairedNoteCount && noteMigration.project.identityMigration) {
++            noteMigration.project.identityMigration.sourceEnvelopeSha256 = await computeSha256Hex(JSON.stringify(preservedEnvelope));
++            noteMigration.project.identityMigration.sourceXmlSha256 = await computeSha256Hex(record.sourceXmlSnapshot || record.workingProjectState.rawXml || '');
++          }
+ 
+           // Once the primary envelope's version, identity, checksum, and structural shape are valid,
+           // any subsequent conversion/capability/migration rejection is a policy block on the intact
+@@ -565,12 +591,15 @@ export class ProjectQueueService {
+             stopFallbackToBackup = true;
+           }
+ 
+-          const unitMigration = migrateCompatibleProjectUnitConversions(record.workingProjectState);
++          const unitMigration = migrateCompatibleProjectUnitConversions(noteMigration.project);
+           // 4. Determine migration eligibility from explicit schema/build provenance or compatibility rule
+           const eligibility = determineLegacyConversionMigrationEligibility(
+             unitMigration.project,
+             { envelopeConversionSchemaVersion: row.conversionSchemaVersion }
+           );
++          if (['FUTURE_CONVERSION_VERSION', 'INVALIDATED_RECORD', 'STALE_PARAMETER_HASH', 'ALTERED_DESCRIPTOR', 'UNEXPECTED_CONVERSION_RECORD'].includes(eligibility.code)) {
++            throw new Error(`CONVERSION_REQUIRED: ${eligibility.code}: ${eligibility.reason}`);
++          }
+           lastCanRepair = eligibility.canRepairLegacyConversions && !eligibility.eligible;
+           lastEligibilityCode = eligibility.code;
+ 
+@@ -579,18 +608,13 @@ export class ProjectQueueService {
+           let candidateProject = cloneProjectState(unitMigration.project);
+ 
+           // 6. Migrate genuinely missing conversion metadata for known supported devices
+-          let wasMigrated = unitMigration.migrated;
++          let wasMigrated = unitMigration.migrated || noteMigration.repairedNoteCount > 0;
+           if (eligibility.eligible) {
+             const mig = migrateMissingLegacyProjectConversions(candidateProject);
+             candidateProject = mig.project;
+             wasMigrated ||= mig.migrated;
+           }
+ 
+-          // Deterministically repair legacy note identity defects before project state assertions
+-          const noteRepair = repairProjectNoteIdentities(candidateProject);
+-          candidateProject = noteRepair.project;
+-          wasMigrated ||= noteRepair.repairedNoteCount > 0;
+-
+           // 7. Run strict project, conversion, capability, and XML validation
+           assertProjectState(candidateProject);
+           const syncedXml = synchronizeProjectStateToXml(candidateProject);
+@@ -633,12 +657,9 @@ export class ProjectQueueService {
+             copy.errorDetails = 'Recovered previous valid revision after journal corruption.';
+           }
+ 
+-          // 8. Install the validated candidate
++          // Keep candidates isolated until the atomic archive + primary commit completes.
+           const hadExisting = this.items.has(id);
+           const previousItem = this.items.get(id);
+-          if (!hadExisting) {
+-            this.items.set(id, copy);
+-          }
+ 
+           // 9. Persist migration atomically while preserving the previous valid revision in backup:<queueId>
+           if (wasMigrated) {
+@@ -647,7 +668,8 @@ export class ProjectQueueService {
+                 id,
+                 preservedEnvelope,
+                 copy,
+-                !!row.active
++                !!row.active,
++                candidates[0] ?? null
+               );
+               anyMigrated = true;
+             } catch (writeErr) {
+@@ -666,7 +688,8 @@ export class ProjectQueueService {
+             }
+           }
+ 
+-          restored.push({ record: copy, active: !!row.active });
++          if (!this.items.has(id)) this.items.set(id, copy);
++          restored.push({ record: this.items.get(id)!, active: !!row.active });
+           recovered = true;
+           break;
+         } catch (error) {
+diff --git a/src/services/projectSnapshotService.ts b/src/services/projectSnapshotService.ts
+index 8b3b7e1..d2e3492 100644
+--- a/src/services/projectSnapshotService.ts
++++ b/src/services/projectSnapshotService.ts
+@@ -79,6 +79,9 @@ export function decodeProjectSnapshot(text: string): ProjectSnapshot {
+   const eligibility = determineLegacyConversionMigrationEligibility(input.project, {
+     envelopeConversionSchemaVersion: input.conversionSchemaVersion,
+   });
++  if (['FUTURE_CONVERSION_VERSION', 'INVALIDATED_RECORD', 'STALE_PARAMETER_HASH', 'ALTERED_DESCRIPTOR', 'UNEXPECTED_CONVERSION_RECORD'].includes(eligibility.code)) {
++    throw new Error(`CONVERSION_REQUIRED: ${eligibility.code}: ${eligibility.reason}`);
++  }
+   if (eligibility.eligible) {
+     const clonedCandidate = JSON.parse(JSON.stringify(input.project)) as AbletonProjectState;
+     input.project = migrateMissingLegacyProjectConversions(clonedCandidate).project;
+diff --git a/src/types/ableton.ts b/src/types/ableton.ts
+index 03d7645..1fe1711 100644
+--- a/src/types/ableton.ts
++++ b/src/types/ableton.ts
+@@ -203,6 +203,10 @@ export interface DeviceConversionRecord {
+ }
+ 
+ export interface AbletonDevice {
++  originalPlugin?: AbletonDevice;
++  pluginOriginalEnabled?: boolean;
++  pluginRole?: 'instrument' | 'audio_effect';
++  pluginResolution?: { action: 'replace' | 'bypass'; role?: 'instrument' | 'audio_effect'; alsExport: 'original-plugin' };
+   id: string;
+   xmlTag: string; // e.g., 'Operator', 'Reverb', 'AutoFilter', 'DrumBuss', 'Lfo', 'EQEight', 'Limiter'
+   type?: string; // Alias for xmlTag
+@@ -877,6 +881,7 @@ export interface MeterChangeEvent {
+ export type ProjectCreationMode = 'sketch' | 'full-track';
+ 
+ export interface AbletonProjectState {
++  identityMigration?: { version: 1; repairedNoteCount: number; source: string; sourceEnvelopeSha256?: string; sourceXmlSha256?: string };
+   songPlan?: SongPlan;
+   session?: SessionPerformanceState;
+   audioSettings?: ProjectAudioSettings;
+diff --git a/tests/p0-audio-browser.html b/tests/p0-audio-browser.html
+new file mode 100644
+index 0000000..ee21a8f
+--- /dev/null
++++ b/tests/p0-audio-browser.html
+@@ -0,0 +1,26 @@
++<!doctype html><meta charset="utf-8"><title>P0 synthetic plugin audio qualification</title>
++<script type="module">
++import {buildStarterAbletonXml,parseAlsXmlString} from '/src/engine/alsXmlEngine.ts';
++import {substituteUnsupportedDevice} from '/src/services/commandBus.ts';
++import {synthEngine,renderArrangementToWavBlob} from '/src/engine/webAudioSynth.ts';
++import {DEFAULT_HUMANIZATION as h,DEFAULT_MASTER_BUS as m,DEFAULT_TRANSPORT as transport} from '/src/engine/projectDefaults.ts';
++window.runP0Audio=async(replacement,role)=>{
++  let p=parseAlsXmlString(buildStarterAbletonXml('berghain-134',19,4).xml);
++  p.tracks=p.tracks.slice(0,1);const t=p.tracks[0];t.archetype='synth';t.muted=false;t.soloed=false;t.vcaGroupId=undefined;
++  const plugin={id:'external31',xmlTag:'PluginDevice',displayName:'SYNTHETIC external plugin',category:role,isUserCreated:true,bypassed:false,browserDspSupported:false,parameters:[],opaqueSubtreeXml:'<PluginDevice Id="external31"/>'};
++  t.devices=role==='instrument'?[plugin]:[...t.devices.filter(d=>d.category==='instrument'),plugin];
++  t.clips=[{id:'synthetic-clip',name:'Synthetic repeated notes',startTime:0,length:16,notes:Array.from({length:16},(_,i)=>({id:`n${i}`,time:i,quantizedTime:i,pitch:48,duration:.5,velocity:100,isGhost:false}))}];
++  p=substituteUnsupportedDevice(p,t.id,plugin.id,replacement,role);
++  let samples=0,energy=0,peak=0;
++  try {
++    synthEngine.setState(p,h,{...transport,loopEnabled:false},m);synthEngine.start(true);
++    await synthEngine.getAudioContext().resume();
++    const analyser=synthEngine.getAnalyser(),values=new Float32Array(analyser.fftSize);
++    for(let i=0;i<75;i++) {await new Promise(resolve=>setTimeout(resolve,20));analyser.getFloatTimeDomainData(values);for(const x of values){if(!Number.isFinite(x))throw new Error('NONFINITE_LIVE');energy+=x*x;peak=Math.max(peak,Math.abs(x));samples++;}}
++  } finally {synthEngine.stop();}
++  const rms=Math.sqrt(energy/samples);if(!(rms>1e-6))throw new Error('SILENT_LIVE');
++  const {blob}=await renderArrangementToWavBlob(p,h,m,4,24);
++  await window.saveP0Wav(Array.from(new Uint8Array(await blob.arrayBuffer())));
++  return {fixture:'SYNTHETIC',replacement,role,live:{samples,rms,peak},scope:'Captured live browser signal; human listening and Android qualification remain separate'};
++};
++</script>

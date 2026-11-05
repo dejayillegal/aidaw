@@ -1,0 +1,40 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 build:apk
+> node scripts/build-debug-apk.mjs
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 build
+> vite build
+
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 2280 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/manifest.webmanifest           0.62 kB
+dist/index.html                     2.50 kB │ gzip:   1.00 kB
+dist/assets/index-BVBDDp3s.css     89.82 kB │ gzip:  14.83 kB
+dist/assets/index-nPxdSGOs.js   1,121.88 kB │ gzip: 315.61 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.67s
+
+PWA v2.0.0
+mode      generateSW
+precache  21 entries (4166.30 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-35e397ac.js
+✔ Copying web assets from dist to android/app/src/main/assets/public in 44.24ms
+✔ Creating capacitor.config.json in android/app/src/main/assets in 3.85ms
+✔ copy android in 121.95ms
+✔ Updating Android plugins in 10.85ms
+✔ update android in 64.04ms
+[info] Sync finished in 0.237s
+JDK 21 and Gradle wrapper required; no stale APK fallback

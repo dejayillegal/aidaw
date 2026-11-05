@@ -44,6 +44,7 @@ interface StudioStatusBarProps {
   onRetryRecovery?: () => void;
   onRepairLegacyProject?: (queueId?: string) => void;
   onExportOriginalRecoveryData?: (queueId?: string) => void;
+  onQuarantineRecovery?: (queueId: string) => void;
   onOpenSavedProject?: () => void;
   onStartSeparateProject?: () => void;
 }
@@ -69,6 +70,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
   onRetryRecovery,
   onRepairLegacyProject,
   onExportOriginalRecoveryData,
+  onQuarantineRecovery,
   onOpenSavedProject,
   onStartSeparateProject,
 }) => {
@@ -226,6 +228,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
                         Repair {rec.originalFilename}
                       </button>
                     )}
+                    {onQuarantineRecovery && <button type="button" className="px-2 py-0.5 rounded bg-slate-800 border border-slate-600" onClick={() => onQuarantineRecovery(rec.queueId)}>Quarantine copy</button>}
                     {onExportOriginalRecoveryData && (
                       <button
                         type="button"

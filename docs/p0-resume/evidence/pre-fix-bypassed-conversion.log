@@ -1,0 +1,1024 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/legacyRecoveryAndSession.test.tsx --maxWorkers=1 -t tampered bypassed
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/legacyRecoveryAndSession.test.tsx (19 tests | 1 failed | 18 skipped) 1197ms
+   ❯ Legacy Recovery, DrumBuss 102 Migration & Safe Recovery Workflow (18)
+     × synthetic: tampered bypassed historical records cannot evade recovery integrity checks 1192ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/legacyRecoveryAndSession.test.tsx > Legacy Recovery, DrumBuss 102 Migration & Safe Recovery Workflow > synthetic: tampered bypassed historical records cannot evade recovery integrity checks
+AssertionError: expected { …(24) } to be null
+
+- Expected:
+null
+
++ Received:
+{
+  "alsValidation": {
+    "compatibilityStatus": "Inspect & Edit Supported",
+    "diagnostics": [
+      "Unresolved sidechain source IDs; routing is not verified.",
+      "Inspected 9 MIDI/audio tracks and 302 MIDI note nodes.",
+      "NOT TESTED: semantic round trip, unknown-node preservation, complete routing, and Ableton Live version compatibility require independent fixtures/runtime evidence.",
+    ],
+    "isValid": true,
+    "roundTripVerified": false,
+    "uniquePointeeIds": true,
+    "unknownNodesPreserved": false,
+    "validSidechainRouting": false,
+    "validTrackHierarchy": true,
+    "validXmlDom": true,
+  },
+  "arrangementLengthBars": 4,
+  "compatibilityWarnings": [],
+  "conversionSchemaVersion": 2,
+  "creator": "Ableton Live 12.0.5",
+  "energyDensity": 75.5,
+  "estimatedGzipByteSize": 15104,
+  "fileName": "Untitled_Project.als",
+  "generationSeed": 19,
+  "lastActionLog": "Parsed 9 tracks (302 <MidiNoteEvent> nodes) across 4 bars at 126.9 BPM in F Dorian.",
+  "memoryLocations": [
+    {
+      "bar": 1,
+      "beat": 0,
+      "color": "#F59E0B",
+      "comment": "Kick + Sub Anchor",
+      "id": "loc_1",
+      "name": "01. Intro Lock",
+      "number": 1,
+    },
+    {
+      "bar": 5,
+      "beat": 16,
+      "color": "#38BDF8",
+      "comment": "Rumble & Polyrhythm Entry",
+      "id": "loc_2",
+      "name": "02. Sub & Groove",
+      "number": 2,
+    },
+    {
+      "bar": 9,
+      "beat": 32,
+      "color": "#EC4899",
+      "comment": "Filter Sweep & Acid Mod",
+      "id": "loc_3",
+      "name": "03. Breakdown Tension",
+      "number": 3,
+    },
+    {
+      "bar": 13,
+      "beat": 48,
+      "color": "#10B981",
+      "comment": "Full 8-Track Peak Energy",
+      "id": "loc_4",
+      "name": "04. Peak Warehouse Drop",
+      "number": 4,
+    },
+  ],
+  "polyrhythmicGrid": "3/16 + 16th Rolling",
+  "projectRevision": 3,
+  "rawByteSize": 107887,
+  "rawXml": "<Ableton MajorVersion=\"5\" MinorVersion=\"12.0_12049\" SchemaChangeCount=\"3\" Creator=\"Ableton Live 12.0.5\" Revision=\" parametric-ai-daw-seed-19 \" Data-Parametric-GenerationSeed=\"19\" Data-Parametric-ArrangementBars=\"4\">
+  <LiveSet>
+    <NextPointeeId Value=\"30019\"/>
+    <OverwriteProtectionNumber Value=\"4019\"/>
+    <MasterTrack>
+      <DeviceChain>
+        <Mixer>
+          <Tempo>
+            <Manual Value=\"126.9\"/>
+          </Tempo>
+          <TimeSignature>
+            <RemoteableTimeSignature Id=\"0\">
+              <Numerator Value=\"4\"/>
+              <Denominator Value=\"4\"/>
+            </RemoteableTimeSignature>
+          </TimeSignature>
+        </Mixer>
+      </DeviceChain>
+    </MasterTrack>
+    <ScaleInformation>
+      <RootNote Value=\"F\"/>
+      <Name Value=\"Dorian\"/>
+    </ScaleInformation>
+    <Tracks>
+      <MidiTrack Id=\"1\" Data-Base-Volume-Db=\"0\" Data-Pan=\"0\">
+        <Name>
+          <EffectiveName Value=\"01_Kick_909_Foundation\"/>
+          <UserName Value=\"01_Kick_909_Foundation\"/>
+        </Name>
+        <Color Value=\"60\"/>
+        <DeviceChain>
+          <Mixer>
+            <Volume>
+              <Manual Value=\"1\"/>
+            </Volume>
+            <Pan>
+              <Manual Value=\"0\"/>
+            </Pan>
+            <Speaker>
+              <Manual Value=\"true\"/>
+            </Speaker>
+            <Solo>
+              <Manual Value=\"false\"/>
+            </Solo>
+          </Mixer>
+          <MidiToAudioDeviceChain>
+            <Devices>
+              <DrumGroupDevice Id=\"101\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <MacroControls.0>
+                  <Manual Value=\"88.4\"/>
+                </MacroControls.0>
+              </DrumGroupDevice>
+              <DrumBuss Id=\"102\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Drive>
+                  <Manual Value=\"0.37\"/>
+                </Drive>
+                <Boom>
+                  <Manual Value=\"0.49\"/>
+                </Boom>
+              </DrumBuss>
+            </Devices>
+          </MidiToAudioDeviceChain>
+          <MainSequencer>
+            <ClipTimeable>
+              <ArrangerAutomation>
+                <Events>
+                  <MidiClip Id=\"1001\" Time=\"0\">
+                    <Name Value=\"Kick_909_Foundation\"/>
+                    <CurrentStart Value=\"0\"/>
+                    <CurrentEnd Value=\"16\"/>
+                    <Loop>
+                      <LoopStart Value=\"0\"/>
+                      <LoopEnd Value=\"4\"/>
+                    </Loop>
+                    <Notes>
+                      <KeyTracks>
+                        <KeyTrack Id=\"0\">
+                          <MidiKey Value=\"36\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.000\" Duration=\"0.250\" Velocity=\"122\" OffVelocity=\"64\" NoteId=\"1000\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.000\" Duration=\"0.250\" Velocity=\"118\" OffVelocity=\"64\" NoteId=\"1001\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.000\" Duration=\"0.250\" Velocity=\"118\" OffVelocity=\"64\" NoteId=\"1002\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.000\" Duration=\"0.250\" Velocity=\"118\" OffVelocity=\"64\" NoteId=\"1003\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.000\" Duration=\"0.250\" Velocity=\"122\" OffVelocity=\"64\" NoteId=\"1004\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.000\" Duration=\"0.250\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"1005\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.000\" Duration=\"0.250\" Velocity=\"118\" OffVelocity=\"64\" NoteId=\"1006\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.000\" Duration=\"0.250\" Velocity=\"117\" OffVelocity=\"64\" NoteId=\"1007\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.000\" Duration=\"0.250\" Velocity=\"122\" OffVelocity=\"64\" NoteId=\"1008\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.000\" Duration=\"0.250\" Velocity=\"119\" OffVelocity=\"64\" NoteId=\"1009\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.000\" Duration=\"0.250\" Velocity=\"120\" OffVelocity=\"64\" NoteId=\"1010\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.000\" Duration=\"0.250\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"1011\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.000\" Duration=\"0.250\" Velocity=\"122\" OffVelocity=\"64\" NoteId=\"1012\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.000\" Duration=\"0.250\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"1013\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.000\" Duration=\"0.250\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"1014\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.000\" Duration=\"0.250\" Velocity=\"119\" OffVelocity=\"64\" NoteId=\"1015\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.500\" Duration=\"0.200\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"6015\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                      </KeyTracks>
+                    </Notes>
+                  </MidiClip>
+                </Events>
+              </ArrangerAutomation>
+            </ClipTimeable>
+          </MainSequencer>
+        </DeviceChain>
+      <ParametricTrackState Version=\"1\" AutomationParameter=\"parametric:filter-energy\">{\"devices\":[{\"id\":\"r1\",\"xmlTag\":\"Reverb\",\"displayName\":\"Reverb\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"DecayTime\",\"value\":3600,\"unit\":\"ms\"}],\"conversionRecord\":{\"sourceDeviceId\":\"r1\",\"xmlTag\":\"Reverb\",\"sourceParameterHash\":\"tampered\",\"conversionVersion\":1,\"conversionKind\":\"audio_insert_dsp\",\"generatedDescriptor\":{\"xmlTag\":\"Reverb\",\"bypassed\":false,\"decaySec\":15,\"preDelayMs\":18,\"dampingHz\":4800,\"dryWetPct\":35},\"supportedSemantics\":[\"DecayTime (0.2..15 s)\",\"PreDelay (1..200 ms)\",\"HighCut (400..16000 Hz)\",\"DryWet (0..100 %)\"],\"limitations\":[\"Converted per-insert algorithmic multi-tap feedback delay network approximation.\"],\"status\":\"valid\"},\"bypassed\":true}],\"mixer\":{\"volumeDb\":0,\"pan\":0,\"transposeSemitones\":0,\"fineTuneCents\":0,\"sidechainDepth\":0,\"reverbSend\":0.03,\"delaySend\":0,\"filterCutoffHz\":8500,\"filterResonance\":0.15},\"muted\":false,\"soloed\":false,\"automationPoints\":[{\"beat\":0,\"value\":0.5},{\"beat\":32,\"value\":0.65},{\"beat\":48,\"value\":0.82},{\"beat\":64,\"value\":0.55}],\"vcaGroupId\":\"drums_vca\",\"automationGainOffsetDb\":0}</ParametricTrackState></MidiTrack>
+      <MidiTrack Id=\"2\" Data-Base-Volume-Db=\"-2.8\" Data-Pan=\"0.14\">
+        <Name>
+          <EffectiveName Value=\"02_Dub_Chord_Wavetable\"/>
+          <UserName Value=\"02_Dub_Chord_Wavetable\"/>
+        </Name>
+        <Color Value=\"42\"/>
+        <DeviceChain>
+          <Mixer>
+            <Volume>
+              <Manual Value=\"1\"/>
+            </Volume>
+            <Pan>
+              <Manual Value=\"0\"/>
+            </Pan>
+            <Speaker>
+              <Manual Value=\"true\"/>
+            </Speaker>
+            <Solo>
+              <Manual Value=\"false\"/>
+            </Solo>
+          </Mixer>
+          <MidiToAudioDeviceChain>
+            <Devices>
+              <InstrumentVector Id=\"301\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Oscillator1>
+                  <WavePosition Value=\"0.69\"/>
+                </Oscillator1>
+              </InstrumentVector>
+              <Echo Id=\"302\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Feedback>
+                  <Manual Value=\"0.65\"/>
+                </Feedback>
+              </Echo>
+            </Devices>
+          </MidiToAudioDeviceChain>
+          <MainSequencer>
+            <ClipTimeable>
+              <ArrangerAutomation>
+                <Events>
+                  <MidiClip Id=\"3001\" Time=\"0\">
+                    <Name Value=\"Dub_Chord_Stabs\"/>
+                    <CurrentStart Value=\"0\"/>
+                    <CurrentEnd Value=\"16\"/>
+                    <Loop>
+                      <LoopStart Value=\"0\"/>
+                      <LoopEnd Value=\"4\"/>
+                    </Loop>
+                    <Notes>
+                      <KeyTracks>
+                        <KeyTrack Id=\"1\">
+                          <MidiKey Value=\"53\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.509\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4000\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.243\" Duration=\"0.320\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"4001\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.509\" Duration=\"0.320\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"4002\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.243\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4003\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.509\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4004\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.243\" Duration=\"0.320\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"4005\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.509\" Duration=\"0.320\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"4006\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.243\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4007\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.509\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4008\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.243\" Duration=\"0.320\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"4009\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.509\" Duration=\"0.320\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"4010\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.243\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4011\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.509\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4012\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.243\" Duration=\"0.320\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"4013\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.509\" Duration=\"0.320\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"4014\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.243\" Duration=\"0.320\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"4015\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                      </KeyTracks>
+                    </Notes>
+                  </MidiClip>
+                </Events>
+              </ArrangerAutomation>
+            </ClipTimeable>
+          </MainSequencer>
+        </DeviceChain>
+      <ParametricTrackState Version=\"1\" AutomationParameter=\"parametric:filter-energy\">{\"devices\":[{\"id\":\"301\",\"xmlTag\":\"InstrumentVector\",\"displayName\":\"Wavetable\",\"category\":\"instrument\",\"parameters\":[{\"name\":\"FilterCutoffHz\",\"value\":\"2200\",\"unit\":\"Hz\"},{\"name\":\"Detune\",\"value\":\"14\",\"unit\":\"ct\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;InstrumentVector Id=\\\"301\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Oscillator1&gt;\\n                  &lt;WavePosition Value=\\\"0.69\\\"/&gt;\\n                &lt;/Oscillator1&gt;\\n              &lt;/InstrumentVector&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"302\",\"xmlTag\":\"Echo\",\"displayName\":\"Echo\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"DelayTime\",\"value\":\"335\",\"unit\":\"ms\"},{\"name\":\"Feedback\",\"value\":0.65},{\"name\":\"DryWet\",\"value\":\"35\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Echo Id=\\\"302\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Feedback&gt;\\n                  &lt;Manual Value=\\\"0.65\\\"/&gt;\\n                &lt;/Feedback&gt;\\n              &lt;/Echo&gt;\",\"isUnsupportedPlugin\":false}],\"mixer\":{\"volumeDb\":-2.8,\"pan\":0.14,\"transposeSemitones\":0,\"fineTuneCents\":0,\"sidechainDepth\":0.72,\"reverbSend\":0.52,\"delaySend\":0.62,\"filterCutoffHz\":1050,\"filterResonance\":0.46},\"muted\":false,\"soloed\":false,\"automationPoints\":[{\"beat\":0,\"value\":0.32},{\"beat\":16,\"value\":0.52},{\"beat\":32,\"value\":0.38},{\"beat\":48,\"value\":0.88},{\"beat\":60,\"value\":0.96},{\"beat\":64,\"value\":0.42}],\"vcaGroupId\":\"synths_vca\",\"automationGainOffsetDb\":0}</ParametricTrackState></MidiTrack>
+      <MidiTrack Id=\"3\" Data-Base-Volume-Db=\"-1.5\" Data-Pan=\"0\">
+        <Name>
+          <EffectiveName Value=\"02_Sub_Rumble_Operator_AI\"/>
+          <UserName Value=\"02_Sub_Rumble_Operator_AI\"/>
+        </Name>
+        <Color Value=\"14\"/>
+        <DeviceChain>
+          <Mixer>
+            <Volume>
+              <Manual Value=\"1\"/>
+            </Volume>
+            <Pan>
+              <Manual Value=\"0\"/>
+            </Pan>
+            <Speaker>
+              <Manual Value=\"true\"/>
+            </Speaker>
+            <Solo>
+              <Manual Value=\"false\"/>
+            </Solo>
+          </Mixer>
+          <MidiToAudioDeviceChain>
+            <Devices>
+              <Operator Id=\"4101\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Algorithm Value=\"0\"/>
+                <Transpose>
+                  <Manual Value=\"0\"/>
+                </Transpose>
+                <OscillatorA>
+                  <IsOn>
+                    <Manual Value=\"true\"/>
+                  </IsOn>
+                  <Waveform Value=\"Sine\"/>
+                  <Coarse Value=\"0\"/>
+                  <Fine Value=\"0\"/>
+                  <Level Value=\"0.92\"/>
+                  <Envelope>
+                    <Attack Value=\"2.5\"/>
+                    <Decay Value=\"620.0\"/>
+                    <Sustain Value=\"0.75\"/>
+                    <Release Value=\"180.0\"/>
+                  </Envelope>
+                </OscillatorA>
+              </Operator>
+              <Reverb Id=\"4102\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <PreDelay>
+                  <Manual Value=\"12.5\"/>
+                </PreDelay>
+                <DecayTime>
+                  <Manual Value=\"3556\"/>
+                </DecayTime>
+                <RoomSize>
+                  <Manual Value=\"88.0\"/>
+                </RoomSize>
+                <StereoSeparation>
+                  <Manual Value=\"0.0\"/>
+                </StereoSeparation>
+                <DryWet>
+                  <Manual Value=\"0.44\"/>
+                </DryWet>
+              </Reverb>
+              <AutoFilter Id=\"4103\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <FilterType>
+                  <Manual Value=\"Lowpass\"/>
+                </FilterType>
+                <Slope>
+                  <Manual Value=\"24dB\"/>
+                </Slope>
+                <Cutoff Id=\"9401\">
+                  <Manual Value=\"145.0\"/>
+                </Cutoff>
+                <Resonance>
+                  <Manual Value=\"0.28\"/>
+                </Resonance>
+                <EnvModulation>
+                  <Manual Value=\"0.15\"/>
+                </EnvModulation>
+              </AutoFilter>
+              <EQEight Id=\"4105\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Band.1>
+                  <FilterType Value=\"HighPass48\"/>
+                  <Freq Value=\"28.0\"/>
+                </Band.1>
+                <Band.2>
+                  <FilterType Value=\"Bell\"/>
+                  <Freq Value=\"55.0\"/>
+                  <Gain Value=\"-9.5\"/>
+                  <Q Value=\"3.4\"/>
+                </Band.2>
+              </EQEight>
+              <Compressor2 Id=\"4104\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Sidechain>
+                  <IsOn Value=\"true\"/>
+                  <SourceTrack Value=\"01_Kick_909_Foundation\"/>
+                </Sidechain>
+                <Threshold>
+                  <Manual Value=\"-22.5\"/>
+                </Threshold>
+                <Ratio>
+                  <Manual Value=\"4.8\"/>
+                </Ratio>
+                <Attack>
+                  <Manual Value=\"0.4\"/>
+                </Attack>
+                <Release>
+                  <Manual Value=\"118.0\"/>
+                </Release>
+              </Compressor2>
+              <Lfo Id=\"9901\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Waveform Value=\"Sine\"/>
+                <SyncMode Value=\"FreeHz\"/>
+                <Rate>
+                  <Manual Value=\"0.100\"/>
+                </Rate>
+                <Depth>
+                  <Manual Value=\"0.42\"/>
+                </Depth>
+                <Jitter>
+                  <Manual Value=\"0.08\"/>
+                </Jitter>
+                <ModulationTarget Id=\"9401\" Parameter=\"AutoFilter.Cutoff\"/>
+              </Lfo>
+            </Devices>
+          </MidiToAudioDeviceChain>
+          <MainSequencer>
+            <ClipTimeable>
+              <ArrangerAutomation>
+                <Events>
+                  <MidiClip Id=\"5000\" Data-Parametric-ClipId=\"clip_3_primary\" Time=\"0\">
+                    <Name Value=\"Rumble_16th_Roll_v16\"/>
+                    <CurrentStart Value=\"0\"/>
+                    <CurrentEnd Value=\"16\"/>
+                    <Loop>
+                      <LoopStart Value=\"0\"/>
+                      <LoopEnd Value=\"4\"/>
+                      <StartRelative Value=\"0\"/>
+                      <LoopOn Value=\"false\"/>
+                    </Loop>
+                    <Notes>
+                      <KeyTracks>
+                        <KeyTrack Id=\"0\">
+                          <MidiKey Value=\"29\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.258\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"24\" OffVelocity=\"64\" NoteId=\"1\" Data-Parametric-NoteId=\"rumble_0_1\" Data-Parametric-QuantizedTime=\"0.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"0.502\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"2\" Data-Parametric-NoteId=\"rumble_0_2\" Data-Parametric-QuantizedTime=\"0.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"0.736\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"101\" OffVelocity=\"64\" NoteId=\"3\" Data-Parametric-NoteId=\"rumble_0_3\" Data-Parametric-QuantizedTime=\"0.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.259\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"30\" OffVelocity=\"64\" NoteId=\"4\" Data-Parametric-NoteId=\"rumble_0_5\" Data-Parametric-QuantizedTime=\"1.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.5\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"103\" OffVelocity=\"64\" NoteId=\"5\" Data-Parametric-NoteId=\"rumble_0_6\" Data-Parametric-QuantizedTime=\"1.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.764\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"93\" OffVelocity=\"64\" NoteId=\"6\" Data-Parametric-NoteId=\"rumble_0_7\" Data-Parametric-QuantizedTime=\"1.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.25\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"26\" OffVelocity=\"64\" NoteId=\"7\" Data-Parametric-NoteId=\"rumble_0_9\" Data-Parametric-QuantizedTime=\"2.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.504\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"119\" OffVelocity=\"64\" NoteId=\"8\" Data-Parametric-NoteId=\"rumble_0_10\" Data-Parametric-QuantizedTime=\"2.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.761\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"100\" OffVelocity=\"64\" NoteId=\"9\" Data-Parametric-NoteId=\"rumble_0_11\" Data-Parametric-QuantizedTime=\"2.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.253\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"24\" OffVelocity=\"64\" NoteId=\"10\" Data-Parametric-NoteId=\"rumble_0_13\" Data-Parametric-QuantizedTime=\"3.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.495\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"120\" OffVelocity=\"64\" NoteId=\"11\" Data-Parametric-NoteId=\"rumble_0_14\" Data-Parametric-QuantizedTime=\"3.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.747\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"100\" OffVelocity=\"64\" NoteId=\"12\" Data-Parametric-NoteId=\"rumble_0_15\" Data-Parametric-QuantizedTime=\"3.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.264\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"25\" OffVelocity=\"64\" NoteId=\"13\" Data-Parametric-NoteId=\"rumble_1_1\" Data-Parametric-QuantizedTime=\"4.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.504\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"14\" Data-Parametric-NoteId=\"rumble_1_2\" Data-Parametric-QuantizedTime=\"4.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.763\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"94\" OffVelocity=\"64\" NoteId=\"15\" Data-Parametric-NoteId=\"rumble_1_3\" Data-Parametric-QuantizedTime=\"4.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.25\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"24\" OffVelocity=\"64\" NoteId=\"16\" Data-Parametric-NoteId=\"rumble_1_5\" Data-Parametric-QuantizedTime=\"5.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.499\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"106\" OffVelocity=\"64\" NoteId=\"17\" Data-Parametric-NoteId=\"rumble_1_6\" Data-Parametric-QuantizedTime=\"5.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.743\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"98\" OffVelocity=\"64\" NoteId=\"18\" Data-Parametric-NoteId=\"rumble_1_7\" Data-Parametric-QuantizedTime=\"5.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.256\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"42\" OffVelocity=\"64\" NoteId=\"19\" Data-Parametric-NoteId=\"rumble_1_9\" Data-Parametric-QuantizedTime=\"6.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.504\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"103\" OffVelocity=\"64\" NoteId=\"20\" Data-Parametric-NoteId=\"rumble_1_10\" Data-Parametric-QuantizedTime=\"6.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.748\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"98\" OffVelocity=\"64\" NoteId=\"21\" Data-Parametric-NoteId=\"rumble_1_11\" Data-Parametric-QuantizedTime=\"6.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.249\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"32\" OffVelocity=\"64\" NoteId=\"22\" Data-Parametric-NoteId=\"rumble_1_13\" Data-Parametric-QuantizedTime=\"7.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.501\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"113\" OffVelocity=\"64\" NoteId=\"23\" Data-Parametric-NoteId=\"rumble_1_14\" Data-Parametric-QuantizedTime=\"7.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.748\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"24\" Data-Parametric-NoteId=\"rumble_1_15\" Data-Parametric-QuantizedTime=\"7.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.254\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"27\" OffVelocity=\"64\" NoteId=\"25\" Data-Parametric-NoteId=\"rumble_2_1\" Data-Parametric-QuantizedTime=\"8.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.502\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"26\" Data-Parametric-NoteId=\"rumble_2_2\" Data-Parametric-QuantizedTime=\"8.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.749\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"90\" OffVelocity=\"64\" NoteId=\"27\" Data-Parametric-NoteId=\"rumble_2_3\" Data-Parametric-QuantizedTime=\"8.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.264\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"37\" OffVelocity=\"64\" NoteId=\"28\" Data-Parametric-NoteId=\"rumble_2_5\" Data-Parametric-QuantizedTime=\"9.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.506\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"29\" Data-Parametric-NoteId=\"rumble_2_6\" Data-Parametric-QuantizedTime=\"9.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.757\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"87\" OffVelocity=\"64\" NoteId=\"30\" Data-Parametric-NoteId=\"rumble_2_7\" Data-Parametric-QuantizedTime=\"9.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.25\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"30\" OffVelocity=\"64\" NoteId=\"31\" Data-Parametric-NoteId=\"rumble_2_9\" Data-Parametric-QuantizedTime=\"10.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.503\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"32\" Data-Parametric-NoteId=\"rumble_2_10\" Data-Parametric-QuantizedTime=\"10.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.742\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"100\" OffVelocity=\"64\" NoteId=\"33\" Data-Parametric-NoteId=\"rumble_2_11\" Data-Parametric-QuantizedTime=\"10.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.253\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"24\" OffVelocity=\"64\" NoteId=\"34\" Data-Parametric-NoteId=\"rumble_2_13\" Data-Parametric-QuantizedTime=\"11.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.5\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"114\" OffVelocity=\"64\" NoteId=\"35\" Data-Parametric-NoteId=\"rumble_2_14\" Data-Parametric-QuantizedTime=\"11.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.759\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"97\" OffVelocity=\"64\" NoteId=\"36\" Data-Parametric-NoteId=\"rumble_2_15\" Data-Parametric-QuantizedTime=\"11.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.251\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"39\" OffVelocity=\"64\" NoteId=\"37\" Data-Parametric-NoteId=\"rumble_3_1\" Data-Parametric-QuantizedTime=\"12.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.494\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"110\" OffVelocity=\"64\" NoteId=\"38\" Data-Parametric-NoteId=\"rumble_3_2\" Data-Parametric-QuantizedTime=\"12.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.745\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"89\" OffVelocity=\"64\" NoteId=\"39\" Data-Parametric-NoteId=\"rumble_3_3\" Data-Parametric-QuantizedTime=\"12.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.241\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"30\" OffVelocity=\"64\" NoteId=\"40\" Data-Parametric-NoteId=\"rumble_3_5\" Data-Parametric-QuantizedTime=\"13.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.496\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"41\" Data-Parametric-NoteId=\"rumble_3_6\" Data-Parametric-QuantizedTime=\"13.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.754\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"93\" OffVelocity=\"64\" NoteId=\"42\" Data-Parametric-NoteId=\"rumble_3_7\" Data-Parametric-QuantizedTime=\"13.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.261\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"40\" OffVelocity=\"64\" NoteId=\"43\" Data-Parametric-NoteId=\"rumble_3_9\" Data-Parametric-QuantizedTime=\"14.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.501\" Duration=\"0.23\" Pitch=\"29\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"44\" Data-Parametric-NoteId=\"rumble_3_10\" Data-Parametric-QuantizedTime=\"14.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.756\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"91\" OffVelocity=\"64\" NoteId=\"45\" Data-Parametric-NoteId=\"rumble_3_11\" Data-Parametric-QuantizedTime=\"14.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.247\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"24\" OffVelocity=\"64\" NoteId=\"46\" Data-Parametric-NoteId=\"rumble_3_13\" Data-Parametric-QuantizedTime=\"15.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.739\" Duration=\"0.19\" Pitch=\"29\" Velocity=\"87\" OffVelocity=\"64\" NoteId=\"47\" Data-Parametric-NoteId=\"rumble_3_15\" Data-Parametric-QuantizedTime=\"15.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                        <KeyTrack Id=\"1\">
+                          <MidiKey Value=\"30\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"15.497\" Duration=\"0.23\" Pitch=\"30\" Velocity=\"120\" OffVelocity=\"64\" NoteId=\"48\" Data-Parametric-NoteId=\"rumble_3_14\" Data-Parametric-QuantizedTime=\"15.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                      </KeyTracks>
+                    </Notes>
+                  </MidiClip>
+                </Events>
+              </ArrangerAutomation>
+            </ClipTimeable>
+          </MainSequencer>
+        </DeviceChain>
+      <ParametricTrackState Version=\"1\" AutomationParameter=\"parametric:filter-energy\">{\"devices\":[{\"id\":\"4101\",\"xmlTag\":\"Operator\",\"displayName\":\"Operator\",\"category\":\"instrument\",\"parameters\":[{\"name\":\"Osc A Wave\",\"value\":\"Sine\"},{\"name\":\"Osc A Level\",\"value\":\"0.92\"},{\"name\":\"Coarse\",\"value\":\"0\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Operator Id=\\\"4101\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Algorithm Value=\\\"0\\\"/&gt;\\n                &lt;Transpose&gt;\\n                  &lt;Manual Value=\\\"0\\\"/&gt;\\n                &lt;/Transpose&gt;\\n                &lt;OscillatorA&gt;\\n                  &lt;IsOn&gt;\\n                    &lt;Manual Value=\\\"true\\\"/&gt;\\n                  &lt;/IsOn&gt;\\n                  &lt;Waveform Value=\\\"Sine\\\"/&gt;\\n                  &lt;Coarse Value=\\\"0\\\"/&gt;\\n                  &lt;Fine Value=\\\"0\\\"/&gt;\\n                  &lt;Level Value=\\\"0.92\\\"/&gt;\\n                  &lt;Envelope&gt;\\n                    &lt;Attack Value=\\\"2.5\\\"/&gt;\\n                    &lt;Decay Value=\\\"620.0\\\"/&gt;\\n                    &lt;Sustain Value=\\\"0.75\\\"/&gt;\\n                    &lt;Release Value=\\\"180.0\\\"/&gt;\\n                  &lt;/Envelope&gt;\\n                &lt;/OscillatorA&gt;\\n              &lt;/Operator&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"4102\",\"xmlTag\":\"Reverb\",\"displayName\":\"Reverb\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"DecayTime\",\"value\":\"3556\",\"unit\":\"ms\"},{\"name\":\"DryWet\",\"value\":\"0.44\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Reverb Id=\\\"4102\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;PreDelay&gt;\\n                  &lt;Manual Value=\\\"12.5\\\"/&gt;\\n                &lt;/PreDelay&gt;\\n                &lt;DecayTime&gt;\\n                  &lt;Manual Value=\\\"3556\\\"/&gt;\\n                &lt;/DecayTime&gt;\\n                &lt;RoomSize&gt;\\n                  &lt;Manual Value=\\\"88.0\\\"/&gt;\\n                &lt;/RoomSize&gt;\\n                &lt;StereoSeparation&gt;\\n                  &lt;Manual Value=\\\"0.0\\\"/&gt;\\n                &lt;/StereoSeparation&gt;\\n                &lt;DryWet&gt;\\n                  &lt;Manual Value=\\\"0.44\\\"/&gt;\\n                &lt;/DryWet&gt;\\n              &lt;/Reverb&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"4102\",\"xmlTag\":\"Reverb\",\"sourceParameterHash\":\"fnv1a_e0ca1d34\",\"conversionVersion\":2,\"conversionKind\":\"audio_insert_dsp\",\"generatedDescriptor\":{\"xmlTag\":\"Reverb\",\"bypassed\":false,\"decaySec\":3.556,\"preDelayMs\":18,\"dampingHz\":4800,\"dryWetPct\":0.44},\"supportedSemantics\":[\"DecayTime (0.2..15 s)\",\"PreDelay (1..200 ms)\",\"HighCut (400..16000 Hz)\",\"DryWet (0..100 %)\"],\"limitations\":[\"Converted per-insert algorithmic multi-tap feedback delay network approximation.\"],\"status\":\"valid\"}},{\"id\":\"4103\",\"xmlTag\":\"AutoFilter\",\"displayName\":\"AutoFilter\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"FilterType\",\"value\":\"Lowpass\"},{\"name\":\"Cutoff\",\"value\":\"145.0\",\"unit\":\"Hz\",\"automationTarget\":true},{\"name\":\"Resonance\",\"value\":\"0.28\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;AutoFilter Id=\\\"4103\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;FilterType&gt;\\n                  &lt;Manual Value=\\\"Lowpass\\\"/&gt;\\n                &lt;/FilterType&gt;\\n                &lt;Slope&gt;\\n                  &lt;Manual Value=\\\"24dB\\\"/&gt;\\n                &lt;/Slope&gt;\\n                &lt;Cutoff Id=\\\"9401\\\"&gt;\\n                  &lt;Manual Value=\\\"145.0\\\"/&gt;\\n                &lt;/Cutoff&gt;\\n                &lt;Resonance&gt;\\n                  &lt;Manual Value=\\\"0.28\\\"/&gt;\\n                &lt;/Resonance&gt;\\n                &lt;EnvModulation&gt;\\n                  &lt;Manual Value=\\\"0.15\\\"/&gt;\\n                &lt;/EnvModulation&gt;\\n              &lt;/AutoFilter&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"4105\",\"xmlTag\":\"EQEight\",\"displayName\":\"EQEight\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Band 1 HPF\",\"value\":\"28.0\",\"unit\":\"Hz\"},{\"name\":\"Sub Notch\",\"value\":\"55.0\",\"unit\":\"Hz\",\"automationTarget\":true},{\"name\":\"Notch Gain\",\"value\":\"-9.5\",\"unit\":\"dB\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;EQEight Id=\\\"4105\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Band.1&gt;\\n                  &lt;FilterType Value=\\\"HighPass48\\\"/&gt;\\n                  &lt;Freq Value=\\\"28.0\\\"/&gt;\\n                &lt;/Band.1&gt;\\n                &lt;Band.2&gt;\\n                  &lt;FilterType Value=\\\"Bell\\\"/&gt;\\n                  &lt;Freq Value=\\\"55.0\\\"/&gt;\\n                  &lt;Gain Value=\\\"-9.5\\\"/&gt;\\n                  &lt;Q Value=\\\"3.4\\\"/&gt;\\n                &lt;/Band.2&gt;\\n              &lt;/EQEight&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"4104\",\"xmlTag\":\"Compressor2\",\"displayName\":\"Compressor2\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Sidechain\",\"value\":\"Kick 909\"},{\"name\":\"Ratio\",\"value\":\"4.8\"},{\"name\":\"Release\",\"value\":\"118.0\",\"unit\":\"ms\",\"automationTarget\":true}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Compressor2 Id=\\\"4104\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Sidechain&gt;\\n                  &lt;IsOn Value=\\\"true\\\"/&gt;\\n                  &lt;SourceTrack Value=\\\"01_Kick_909_Foundation\\\"/&gt;\\n                &lt;/Sidechain&gt;\\n                &lt;Threshold&gt;\\n                  &lt;Manual Value=\\\"-22.5\\\"/&gt;\\n                &lt;/Threshold&gt;\\n                &lt;Ratio&gt;\\n                  &lt;Manual Value=\\\"4.8\\\"/&gt;\\n                &lt;/Ratio&gt;\\n                &lt;Attack&gt;\\n                  &lt;Manual Value=\\\"0.4\\\"/&gt;\\n                &lt;/Attack&gt;\\n                &lt;Release&gt;\\n                  &lt;Manual Value=\\\"118.0\\\"/&gt;\\n                &lt;/Release&gt;\\n              &lt;/Compressor2&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"9901\",\"xmlTag\":\"Lfo\",\"displayName\":\"Lfo\",\"category\":\"max_modulator\",\"parameters\":[{\"name\":\"Rate\",\"value\":\"0.100\",\"unit\":\"Hz\"},{\"name\":\"Depth\",\"value\":\"0.42\"},{\"name\":\"Waveform\",\"value\":\"Sine\"},{\"name\":\"Target\",\"value\":\"AutoFilter.Cutoff\",\"automationTarget\":true}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Lfo Id=\\\"9901\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Waveform Value=\\\"Sine\\\"/&gt;\\n                &lt;SyncMode Value=\\\"FreeHz\\\"/&gt;\\n                &lt;Rate&gt;\\n                  &lt;Manual Value=\\\"0.100\\\"/&gt;\\n                &lt;/Rate&gt;\\n                &lt;Depth&gt;\\n                  &lt;Manual Value=\\\"0.42\\\"/&gt;\\n                &lt;/Depth&gt;\\n                &lt;Jitter&gt;\\n                  &lt;Manual Value=\\\"0.08\\\"/&gt;\\n                &lt;/Jitter&gt;\\n                &lt;ModulationTarget Id=\\\"9401\\\" Parameter=\\\"AutoFilter.Cutoff\\\"/&gt;\\n              &lt;/Lfo&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"9901\",\"xmlTag\":\"Lfo\",\"sourceParameterHash\":\"fnv1a_eac1924d\",\"conversionVersion\":2,\"conversionKind\":\"voice_modulation_lfo\",\"generatedDescriptor\":{\"xmlTag\":\"Lfo\",\"bypassed\":false,\"rateHz\":0.1,\"depth\":0.42,\"waveform\":\"Sine\"},\"supportedSemantics\":[\"Rate (0.01..20 Hz)\",\"Depth (0..1)\",\"Waveform (0..2)\"],\"limitations\":[\"Modulates track filter cutoff/energy; arbitrary third-party Max patcher routing is not executed.\"],\"status\":\"valid\"}}],\"mixer\":{\"volumeDb\":-1.5,\"pan\":0,\"transposeSemitones\":0,\"fineTuneCents\":0,\"sidechainDepth\":0.88,\"reverbSend\":0.36,\"delaySend\":0.04,\"filterCutoffHz\":142,\"filterResonance\":0.32},\"muted\":false,\"soloed\":false,\"automationPoints\":[{\"beat\":0,\"value\":0.45},{\"beat\":24,\"value\":0.58},{\"beat\":32,\"value\":0.32},{\"beat\":48,\"value\":0.74},{\"beat\":64,\"value\":0.48}],\"vcaGroupId\":\"low_end_vca\",\"automationGainOffsetDb\":0}</ParametricTrackState></MidiTrack>
+      <MidiTrack Id=\"4\" Data-Base-Volume-Db=\"-3.2\" Data-Pan=\"-0.16\">
+        <Name>
+          <EffectiveName Value=\"03_Industrial_Perc_3_16_AI\"/>
+          <UserName Value=\"03_Industrial_Perc_3_16_AI\"/>
+        </Name>
+        <Color Value=\"9\"/>
+        <DeviceChain>
+          <Mixer>
+            <Volume>
+              <Manual Value=\"1\"/>
+            </Volume>
+            <Pan>
+              <Manual Value=\"0\"/>
+            </Pan>
+            <Speaker>
+              <Manual Value=\"true\"/>
+            </Speaker>
+            <Solo>
+              <Manual Value=\"false\"/>
+            </Solo>
+          </Mixer>
+          <MidiToAudioDeviceChain>
+            <Devices>
+              <Collision Id=\"5101\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <MalletStiffness>
+                  <Manual Value=\"0.78\"/>
+                </MalletStiffness>
+                <Resonator1>
+                  <Type Value=\"Tube\"/>
+                  <Decay Value=\"0.42\"/>
+                  <Material Value=\"Metal\"/>
+                </Resonator1>
+              </Collision>
+              <DrumBuss Id=\"5102\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Drive>
+                  <Manual Value=\"0.54\"/>
+                </Drive>
+                <Transients>
+                  <Manual Value=\"0.38\"/>
+                </Transients>
+                <Crunch>
+                  <Manual Value=\"0.46\"/>
+                </Crunch>
+              </DrumBuss>
+              <Erosion Id=\"5103\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Mode Value=\"WideNoise\"/>
+                <Frequency>
+                  <Manual Value=\"3400.0\"/>
+                </Frequency>
+                <Amount>
+                  <Manual Value=\"0.32\"/>
+                </Amount>
+              </Erosion>
+              <Saturator Id=\"5104\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Drive>
+                  <Manual Value=\"6.5\"/>
+                </Drive>
+                <Type Value=\"AnalogClip\"/>
+              </Saturator>
+              <AutoFilter Id=\"5105\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <FilterType>
+                  <Manual Value=\"Bandpass\"/>
+                </FilterType>
+                <Cutoff Id=\"9401\">
+                  <Manual Value=\"1280.0\"/>
+                </Cutoff>
+                <Resonance>
+                  <Manual Value=\"0.35\"/>
+                </Resonance>
+              </AutoFilter>
+              <Lfo Id=\"9901\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Waveform Value=\"Sine\"/>
+                <SyncMode Value=\"FreeHz\"/>
+                <Rate>
+                  <Manual Value=\"0.100\"/>
+                </Rate>
+                <Depth>
+                  <Manual Value=\"0.42\"/>
+                </Depth>
+                <Jitter>
+                  <Manual Value=\"0.08\"/>
+                </Jitter>
+                <ModulationTarget Id=\"9401\" Parameter=\"AutoFilter.Cutoff\"/>
+              </Lfo>
+            </Devices>
+          </MidiToAudioDeviceChain>
+          <MainSequencer>
+            <ClipTimeable>
+              <ArrangerAutomation>
+                <Events>
+                  <MidiClip Id=\"5001\" Data-Parametric-ClipId=\"clip_4_primary\" Time=\"0\">
+                    <Name Value=\"Industrial_Polyrhythm_v13\"/>
+                    <CurrentStart Value=\"0\"/>
+                    <CurrentEnd Value=\"16\"/>
+                    <Loop>
+                      <LoopStart Value=\"0\"/>
+                      <LoopEnd Value=\"4\"/>
+                      <StartRelative Value=\"0\"/>
+                      <LoopOn Value=\"false\"/>
+                    </Loop>
+                    <Notes>
+                      <KeyTracks>
+                        <KeyTrack Id=\"0\">
+                          <MidiKey Value=\"53\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.504\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"1\" Data-Parametric-NoteId=\"perc_0_2\" Data-Parametric-QuantizedTime=\"0.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.261\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"43\" OffVelocity=\"64\" NoteId=\"2\" Data-Parametric-NoteId=\"perc_0_5\" Data-Parametric-QuantizedTime=\"1.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.74\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"43\" OffVelocity=\"64\" NoteId=\"3\" Data-Parametric-NoteId=\"perc_0_11\" Data-Parametric-QuantizedTime=\"2.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.508\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"101\" OffVelocity=\"64\" NoteId=\"4\" Data-Parametric-NoteId=\"perc_0_14\" Data-Parametric-QuantizedTime=\"3.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.506\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"117\" OffVelocity=\"64\" NoteId=\"5\" Data-Parametric-NoteId=\"perc_1_2\" Data-Parametric-QuantizedTime=\"4.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.26\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"44\" OffVelocity=\"64\" NoteId=\"6\" Data-Parametric-NoteId=\"perc_1_5\" Data-Parametric-QuantizedTime=\"5.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.753\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"7\" Data-Parametric-NoteId=\"perc_1_11\" Data-Parametric-QuantizedTime=\"6.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.494\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"100\" OffVelocity=\"64\" NoteId=\"8\" Data-Parametric-NoteId=\"perc_1_14\" Data-Parametric-QuantizedTime=\"7.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.505\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"9\" Data-Parametric-NoteId=\"perc_2_2\" Data-Parametric-QuantizedTime=\"8.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.25\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"43\" OffVelocity=\"64\" NoteId=\"10\" Data-Parametric-NoteId=\"perc_2_5\" Data-Parametric-QuantizedTime=\"9.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.748\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"11\" Data-Parametric-NoteId=\"perc_2_11\" Data-Parametric-QuantizedTime=\"10.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.507\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"12\" Data-Parametric-NoteId=\"perc_2_14\" Data-Parametric-QuantizedTime=\"11.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.497\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"13\" Data-Parametric-NoteId=\"perc_3_2\" Data-Parametric-QuantizedTime=\"12.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.25\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"44\" OffVelocity=\"64\" NoteId=\"14\" Data-Parametric-NoteId=\"perc_3_5\" Data-Parametric-QuantizedTime=\"13.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.749\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"39\" OffVelocity=\"64\" NoteId=\"15\" Data-Parametric-NoteId=\"perc_3_11\" Data-Parametric-QuantizedTime=\"14.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.5\" Duration=\"0.18\" Pitch=\"53\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"16\" Data-Parametric-NoteId=\"perc_3_14\" Data-Parametric-QuantizedTime=\"15.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                        <KeyTrack Id=\"1\">
+                          <MidiKey Value=\"60\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"2\" Duration=\"0.18\" Pitch=\"60\" Velocity=\"88\" OffVelocity=\"64\" NoteId=\"17\" Data-Parametric-NoteId=\"perc_0_8\" Data-Parametric-QuantizedTime=\"2\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6\" Duration=\"0.18\" Pitch=\"60\" Velocity=\"98\" OffVelocity=\"64\" NoteId=\"18\" Data-Parametric-NoteId=\"perc_1_8\" Data-Parametric-QuantizedTime=\"6\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10\" Duration=\"0.18\" Pitch=\"60\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"19\" Data-Parametric-NoteId=\"perc_2_8\" Data-Parametric-QuantizedTime=\"10\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14\" Duration=\"0.18\" Pitch=\"60\" Velocity=\"94\" OffVelocity=\"64\" NoteId=\"20\" Data-Parametric-NoteId=\"perc_3_8\" Data-Parametric-QuantizedTime=\"14\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                        <KeyTrack Id=\"2\">
+                          <MidiKey Value=\"65\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"3.754\" Duration=\"0.18\" Pitch=\"65\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"21\" Data-Parametric-NoteId=\"perc_0_15\" Data-Parametric-QuantizedTime=\"3.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.756\" Duration=\"0.18\" Pitch=\"65\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"22\" Data-Parametric-NoteId=\"perc_1_15\" Data-Parametric-QuantizedTime=\"7.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.747\" Duration=\"0.18\" Pitch=\"65\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"23\" Data-Parametric-NoteId=\"perc_2_15\" Data-Parametric-QuantizedTime=\"11.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.745\" Duration=\"0.18\" Pitch=\"65\" Velocity=\"43\" OffVelocity=\"64\" NoteId=\"24\" Data-Parametric-NoteId=\"perc_3_15\" Data-Parametric-QuantizedTime=\"15.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                      </KeyTracks>
+                    </Notes>
+                  </MidiClip>
+                </Events>
+              </ArrangerAutomation>
+            </ClipTimeable>
+          </MainSequencer>
+        </DeviceChain>
+      <ParametricTrackState Version=\"1\" AutomationParameter=\"parametric:filter-energy\">{\"devices\":[{\"id\":\"5101\",\"xmlTag\":\"Collision\",\"displayName\":\"Collision\",\"category\":\"instrument\",\"parameters\":[{\"name\":\"FilterCutoffHz\",\"value\":\"2600\",\"unit\":\"Hz\"},{\"name\":\"StrikeDecay\",\"value\":\"0.28\",\"unit\":\"s\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Collision Id=\\\"5101\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;MalletStiffness&gt;\\n                  &lt;Manual Value=\\\"0.78\\\"/&gt;\\n                &lt;/MalletStiffness&gt;\\n                &lt;Resonator1&gt;\\n                  &lt;Type Value=\\\"Tube\\\"/&gt;\\n                  &lt;Decay Value=\\\"0.42\\\"/&gt;\\n                  &lt;Material Value=\\\"Metal\\\"/&gt;\\n                &lt;/Resonator1&gt;\\n              &lt;/Collision&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"5102\",\"xmlTag\":\"DrumBuss\",\"displayName\":\"DrumBuss\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Drive\",\"value\":54,\"unit\":\"%\"},{\"name\":\"Boom\",\"value\":25,\"unit\":\"%\"},{\"name\":\"Damp\",\"value\":\"11000\",\"unit\":\"Hz\"},{\"name\":\"DryWet\",\"value\":\"100\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;DrumBuss Id=\\\"5102\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Drive&gt;\\n                  &lt;Manual Value=\\\"0.54\\\"/&gt;\\n                &lt;/Drive&gt;\\n                &lt;Transients&gt;\\n                  &lt;Manual Value=\\\"0.38\\\"/&gt;\\n                &lt;/Transients&gt;\\n                &lt;Crunch&gt;\\n                  &lt;Manual Value=\\\"0.46\\\"/&gt;\\n                &lt;/Crunch&gt;\\n              &lt;/DrumBuss&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"5102\",\"xmlTag\":\"DrumBuss\",\"sourceParameterHash\":\"fnv1a_49b3e6ae\",\"conversionVersion\":2,\"conversionKind\":\"audio_insert_dsp\",\"generatedDescriptor\":{\"xmlTag\":\"DrumBuss\",\"bypassed\":false,\"drivePct\":54,\"boomPct\":25,\"crunchPct\":20,\"dampHz\":11000,\"dryWetPct\":100},\"supportedSemantics\":[\"Drive (0..100 %)\",\"Boom (0..100 %)\",\"Crunch (0..100 %)\",\"Damp (500..20000 Hz)\",\"DryWet (0..100 %)\"],\"limitations\":[\"Converted approximation using Web Audio sub-peaking boom filter + waveshaper + damping lowpass.\"],\"status\":\"valid\"}},{\"id\":\"5103\",\"xmlTag\":\"Erosion\",\"displayName\":\"Erosion\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Frequency\",\"value\":\"3400.0\",\"unit\":\"Hz\"},{\"name\":\"Amount\",\"value\":\"0.32\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Erosion Id=\\\"5103\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Mode Value=\\\"WideNoise\\\"/&gt;\\n                &lt;Frequency&gt;\\n                  &lt;Manual Value=\\\"3400.0\\\"/&gt;\\n                &lt;/Frequency&gt;\\n                &lt;Amount&gt;\\n                  &lt;Manual Value=\\\"0.32\\\"/&gt;\\n                &lt;/Amount&gt;\\n              &lt;/Erosion&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"5103\",\"xmlTag\":\"Erosion\",\"sourceParameterHash\":\"fnv1a_1fa49bfb\",\"conversionVersion\":2,\"conversionKind\":\"audio_insert_dsp\",\"generatedDescriptor\":{\"xmlTag\":\"Erosion\",\"bypassed\":false,\"frequencyHz\":3400,\"amountPct\":0.32,\"widthQ\":2},\"supportedSemantics\":[\"Frequency (100..14000 Hz)\",\"Amount (0..100 %)\",\"Width (0.3..8)\"],\"limitations\":[\"Converted short-delay FM degradation approximation.\"],\"status\":\"valid\"}},{\"id\":\"5104\",\"xmlTag\":\"Saturator\",\"displayName\":\"Saturator\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Drive\",\"value\":\"6.5\",\"unit\":\"dB\"},{\"name\":\"DryWet\",\"value\":\"100\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Saturator Id=\\\"5104\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Drive&gt;\\n                  &lt;Manual Value=\\\"6.5\\\"/&gt;\\n                &lt;/Drive&gt;\\n                &lt;Type Value=\\\"AnalogClip\\\"/&gt;\\n              &lt;/Saturator&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"5105\",\"xmlTag\":\"AutoFilter\",\"displayName\":\"AutoFilter\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"FilterType\",\"value\":\"Bandpass\"},{\"name\":\"Cutoff\",\"value\":\"1280.0\",\"unit\":\"Hz\",\"automationTarget\":true},{\"name\":\"Resonance\",\"value\":\"0.35\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;AutoFilter Id=\\\"5105\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;FilterType&gt;\\n                  &lt;Manual Value=\\\"Bandpass\\\"/&gt;\\n                &lt;/FilterType&gt;\\n                &lt;Cutoff Id=\\\"9401\\\"&gt;\\n                  &lt;Manual Value=\\\"1280.0\\\"/&gt;\\n                &lt;/Cutoff&gt;\\n                &lt;Resonance&gt;\\n                  &lt;Manual Value=\\\"0.35\\\"/&gt;\\n                &lt;/Resonance&gt;\\n              &lt;/AutoFilter&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"9901\",\"xmlTag\":\"Lfo\",\"displayName\":\"Lfo\",\"category\":\"max_modulator\",\"parameters\":[{\"name\":\"Rate\",\"value\":\"0.100\",\"unit\":\"Hz\"},{\"name\":\"Depth\",\"value\":\"0.42\"},{\"name\":\"Waveform\",\"value\":\"Sine\"},{\"name\":\"Target\",\"value\":\"AutoFilter.Cutoff\",\"automationTarget\":true}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Lfo Id=\\\"9901\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Waveform Value=\\\"Sine\\\"/&gt;\\n                &lt;SyncMode Value=\\\"FreeHz\\\"/&gt;\\n                &lt;Rate&gt;\\n                  &lt;Manual Value=\\\"0.100\\\"/&gt;\\n                &lt;/Rate&gt;\\n                &lt;Depth&gt;\\n                  &lt;Manual Value=\\\"0.42\\\"/&gt;\\n                &lt;/Depth&gt;\\n                &lt;Jitter&gt;\\n                  &lt;Manual Value=\\\"0.08\\\"/&gt;\\n                &lt;/Jitter&gt;\\n                &lt;ModulationTarget Id=\\\"9401\\\" Parameter=\\\"AutoFilter.Cutoff\\\"/&gt;\\n              &lt;/Lfo&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"9901\",\"xmlTag\":\"Lfo\",\"sourceParameterHash\":\"fnv1a_eac1924d\",\"conversionVersion\":2,\"conversionKind\":\"voice_modulation_lfo\",\"generatedDescriptor\":{\"xmlTag\":\"Lfo\",\"bypassed\":false,\"rateHz\":0.1,\"depth\":0.42,\"waveform\":\"Sine\"},\"supportedSemantics\":[\"Rate (0.01..20 Hz)\",\"Depth (0..1)\",\"Waveform (0..2)\"],\"limitations\":[\"Modulates track filter cutoff/energy; arbitrary third-party Max patcher routing is not executed.\"],\"status\":\"valid\"}}],\"mixer\":{\"volumeDb\":-3.2,\"pan\":-0.16,\"transposeSemitones\":0,\"fineTuneCents\":0,\"sidechainDepth\":0.45,\"reverbSend\":0.3,\"delaySend\":0.42,\"filterCutoffHz\":1850,\"filterResonance\":0.38},\"muted\":false,\"soloed\":false,\"automationPoints\":[{\"beat\":0,\"value\":0.5},{\"beat\":32,\"value\":0.65},{\"beat\":48,\"value\":0.82},{\"beat\":64,\"value\":0.55}],\"vcaGroupId\":\"drums_vca\",\"automationGainOffsetDb\":0}</ParametricTrackState></MidiTrack>
+      <MidiTrack Id=\"5\" Data-Base-Volume-Db=\"-2.8\" Data-Pan=\"0.14\">
+        <Name>
+          <EffectiveName Value=\"04_Hypnotic_Wavetable_Stab_AI\"/>
+          <UserName Value=\"04_Hypnotic_Wavetable_Stab_AI\"/>
+        </Name>
+        <Color Value=\"42\"/>
+        <DeviceChain>
+          <Mixer>
+            <Volume>
+              <Manual Value=\"1\"/>
+            </Volume>
+            <Pan>
+              <Manual Value=\"0\"/>
+            </Pan>
+            <Speaker>
+              <Manual Value=\"true\"/>
+            </Speaker>
+            <Solo>
+              <Manual Value=\"false\"/>
+            </Solo>
+          </Mixer>
+          <MidiToAudioDeviceChain>
+            <Devices>
+              <InstrumentVector Id=\"6101\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Oscillator1>
+                  <WavePosition Value=\"0.64\"/>
+                  <UnisonVoices Value=\"4\"/>
+                </Oscillator1>
+              </InstrumentVector>
+              <Echo Id=\"6102\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <LeftTime>
+                  <SyncDivision Value=\"3/16\"/>
+                </LeftTime>
+                <RightTime>
+                  <SyncDivision Value=\"3/16\"/>
+                </RightTime>
+                <Feedback>
+                  <Manual Value=\"0.58\"/>
+                </Feedback>
+                <DryWet>
+                  <Manual Value=\"0.48\"/>
+                </DryWet>
+              </Echo>
+              <AutoPan Id=\"6103\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <SyncRate Value=\"3/16\"/>
+                <Amount>
+                  <Manual Value=\"0.68\"/>
+                </Amount>
+              </AutoPan>
+              <AutoFilter Id=\"6104\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <FilterType>
+                  <Manual Value=\"Lowpass\"/>
+                </FilterType>
+                <Cutoff Id=\"9401\">
+                  <Manual Value=\"1208.0\"/>
+                </Cutoff>
+                <Resonance>
+                  <Manual Value=\"0.44\"/>
+                </Resonance>
+              </AutoFilter>
+              <Lfo Id=\"9901\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Waveform Value=\"Sine\"/>
+                <SyncMode Value=\"FreeHz\"/>
+                <Rate>
+                  <Manual Value=\"0.100\"/>
+                </Rate>
+                <Depth>
+                  <Manual Value=\"0.42\"/>
+                </Depth>
+                <Jitter>
+                  <Manual Value=\"0.08\"/>
+                </Jitter>
+                <ModulationTarget Id=\"9401\" Parameter=\"AutoFilter.Cutoff\"/>
+              </Lfo>
+            </Devices>
+          </MidiToAudioDeviceChain>
+          <MainSequencer>
+            <ClipTimeable>
+              <ArrangerAutomation>
+                <Events>
+                  <MidiClip Id=\"5002\" Data-Parametric-ClipId=\"clip_5_primary\" Time=\"0\">
+                    <Name Value=\"Phrygian_Stab_v10\"/>
+                    <CurrentStart Value=\"0\"/>
+                    <CurrentEnd Value=\"16\"/>
+                    <Loop>
+                      <LoopStart Value=\"0\"/>
+                      <LoopEnd Value=\"4\"/>
+                      <StartRelative Value=\"0\"/>
+                      <LoopOn Value=\"false\"/>
+                    </Loop>
+                    <Notes>
+                      <KeyTracks>
+                        <KeyTrack Id=\"0\">
+                          <MidiKey Value=\"53\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.249\" Duration=\"0.2\" Pitch=\"53\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"1\" Data-Parametric-NoteId=\"synth_0_0\" Data-Parametric-QuantizedTime=\"0.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.014\" Duration=\"0.3\" Pitch=\"53\" Velocity=\"107\" OffVelocity=\"64\" NoteId=\"2\" Data-Parametric-NoteId=\"synth_0_1\" Data-Parametric-QuantizedTime=\"1\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.263\" Duration=\"0.2\" Pitch=\"53\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"3\" Data-Parametric-NoteId=\"synth_1_0\" Data-Parametric-QuantizedTime=\"4.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.999\" Duration=\"0.3\" Pitch=\"53\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"4\" Data-Parametric-NoteId=\"synth_1_1\" Data-Parametric-QuantizedTime=\"5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.262\" Duration=\"0.2\" Pitch=\"53\" Velocity=\"89\" OffVelocity=\"64\" NoteId=\"5\" Data-Parametric-NoteId=\"synth_2_0\" Data-Parametric-QuantizedTime=\"8.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.009\" Duration=\"0.3\" Pitch=\"53\" Velocity=\"102\" OffVelocity=\"64\" NoteId=\"6\" Data-Parametric-NoteId=\"synth_2_1\" Data-Parametric-QuantizedTime=\"9\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.252\" Duration=\"0.2\" Pitch=\"53\" Velocity=\"96\" OffVelocity=\"64\" NoteId=\"7\" Data-Parametric-NoteId=\"synth_3_0\" Data-Parametric-QuantizedTime=\"12.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.99\" Duration=\"0.3\" Pitch=\"53\" Velocity=\"104\" OffVelocity=\"64\" NoteId=\"8\" Data-Parametric-NoteId=\"synth_3_1\" Data-Parametric-QuantizedTime=\"13\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                        <KeyTrack Id=\"1\">
+                          <MidiKey Value=\"54\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"1.761\" Duration=\"0.18\" Pitch=\"54\" Velocity=\"42\" OffVelocity=\"64\" NoteId=\"9\" Data-Parametric-NoteId=\"synth_0_2\" Data-Parametric-QuantizedTime=\"1.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.242\" Duration=\"0.3\" Pitch=\"54\" Velocity=\"87\" OffVelocity=\"64\" NoteId=\"10\" Data-Parametric-NoteId=\"synth_0_4\" Data-Parametric-QuantizedTime=\"3.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.747\" Duration=\"0.18\" Pitch=\"54\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"11\" Data-Parametric-NoteId=\"synth_1_2\" Data-Parametric-QuantizedTime=\"5.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.261\" Duration=\"0.3\" Pitch=\"54\" Velocity=\"92\" OffVelocity=\"64\" NoteId=\"12\" Data-Parametric-NoteId=\"synth_1_4\" Data-Parametric-QuantizedTime=\"7.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.75\" Duration=\"0.18\" Pitch=\"54\" Velocity=\"42\" OffVelocity=\"64\" NoteId=\"13\" Data-Parametric-NoteId=\"synth_2_2\" Data-Parametric-QuantizedTime=\"9.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.256\" Duration=\"0.3\" Pitch=\"54\" Velocity=\"90\" OffVelocity=\"64\" NoteId=\"14\" Data-Parametric-NoteId=\"synth_2_4\" Data-Parametric-QuantizedTime=\"11.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.763\" Duration=\"0.18\" Pitch=\"54\" Velocity=\"43\" OffVelocity=\"64\" NoteId=\"15\" Data-Parametric-NoteId=\"synth_3_2\" Data-Parametric-QuantizedTime=\"13.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.255\" Duration=\"0.3\" Pitch=\"54\" Velocity=\"93\" OffVelocity=\"64\" NoteId=\"16\" Data-Parametric-NoteId=\"synth_3_4\" Data-Parametric-QuantizedTime=\"15.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                        <KeyTrack Id=\"2\">
+                          <MidiKey Value=\"60\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"2.511\" Duration=\"0.25\" Pitch=\"60\" Velocity=\"101\" OffVelocity=\"64\" NoteId=\"17\" Data-Parametric-NoteId=\"synth_0_3\" Data-Parametric-QuantizedTime=\"2.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.515\" Duration=\"0.25\" Pitch=\"60\" Velocity=\"102\" OffVelocity=\"64\" NoteId=\"18\" Data-Parametric-NoteId=\"synth_1_3\" Data-Parametric-QuantizedTime=\"6.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.494\" Duration=\"0.25\" Pitch=\"60\" Velocity=\"100\" OffVelocity=\"64\" NoteId=\"19\" Data-Parametric-NoteId=\"synth_2_3\" Data-Parametric-QuantizedTime=\"10.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.501\" Duration=\"0.25\" Pitch=\"60\" Velocity=\"97\" OffVelocity=\"64\" NoteId=\"20\" Data-Parametric-NoteId=\"synth_3_3\" Data-Parametric-QuantizedTime=\"14.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                      </KeyTracks>
+                    </Notes>
+                  </MidiClip>
+                </Events>
+              </ArrangerAutomation>
+            </ClipTimeable>
+          </MainSequencer>
+        </DeviceChain>
+      <ParametricTrackState Version=\"1\" AutomationParameter=\"parametric:filter-energy\">{\"devices\":[{\"id\":\"6101\",\"xmlTag\":\"InstrumentVector\",\"displayName\":\"Wavetable\",\"category\":\"instrument\",\"parameters\":[{\"name\":\"FilterCutoffHz\",\"value\":\"2200\",\"unit\":\"Hz\"},{\"name\":\"Detune\",\"value\":\"14\",\"unit\":\"ct\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;InstrumentVector Id=\\\"6101\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Oscillator1&gt;\\n                  &lt;WavePosition Value=\\\"0.64\\\"/&gt;\\n                  &lt;UnisonVoices Value=\\\"4\\\"/&gt;\\n                &lt;/Oscillator1&gt;\\n              &lt;/InstrumentVector&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"6102\",\"xmlTag\":\"Echo\",\"displayName\":\"Echo\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"DelayTime\",\"value\":\"335\",\"unit\":\"ms\"},{\"name\":\"Feedback\",\"value\":0.58},{\"name\":\"DryWet\",\"value\":\"0.48\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Echo Id=\\\"6102\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;LeftTime&gt;\\n                  &lt;SyncDivision Value=\\\"3/16\\\"/&gt;\\n                &lt;/LeftTime&gt;\\n                &lt;RightTime&gt;\\n                  &lt;SyncDivision Value=\\\"3/16\\\"/&gt;\\n                &lt;/RightTime&gt;\\n                &lt;Feedback&gt;\\n                  &lt;Manual Value=\\\"0.58\\\"/&gt;\\n                &lt;/Feedback&gt;\\n                &lt;DryWet&gt;\\n                  &lt;Manual Value=\\\"0.48\\\"/&gt;\\n                &lt;/DryWet&gt;\\n              &lt;/Echo&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"6103\",\"xmlTag\":\"AutoPan\",\"displayName\":\"AutoPan\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Rate\",\"value\":\"1.5\",\"unit\":\"Hz\"},{\"name\":\"Amount\",\"value\":\"0.68\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;AutoPan Id=\\\"6103\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;SyncRate Value=\\\"3/16\\\"/&gt;\\n                &lt;Amount&gt;\\n                  &lt;Manual Value=\\\"0.68\\\"/&gt;\\n                &lt;/Amount&gt;\\n              &lt;/AutoPan&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"6103\",\"xmlTag\":\"AutoPan\",\"sourceParameterHash\":\"fnv1a_e003e21a\",\"conversionVersion\":2,\"conversionKind\":\"audio_insert_dsp\",\"generatedDescriptor\":{\"xmlTag\":\"AutoPan\",\"bypassed\":false,\"rateHz\":1.5,\"amountPct\":0.68,\"shape\":\"Sine\"},\"supportedSemantics\":[\"Rate (0.05..20 Hz)\",\"Amount (0..100 %)\",\"Shape (0..1)\"],\"limitations\":[\"Converted Web Audio LFO panner + amplitude tremolo stage.\"],\"status\":\"valid\"}},{\"id\":\"6104\",\"xmlTag\":\"AutoFilter\",\"displayName\":\"AutoFilter\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"FilterType\",\"value\":\"Lowpass\"},{\"name\":\"Cutoff\",\"value\":\"1208.0\",\"unit\":\"Hz\",\"automationTarget\":true},{\"name\":\"Resonance\",\"value\":\"0.44\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;AutoFilter Id=\\\"6104\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;FilterType&gt;\\n                  &lt;Manual Value=\\\"Lowpass\\\"/&gt;\\n                &lt;/FilterType&gt;\\n                &lt;Cutoff Id=\\\"9401\\\"&gt;\\n                  &lt;Manual Value=\\\"1208.0\\\"/&gt;\\n                &lt;/Cutoff&gt;\\n                &lt;Resonance&gt;\\n                  &lt;Manual Value=\\\"0.44\\\"/&gt;\\n                &lt;/Resonance&gt;\\n              &lt;/AutoFilter&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"9901\",\"xmlTag\":\"Lfo\",\"displayName\":\"Lfo\",\"category\":\"max_modulator\",\"parameters\":[{\"name\":\"Rate\",\"value\":\"0.100\",\"unit\":\"Hz\"},{\"name\":\"Depth\",\"value\":\"0.42\"},{\"name\":\"Waveform\",\"value\":\"Sine\"},{\"name\":\"Target\",\"value\":\"AutoFilter.Cutoff\",\"automationTarget\":true}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Lfo Id=\\\"9901\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Waveform Value=\\\"Sine\\\"/&gt;\\n                &lt;SyncMode Value=\\\"FreeHz\\\"/&gt;\\n                &lt;Rate&gt;\\n                  &lt;Manual Value=\\\"0.100\\\"/&gt;\\n                &lt;/Rate&gt;\\n                &lt;Depth&gt;\\n                  &lt;Manual Value=\\\"0.42\\\"/&gt;\\n                &lt;/Depth&gt;\\n                &lt;Jitter&gt;\\n                  &lt;Manual Value=\\\"0.08\\\"/&gt;\\n                &lt;/Jitter&gt;\\n                &lt;ModulationTarget Id=\\\"9401\\\" Parameter=\\\"AutoFilter.Cutoff\\\"/&gt;\\n              &lt;/Lfo&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"9901\",\"xmlTag\":\"Lfo\",\"sourceParameterHash\":\"fnv1a_eac1924d\",\"conversionVersion\":2,\"conversionKind\":\"voice_modulation_lfo\",\"generatedDescriptor\":{\"xmlTag\":\"Lfo\",\"bypassed\":false,\"rateHz\":0.1,\"depth\":0.42,\"waveform\":\"Sine\"},\"supportedSemantics\":[\"Rate (0.01..20 Hz)\",\"Depth (0..1)\",\"Waveform (0..2)\"],\"limitations\":[\"Modulates track filter cutoff/energy; arbitrary third-party Max patcher routing is not executed.\"],\"status\":\"valid\"}}],\"mixer\":{\"volumeDb\":-2.8,\"pan\":0.14,\"transposeSemitones\":0,\"fineTuneCents\":0,\"sidechainDepth\":0.72,\"reverbSend\":0.52,\"delaySend\":0.62,\"filterCutoffHz\":1050,\"filterResonance\":0.46},\"muted\":false,\"soloed\":false,\"automationPoints\":[{\"beat\":0,\"value\":0.32},{\"beat\":16,\"value\":0.52},{\"beat\":32,\"value\":0.38},{\"beat\":48,\"value\":0.88},{\"beat\":60,\"value\":0.96},{\"beat\":64,\"value\":0.42}],\"vcaGroupId\":\"synths_vca\",\"automationGainOffsetDb\":0}</ParametricTrackState></MidiTrack>
+      <MidiTrack Id=\"6\" Data-Base-Volume-Db=\"-2.4\" Data-Pan=\"0.1\">
+        <Name>
+          <EffectiveName Value=\"05_Offbeat_909_Hats_Ghost_AI\"/>
+          <UserName Value=\"05_Offbeat_909_Hats_Ghost_AI\"/>
+        </Name>
+        <Color Value=\"26\"/>
+        <DeviceChain>
+          <Mixer>
+            <Volume>
+              <Manual Value=\"1\"/>
+            </Volume>
+            <Pan>
+              <Manual Value=\"0\"/>
+            </Pan>
+            <Speaker>
+              <Manual Value=\"true\"/>
+            </Speaker>
+            <Solo>
+              <Manual Value=\"false\"/>
+            </Solo>
+          </Mixer>
+          <MidiToAudioDeviceChain>
+            <Devices>
+              <OriginalSimpler Id=\"7101\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <SampleRef>
+                  <FileRef>
+                    <Name Value=\"HiHat_909_Open_Raw.wav\"/>
+                  </FileRef>
+                </SampleRef>
+                <VelToVol>
+                  <Manual Value=\"0.88\"/>
+                </VelToVol>
+                <AmpEnvelope>
+                  <Decay Value=\"210.0\"/>
+                  <VelocityToDecay Value=\"0.92\"/>
+                </AmpEnvelope>
+              </OriginalSimpler>
+              <Overdrive Id=\"7102\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Drive>
+                  <Manual Value=\"0.28\"/>
+                </Drive>
+                <Tone>
+                  <Manual Value=\"0.72\"/>
+                </Tone>
+              </Overdrive>
+              <AutoFilter Id=\"7103\">
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <FilterType>
+                  <Manual Value=\"Highpass\"/>
+                </FilterType>
+                <Cutoff Id=\"9401\">
+                  <Manual Value=\"580.0\"/>
+                </Cutoff>
+                <Resonance>
+                  <Manual Value=\"0.18\"/>
+                </Resonance>
+              </AutoFilter>
+              <Lfo Id=\"9901\">
+                <LomId Value=\"0\"/>
+                <IsOn>
+                  <Manual Value=\"true\"/>
+                </IsOn>
+                <Waveform Value=\"Sine\"/>
+                <SyncMode Value=\"FreeHz\"/>
+                <Rate>
+                  <Manual Value=\"0.100\"/>
+                </Rate>
+                <Depth>
+                  <Manual Value=\"0.42\"/>
+                </Depth>
+                <Jitter>
+                  <Manual Value=\"0.08\"/>
+                </Jitter>
+                <ModulationTarget Id=\"9401\" Parameter=\"AutoFilter.Cutoff\"/>
+              </Lfo>
+            </Devices>
+          </MidiToAudioDeviceChain>
+          <MainSequencer>
+            <ClipTimeable>
+              <ArrangerAutomation>
+                <Events>
+                  <MidiClip Id=\"5003\" Data-Parametric-ClipId=\"clip_6_primary\" Time=\"0\">
+                    <Name Value=\"909_Offbeat_Ghost_v7\"/>
+                    <CurrentStart Value=\"0\"/>
+                    <CurrentEnd Value=\"16\"/>
+                    <Loop>
+                      <LoopStart Value=\"0\"/>
+                      <LoopEnd Value=\"4\"/>
+                      <StartRelative Value=\"0\"/>
+                      <LoopOn Value=\"false\"/>
+                    </Loop>
+                    <Notes>
+                      <KeyTracks>
+                        <KeyTrack Id=\"0\">
+                          <MidiKey Value=\"42\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.243\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"1\" Data-Parametric-NoteId=\"hats_0_1\" Data-Parametric-QuantizedTime=\"0.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"0.74\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"29\" OffVelocity=\"64\" NoteId=\"2\" Data-Parametric-NoteId=\"hats_0_3\" Data-Parametric-QuantizedTime=\"0.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.243\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"36\" OffVelocity=\"64\" NoteId=\"3\" Data-Parametric-NoteId=\"hats_0_5\" Data-Parametric-QuantizedTime=\"1.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.753\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"46\" OffVelocity=\"64\" NoteId=\"4\" Data-Parametric-NoteId=\"hats_0_7\" Data-Parametric-QuantizedTime=\"1.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.253\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"44\" OffVelocity=\"64\" NoteId=\"5\" Data-Parametric-NoteId=\"hats_0_9\" Data-Parametric-QuantizedTime=\"2.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.754\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"25\" OffVelocity=\"64\" NoteId=\"6\" Data-Parametric-NoteId=\"hats_0_11\" Data-Parametric-QuantizedTime=\"2.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.261\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"41\" OffVelocity=\"64\" NoteId=\"7\" Data-Parametric-NoteId=\"hats_0_13\" Data-Parametric-QuantizedTime=\"3.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.757\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"40\" OffVelocity=\"64\" NoteId=\"8\" Data-Parametric-NoteId=\"hats_0_15\" Data-Parametric-QuantizedTime=\"3.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.254\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"26\" OffVelocity=\"64\" NoteId=\"9\" Data-Parametric-NoteId=\"hats_1_1\" Data-Parametric-QuantizedTime=\"4.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.756\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"30\" OffVelocity=\"64\" NoteId=\"10\" Data-Parametric-NoteId=\"hats_1_3\" Data-Parametric-QuantizedTime=\"4.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.249\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"28\" OffVelocity=\"64\" NoteId=\"11\" Data-Parametric-NoteId=\"hats_1_5\" Data-Parametric-QuantizedTime=\"5.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.755\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"30\" OffVelocity=\"64\" NoteId=\"12\" Data-Parametric-NoteId=\"hats_1_7\" Data-Parametric-QuantizedTime=\"5.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.237\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"34\" OffVelocity=\"64\" NoteId=\"13\" Data-Parametric-NoteId=\"hats_1_9\" Data-Parametric-QuantizedTime=\"6.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.744\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"26\" OffVelocity=\"64\" NoteId=\"14\" Data-Parametric-NoteId=\"hats_1_11\" Data-Parametric-QuantizedTime=\"6.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.261\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"38\" OffVelocity=\"64\" NoteId=\"15\" Data-Parametric-NoteId=\"hats_1_13\" Data-Parametric-QuantizedTime=\"7.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.751\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"20\" OffVelocity=\"64\" NoteId=\"16\" Data-Parametric-NoteId=\"hats_1_15\" Data-Parametric-QuantizedTime=\"7.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.259\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"20\" OffVelocity=\"64\" NoteId=\"17\" Data-Parametric-NoteId=\"hats_2_1\" Data-Parametric-QuantizedTime=\"8.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.763\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"38\" OffVelocity=\"64\" NoteId=\"18\" Data-Parametric-NoteId=\"hats_2_3\" Data-Parametric-QuantizedTime=\"8.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.235\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"23\" OffVelocity=\"64\" NoteId=\"19\" Data-Parametric-NoteId=\"hats_2_5\" Data-Parametric-QuantizedTime=\"9.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.746\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"39\" OffVelocity=\"64\" NoteId=\"20\" Data-Parametric-NoteId=\"hats_2_7\" Data-Parametric-QuantizedTime=\"9.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.258\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"38\" OffVelocity=\"64\" NoteId=\"21\" Data-Parametric-NoteId=\"hats_2_9\" Data-Parametric-QuantizedTime=\"10.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.759\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"35\" OffVelocity=\"64\" NoteId=\"22\" Data-Parametric-NoteId=\"hats_2_11\" Data-Parametric-QuantizedTime=\"10.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.252\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"20\" OffVelocity=\"64\" NoteId=\"23\" Data-Parametric-NoteId=\"hats_2_13\" Data-Parametric-QuantizedTime=\"11.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.751\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"38\" OffVelocity=\"64\" NoteId=\"24\" Data-Parametric-NoteId=\"hats_2_15\" Data-Parametric-QuantizedTime=\"11.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.263\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"42\" OffVelocity=\"64\" NoteId=\"25\" Data-Parametric-NoteId=\"hats_3_1\" Data-Parametric-QuantizedTime=\"12.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.753\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"33\" OffVelocity=\"64\" NoteId=\"26\" Data-Parametric-NoteId=\"hats_3_3\" Data-Parametric-QuantizedTime=\"12.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.235\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"32\" OffVelocity=\"64\" NoteId=\"27\" Data-Parametric-NoteId=\"hats_3_5\" Data-Parametric-QuantizedTime=\"13.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.754\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"34\" OffVelocity=\"64\" NoteId=\"28\" Data-Parametric-NoteId=\"hats_3_7\" Data-Parametric-QuantizedTime=\"13.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.24\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"36\" OffVelocity=\"64\" NoteId=\"29\" Data-Parametric-NoteId=\"hats_3_9\" Data-Parametric-QuantizedTime=\"14.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.765\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"35\" OffVelocity=\"64\" NoteId=\"30\" Data-Parametric-NoteId=\"hats_3_11\" Data-Parametric-QuantizedTime=\"14.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.259\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"32\" OffVelocity=\"64\" NoteId=\"31\" Data-Parametric-NoteId=\"hats_3_13\" Data-Parametric-QuantizedTime=\"15.25\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.752\" Duration=\"0.12\" Pitch=\"42\" Velocity=\"31\" OffVelocity=\"64\" NoteId=\"32\" Data-Parametric-NoteId=\"hats_3_15\" Data-Parametric-QuantizedTime=\"15.75\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                        <KeyTrack Id=\"1\">
+                          <MidiKey Value=\"46\"/>
+                          <Notes>
+                            <MidiNoteEvent Time=\"0.497\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"108\" OffVelocity=\"64\" NoteId=\"33\" Data-Parametric-NoteId=\"hats_0_2\" Data-Parametric-QuantizedTime=\"0.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"1.515\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"109\" OffVelocity=\"64\" NoteId=\"34\" Data-Parametric-NoteId=\"hats_0_6\" Data-Parametric-QuantizedTime=\"1.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"2.513\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"112\" OffVelocity=\"64\" NoteId=\"35\" Data-Parametric-NoteId=\"hats_0_10\" Data-Parametric-QuantizedTime=\"2.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"3.485\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"36\" Data-Parametric-NoteId=\"hats_0_14\" Data-Parametric-QuantizedTime=\"3.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"4.498\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"106\" OffVelocity=\"64\" NoteId=\"37\" Data-Parametric-NoteId=\"hats_1_2\" Data-Parametric-QuantizedTime=\"4.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"5.515\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"114\" OffVelocity=\"64\" NoteId=\"38\" Data-Parametric-NoteId=\"hats_1_6\" Data-Parametric-QuantizedTime=\"5.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"6.515\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"107\" OffVelocity=\"64\" NoteId=\"39\" Data-Parametric-NoteId=\"hats_1_10\" Data-Parametric-QuantizedTime=\"6.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"7.503\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"105\" OffVelocity=\"64\" NoteId=\"40\" Data-Parametric-NoteId=\"hats_1_14\" Data-Parametric-QuantizedTime=\"7.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"8.509\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"116\" OffVelocity=\"64\" NoteId=\"41\" Data-Parametric-NoteId=\"hats_2_2\" Data-Parametric-QuantizedTime=\"8.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"9.515\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"100\" OffVelocity=\"64\" NoteId=\"42\" Data-Parametric-NoteId=\"hats_2_6\" Data-Parametric-QuantizedTime=\"9.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"10.514\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"115\" OffVelocity=\"64\" NoteId=\"43\" Data-Parametric-NoteId=\"hats_2_10\" Data-Parametric-QuantizedTime=\"10.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"11.487\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"114\" OffVelocity=\"64\" NoteId=\"44\" Data-Parametric-NoteId=\"hats_2_14\" Data-Parametric-QuantizedTime=\"11.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"12.511\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"114\" OffVelocity=\"64\" NoteId=\"45\" Data-Parametric-NoteId=\"hats_3_2\" Data-Parametric-QuantizedTime=\"12.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"13.499\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"103\" OffVelocity=\"64\" NoteId=\"46\" Data-Parametric-NoteId=\"hats_3_6\" Data-Parametric-QuantizedTime=\"13.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"14.503\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"102\" OffVelocity=\"64\" NoteId=\"47\" Data-Parametric-NoteId=\"hats_3_10\" Data-Parametric-QuantizedTime=\"14.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                            <MidiNoteEvent Time=\"15.505\" Duration=\"0.35\" Pitch=\"46\" Velocity=\"112\" OffVelocity=\"64\" NoteId=\"48\" Data-Parametric-NoteId=\"hats_3_14\" Data-Parametric-QuantizedTime=\"15.5\" Probability=\"1\" IsEnabled=\"true\"/>
+                          </Notes>
+                        </KeyTrack>
+                      </KeyTracks>
+                    </Notes>
+                  </MidiClip>
+                </Events>
+              </ArrangerAutomation>
+            </ClipTimeable>
+          </MainSequencer>
+        </DeviceChain>
+      <ParametricTrackState Version=\"1\" AutomationParameter=\"parametric:filter-energy\">{\"devices\":[{\"id\":\"7101\",\"xmlTag\":\"OriginalSimpler\",\"displayName\":\"Simpler (909)\",\"category\":\"instrument\",\"parameters\":[{\"name\":\"FilterCutoffHz\",\"value\":\"7500\",\"unit\":\"Hz\"},{\"name\":\"Transpose\",\"value\":\"0\",\"unit\":\"st\"},{\"name\":\"Decay\",\"value\":\"0.18\",\"unit\":\"s\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;OriginalSimpler Id=\\\"7101\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;SampleRef&gt;\\n                  &lt;FileRef&gt;\\n                    &lt;Name Value=\\\"HiHat_909_Open_Raw.wav\\\"/&gt;\\n                  &lt;/FileRef&gt;\\n                &lt;/SampleRef&gt;\\n                &lt;VelToVol&gt;\\n                  &lt;Manual Value=\\\"0.88\\\"/&gt;\\n                &lt;/VelToVol&gt;\\n                &lt;AmpEnvelope&gt;\\n                  &lt;Decay Value=\\\"210.0\\\"/&gt;\\n                  &lt;VelocityToDecay Value=\\\"0.92\\\"/&gt;\\n                &lt;/AmpEnvelope&gt;\\n              &lt;/OriginalSimpler&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"7102\",\"xmlTag\":\"Overdrive\",\"displayName\":\"Overdrive\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"Drive\",\"value\":\"0.28\",\"unit\":\"%\"},{\"name\":\"DryWet\",\"value\":\"100\",\"unit\":\"%\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Overdrive Id=\\\"7102\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Drive&gt;\\n                  &lt;Manual Value=\\\"0.28\\\"/&gt;\\n                &lt;/Drive&gt;\\n                &lt;Tone&gt;\\n                  &lt;Manual Value=\\\"0.72\\\"/&gt;\\n                &lt;/Tone&gt;\\n              &lt;/Overdrive&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"7103\",\"xmlTag\":\"AutoFilter\",\"displayName\":\"AutoFilter\",\"category\":\"audio_effect\",\"parameters\":[{\"name\":\"FilterType\",\"value\":\"Highpass\"},{\"name\":\"Cutoff\",\"value\":\"580.0\",\"unit\":\"Hz\",\"automationTarget\":true},{\"name\":\"Resonance\",\"value\":\"0.18\"}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;AutoFilter Id=\\\"7103\\\"&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;FilterType&gt;\\n                  &lt;Manual Value=\\\"Highpass\\\"/&gt;\\n                &lt;/FilterType&gt;\\n                &lt;Cutoff Id=\\\"9401\\\"&gt;\\n                  &lt;Manual Value=\\\"580.0\\\"/&gt;\\n                &lt;/Cutoff&gt;\\n                &lt;Resonance&gt;\\n                  &lt;Manual Value=\\\"0.18\\\"/&gt;\\n                &lt;/Resonance&gt;\\n              &lt;/AutoFilter&gt;\",\"isUnsupportedPlugin\":false},{\"id\":\"9901\",\"xmlTag\":\"Lfo\",\"displayName\":\"Lfo\",\"category\":\"max_modulator\",\"parameters\":[{\"name\":\"Rate\",\"value\":\"0.100\",\"unit\":\"Hz\"},{\"name\":\"Depth\",\"value\":\"0.42\"},{\"name\":\"Waveform\",\"value\":\"Sine\"},{\"name\":\"Target\",\"value\":\"AutoFilter.Cutoff\",\"automationTarget\":true}],\"bypassed\":false,\"isUserCreated\":true,\"browserDspSupported\":true,\"opaqueSubtreeXml\":\"&lt;Lfo Id=\\\"9901\\\"&gt;\\n                &lt;LomId Value=\\\"0\\\"/&gt;\\n                &lt;IsOn&gt;\\n                  &lt;Manual Value=\\\"true\\\"/&gt;\\n                &lt;/IsOn&gt;\\n                &lt;Waveform Value=\\\"Sine\\\"/&gt;\\n                &lt;SyncMode Value=\\\"FreeHz\\\"/&gt;\\n                &lt;Rate&gt;\\n                  &lt;Manual Value=\\\"0.100\\\"/&gt;\\n                &lt;/Rate&gt;\\n                &lt;Depth&gt;\\n                  &lt;Manual Value=\\\"0.42\\\"/&gt;\\n                &lt;/Depth&gt;\\n                &lt;Jitter&gt;\\n                  &lt;Manual Value=\\\"0.08\\\"/&gt;\\n                &lt;/Jitter&gt;\\n                &lt;ModulationTarget Id=\\\"9401\\\" Parameter=\\\"AutoFilter.Cutoff\\\"/&gt;\\n              &lt;/Lfo&gt;\",\"isUnsupportedPlugin\":false,\"conversionRecord\":{\"sourceDeviceId\":\"9901\",\"xmlTag\":\"Lfo\",\"sourceParameterHash\":\"fnv1a_eac1924d\",\"conversionVersion\":2,\"conversionKind\":\"voice_modulation_lfo\",\"generatedDescriptor\":{\"xmlTag\":\"Lfo\",\"bypassed\":false,\"rateHz\":0.1,\"depth\":0.42,\"waveform\":\"Sine\"},\"supportedSemantics\":[\"Rate (0.01..20 Hz)\",\"Depth (0..1)\",\"Waveform (0..2)\"],\"limitations\":[\"Modulates track filter cutoff/energy; arbitrary third-party Max patcher routing is not executed.\"],\"status\":\"valid\"}}],\"mixer\":{\"volumeDb\":-2.4,\"pan\":0.1,\"transposeSemitones\":0,\"fineTuneCents\":0,\"sidechainDepth\":0.35,\"reverbSend\":0.22,\"delaySend\":0.18,\"filterCutoffHz\":6800,\"filterResonance\":0.2},\"muted\":false,\"soloed\":false,\"automationPoints\":[{\"beat\":0,\"value\":0.5},{\"beat\":32,\"value\":0.65},{\"beat\":48,\"value\":0.82},{\"beat\":64,\"value\":0.55}],\"vcaGroupId\":\"drums_vca\",\"automationGainOffsetDb\":0}</ParametricTrackState></MidiTrack>
+      <MidiTrack Id=\"7\" Data-Base-Volume-Db=\"-2.2\" Data-Pan=\"-0.08\">
+        <Name>
+          <E...
+
+ ❯ src/__tests__/legacyRecoveryAndSession.test.tsx:491:48
+    489|     row.checksum=await computeSha256Hex(JSON.stringify(row.record));aw…
+    490|     const q=new ProjectQueueService();
+    491|     expect(await q.restorePersistedProjects()).toBeNull();
+       |                                                ^
+    492|     expect(q.getBlockedRecoveryRecords()[0].error).toContain('CONVERSI…
+    493|     expect(await getRawEnvelope('tampered-bypassed')).toEqual(row);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 skipped (19)
+   Start at  06:40:15
+   Duration  2.79s (tests 48%, environment 30%, transform 17%, import 3%)
+

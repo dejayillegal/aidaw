@@ -1,0 +1,12 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 lint
+> tsc --noEmit
+
+src/App.tsx(2571,84): error TS17008: JSX element 'boolean' has no corresponding closing tag.
+src/App.tsx(2573,46): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/App.tsx(2574,9): error TS1005: '}' expected.
+src/App.tsx(2575,37): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/App.tsx(2585,9): error TS1005: '}' expected.
+src/App.tsx(2586,5): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/App.tsx(2588,3): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?

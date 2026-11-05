@@ -1,0 +1,39 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> react-example@0.0.0 test
+> vitest run src/__tests__/conversionUnits.test.ts src/__tests__/p0ReleaseBlockers.test.ts
+
+
+ RUN  v5.0.5 /workspace/scratch/ff176f03ae55/aidaw
+
+ ❯ src/__tests__/conversionUnits.test.ts (2 tests | 1 failed) 35ms
+   ❯ Versioned unit conversion compatibility (2)
+     × preserves future, stale, corrupt and ambiguous records for targeted repair 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/conversionUnits.test.ts > Versioned unit conversion compatibility > preserves future, stale, corrupt and ambiguous records for targeted repair
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/__tests__/conversionUnits.test.ts:50:59
+     48|       change(d);
+     49|       const before = JSON.stringify(d);
+     50|       expect(migrateCompatibleUnitConversion(d).migrated).toBe(false);
+       |                                                           ^
+     51|       expect(JSON.stringify(d)).toBe(before);
+     52|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 5 passed (6)
+   Start at  06:12:13
+   Duration  4.05s (environment 67%, transform 25%, tests 4%, import 3%, setup 1%)
+

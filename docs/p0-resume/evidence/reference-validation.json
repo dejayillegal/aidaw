@@ -1,0 +1,72 @@
+{
+  "source": "565dad387af959e36f89003d489098c580e3bbbc",
+  "synthetic": false,
+  "scope": "Isolated Node/JSDOM structural import/export; 4096 MiB V8 heap allowance per process. No browser/Android memory qualification.",
+  "results": [
+    {
+      "file": "Sample als/chlar 3.als",
+      "sha256": "88397e1b5c1e6f9b1209afb68c8bd0e61b85425b97d36b123b68d7d9bc22299f",
+      "status": "PASS",
+      "tracks": 13,
+      "notes": 165,
+      "scope": "Structural import and XML serialization only; audio and licensed Live reopen NOT RUN",
+      "command": [
+        "node",
+        "--max-old-space-size=4096",
+        "--import",
+        "tsx",
+        "docs/p0-resume/reference-validation.mjs",
+        "chlar 3.als"
+      ]
+    },
+    {
+      "file": "Sample als/hypno 1.als",
+      "sha256": "d642685f5b418240ec0d7ffc722dcf4f66f220cdbcf5bc1833a46b9b94baccd4",
+      "status": "PASS",
+      "tracks": 15,
+      "notes": 275,
+      "scope": "Structural import and XML serialization only; audio and licensed Live reopen NOT RUN",
+      "command": [
+        "node",
+        "--max-old-space-size=4096",
+        "--import",
+        "tsx",
+        "docs/p0-resume/reference-validation.mjs",
+        "hypno 1.als"
+      ]
+    },
+    {
+      "file": "Sample als/raw 3.als",
+      "sha256": "501d1809ce0652d1c263825cda3f5cf33036ca39da6505614e2074121e1e97bc",
+      "status": "PASS",
+      "tracks": 19,
+      "notes": 4648,
+      "scope": "Structural import and XML serialization only; audio and licensed Live reopen NOT RUN",
+      "command": [
+        "node",
+        "--max-old-space-size=4096",
+        "--import",
+        "tsx",
+        "docs/p0-resume/reference-validation.mjs",
+        "raw 3.als"
+      ]
+    },
+    {
+      "file": "Sample als/yanamste.als",
+      "sha256": "33564df1862b60cd8dce18e8030a0d2ca5946377c9bb8e82821cecb9edd73149",
+      "status": "PASS",
+      "tracks": 20,
+      "notes": 381,
+      "scope": "Structural import and XML serialization only; audio and licensed Live reopen NOT RUN",
+      "command": [
+        "node",
+        "--max-old-space-size=4096",
+        "--import",
+        "tsx",
+        "docs/p0-resume/reference-validation.mjs",
+        "yanamste.als"
+      ]
+    }
+  ],
+  "status": "PASS"
+}

@@ -1,5 +1,6 @@
+// SYNTHETIC fixtures only; these are not recovered user projects.
 import { describe, expect, it, beforeAll } from 'vitest';
-import { JSDOM } from 'jsdom';
+// @vitest-environment jsdom
 import {
   AbletonDevice,
   AbletonProjectState,
@@ -8,21 +9,14 @@ import {
   TrackMixerParams,
 } from '../types/ableton';
 
-beforeAll(() => {
-  if (typeof globalThis.DOMParser === 'undefined') {
-    const dom = new JSDOM();
-    globalThis.DOMParser = dom.window.DOMParser;
-    globalThis.XMLSerializer = dom.window.XMLSerializer;
-  }
-});
-
 import { assertProjectState, repairProjectNoteIdentities } from '../engine/projectStateContracts';
 import {
   migrateCompatibleProjectUnitConversions,
   determineLegacyConversionMigrationEligibility,
   CURRENT_DEVICE_CONVERSION_VERSION,
+  buildDeviceConversionRecord,
 } from '../engine/abletonCapabilityMatrix';
-import { parseAbletonXmlDom, synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
+import { buildStarterAbletonXml, parseAbletonXmlDom, synchronizeProjectStateToXml } from '../engine/alsXmlEngine';
 import { substituteUnsupportedDevice } from '../services/commandBus';
 
 const defaultMixer: TrackMixerParams = {
@@ -37,7 +31,7 @@ const defaultMixer: TrackMixerParams = {
   filterResonance: 0.25,
 };
 
-describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
+describe('P0 synthetic state regression; audio and device qualification remain separate', () => {
   describe('P0-001: Unsupported AU/VST Plugin Handling & Substitution', () => {
     const sampleXml = `<Ableton MajorVersion="5" MinorVersion="12.0_12000" SchemaChangeCount="1" Creator="Ableton Live 12.0" Revision="100">
         <LiveSet>
@@ -75,7 +69,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
         </LiveSet>
       </Ableton>`;
 
-    it('parses imported AuPluginDevice cleanly, sets bypassed by default, and preserves original XML', () => {
+    it('parses imported AuPluginDevice cleanly, retains the source enabled state, and preserves original XML', () => {
       const parsed = parseAbletonXmlDom(sampleXml, '2-Kick.als');
       expect(parsed.tracks.length).toBeGreaterThan(0);
       const track = parsed.tracks.find((t) => t.name.includes('2-Kick 3')) || parsed.tracks[0];
@@ -83,7 +77,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
 
       const auDevice = track.devices.find((d) => d.xmlTag === 'AuPluginDevice');
       expect(auDevice).toBeDefined();
-      expect(auDevice?.bypassed).toBe(true);
+      expect(auDevice?.bypassed).toBe(false);
 
       // Project state assertion must pass because unsupported plugin is bypassed
       expect(() => assertProjectState(parsed)).not.toThrow();
@@ -95,6 +89,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
 
     it('substitutes active browser synthesis for AuPluginDevice while preserving original XML for export', () => {
       const initialProject: AbletonProjectState = {
+        ...parseAbletonXmlDom(buildStarterAbletonXml('berghain-134', 1, 4).xml, 'synthetic.als'),
         fileName: 'Au_Plugin_Project.als',
         rawXml: sampleXml,
         rawXmlModified: sampleXml,
@@ -105,7 +100,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
           {
             id: '1',
             name: '2-Kick 3',
-            type: 'midi',
+            type: 'midi', isGenerated: false, colorIndex: 0,
             archetype: 'kick',
             hexColor: '#F59E0B',
             muted: false,
@@ -127,7 +122,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
                     quantizedTime: 0,
                     duration: 1,
                     pitch: 36,
-                    velocity: 100,
+                    velocity: 100, isGhost: false,
                   },
                 ],
               },
@@ -148,12 +143,12 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
         ],
       };
 
-      const updated = substituteUnsupportedDevice(initialProject, '1', '31', 'Operator');
+      const updated = substituteUnsupportedDevice(initialProject, '1', '31', 'Operator', 'instrument');
       const updatedDev = updated.tracks[0].devices[0];
 
       expect(updatedDev.bypassed).toBe(false);
-      expect(updatedDev.displayName).toContain('Operator');
-      expect(updatedDev.opaqueSubtreeXml).toContain('AuPluginDevice');
+      expect(updatedDev.xmlTag).toBe('Operator');
+      expect(updatedDev.originalPlugin?.opaqueSubtreeXml).toContain('AuPluginDevice');
 
       // Export retains original AuPluginDevice XML structure
       const exportedXml = synchronizeProjectStateToXml(updated, initialProject);
@@ -164,6 +159,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
   describe('P0-002: Deterministic Note Identity Repair', () => {
     it('repairs missing or duplicate note identities without changing pitch, time, duration, or velocity', () => {
       const corruptProject: AbletonProjectState = {
+        ...parseAbletonXmlDom(buildStarterAbletonXml('berghain-134', 1, 4).xml, 'synthetic.als'),
         fileName: 'Berghain_Core_133.5BPM_541.als',
         projectRevision: 1,
         ppq: 96,
@@ -172,7 +168,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
           {
             id: 't1',
             name: 'Bass Track',
-            type: 'midi',
+            type: 'midi', isGenerated: false, colorIndex: 0,
             archetype: 'acid',
             hexColor: '#EC4899',
             muted: false,
@@ -195,15 +191,15 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
                     quantizedTime: 0,
                     duration: 0.25,
                     pitch: 36,
-                    velocity: 110,
+                    velocity: 110, isGhost: false,
                   },
                   {
-                    id: 'dup_1',
+                    id: '',
                     time: 0.25,
                     quantizedTime: 0.25,
                     duration: 0.25,
                     pitch: 48,
-                    velocity: 95,
+                    velocity: 95, isGhost: false,
                   },
                   // Empty note ID ''
                   {
@@ -212,7 +208,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
                     quantizedTime: 0.5,
                     duration: 0.5,
                     pitch: 36,
-                    velocity: 105,
+                    velocity: 105, isGhost: false,
                   },
                 ],
               },
@@ -270,7 +266,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
           xmlTag: 'Reverb',
           sourceParameterHash: 'legacy_hash_v1',
           conversionVersion: 1,
-          conversionKind: 'converted_approximation',
+          conversionKind: 'audio_insert_dsp',
           generatedDescriptor: { reverbDecaySec: 3.6, reverbReturnLevel: 0.4 },
           supportedSemantics: ['DecayTime (3600 ms)', 'DryWet (0.4)'],
           limitations: ['Converted browser approximation.'],
@@ -278,8 +274,11 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
         },
       };
 
+      v1ReverbDevice.conversionRecord = buildDeviceConversionRecord(v1ReverbDevice, true);
+
       const legacyProject: AbletonProjectState = {
-        fileName: 'Tresor_Vault_133.5BPM_577.als',
+        ...parseAbletonXmlDom(buildStarterAbletonXml('berghain-134', 1, 4).xml, 'synthetic.als'),
+        fileName: 'Tresor_Vault_138.5BPM_577.als',
         projectRevision: 1,
         ppq: 96,
         tempo: 133.5,
@@ -287,7 +286,7 @@ describe('P0 Release Blocker Regression & Recovery Qualification Suite', () => {
           {
             id: 't1',
             name: 'Reverb Bus',
-            type: 'audio',
+            type: 'audio', isGenerated: false, colorIndex: 0,
             archetype: 'existing',
             hexColor: '#10B981',
             muted: false,
