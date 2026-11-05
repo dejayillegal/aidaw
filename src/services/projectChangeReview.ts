@@ -12,7 +12,7 @@ export function compareProjects(before:AbletonProjectState,after:AbletonProjectS
   const a=before.tracks.find(t=>t.id===id),b=after.tracks.find(t=>t.id===id);
   if(JSON.stringify(a)===JSON.stringify(b))return [];
   const an=notes(a),bn=notes(b),keys=new Set([...an.keys(),...bn.keys()]);
-  return [{id,name:b?.name||a!.name,status:!a?'added':!b?'removed':'changed',before:a,after:b,changedNotes:[...keys].filter(k=>an.get(k)!==bn.get(k)).length,notesBefore:an.size,notesAfter:bn.size,clipsBefore:a?.clips.length||0,clipsAfter:b?.clips.length||0,fields:['name','locked','clips','sessionClips','devices','mixer','automationPoints','routing'].filter(k=>JSON.stringify(a?.[k as keyof AbletonTrack])!==JSON.stringify(b?.[k as keyof AbletonTrack]))}];
+  return [{id,name:b?.name||a!.name,status:!a?'added':!b?'removed':'changed',before:a,after:b,changedNotes:[...keys].filter(k=>an.get(k)!==bn.get(k)).length,notesBefore:an.size,notesAfter:bn.size,clipsBefore:a?.clips.length||0,clipsAfter:b?.clips.length||0,fields:['name','locked','clips','sessionClips','devices','mixer','automationPoints','routing','layer','parameterAutomation','sidechainCompressor'].filter(k=>JSON.stringify(a?.[k as keyof AbletonTrack])!==JSON.stringify(b?.[k as keyof AbletonTrack]))}];
  });
  return {globalChanges,tracks,changed:globalChanges.length>0||tracks.length>0};
 }

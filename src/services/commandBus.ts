@@ -27,6 +27,7 @@ import {
   sessionEventsInWindow,
 } from '../engine/timelineCoordinates';
 import { assertProjectState } from '../engine/projectStateContracts';
+import { applyProjectCommand, type ProjectCommand } from './projectCommands';
 
 export function storeArrangementClipInSession(project: AbletonProjectState, trackId: string, slot: number, clipId: string): AbletonProjectState {
   const track=project.tracks.find(t=>t.id===trackId), clip=track?.clips.find(c=>c.id===clipId);
@@ -91,6 +92,8 @@ import {
 } from '../engine/webAudioSynth';
 
 export interface ProjectCommandTransaction {
+  actor?: 'user' | 'assist';
+  command?: ProjectCommand;
   id: string;
   projectQueueId: string;
   label: string;
@@ -123,6 +126,15 @@ export class StudioCommandBus {
   private maxStackDepth = 50;
   private listeners = new Set<() => void>();
 
+  public executeCommand(command: ProjectCommand, currentProject: AbletonProjectState, activeProjectQueueId: string): AbletonProjectState {
+    const captured = structuredClone(command);
+    if (captured.projectQueueId !== activeProjectQueueId) throw new Error('COMMAND_STALE: active project changed');
+    return this.executeMutation(captured.projectQueueId, captured.payload.type,
+      captured.payload.type.startsWith('edit-') ? 'clip_edit' : 'mixer', currentProject,
+      draft => applyProjectCommand(draft, captured),
+      { activeProjectQueueId, expectedRevision: captured.expectedRevision, actor: captured.actor, command: captured });
+  }
+
   public subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -140,7 +152,7 @@ export class StudioCommandBus {
     category: ProjectCommandTransaction['category'],
     currentProject: AbletonProjectState,
     mutator: (draft: AbletonProjectState) => AbletonProjectState,
-    context?: { activeProjectQueueId: string; expectedRevision?: number }
+    context?: { activeProjectQueueId: string; expectedRevision?: number; actor?: 'user' | 'assist'; command?: ProjectCommand }
   ): AbletonProjectState {
     if (context && (context.activeProjectQueueId !== projectQueueId ||
         (context.expectedRevision !== undefined && context.expectedRevision !== (currentProject.projectRevision || currentProject.revision || 1)))) {
@@ -155,7 +167,7 @@ export class StudioCommandBus {
     for (const before of currentProject.tracks.filter(track=>track.locked)) {
       const after=mutated.tracks.find(track=>track.id===before.id);
       if(!after) throw new Error(`TRACK_LOCKED: unlock ${before.name} before deleting it`);
-      if(after.locked!==false && ['clips','sessionClips','devices','automationPoints'].some(key=>JSON.stringify(before[key as keyof AbletonTrack])!==JSON.stringify(after[key as keyof AbletonTrack]))) {
+      if(after.locked!==false && ['clips','sessionClips','devices','automationPoints','layer','parameterAutomation','sidechainCompressor'].some(key=>JSON.stringify(before[key as keyof AbletonTrack])!==JSON.stringify(after[key as keyof AbletonTrack]))) {
         throw new Error(`TRACK_LOCKED: unlock ${before.name} before editing its content`);
       }
     }
@@ -180,6 +192,8 @@ export class StudioCommandBus {
     const afterSnapshot = deepCloneProject(mutated);
 
     const tx: ProjectCommandTransaction = {
+      actor: context?.actor || 'user',
+      ...(context?.command ? { command: structuredClone(context.command) } : {}),
       id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       projectQueueId,
       label,

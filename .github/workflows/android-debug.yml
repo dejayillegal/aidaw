@@ -89,6 +89,12 @@ jobs:
           SIGNAL_BROWSER_OUTPUT: recovery-browser-evidence/signal-metrics-browser.json
         run: node scripts/signal-metrics-browser-check.mjs
 
+      - name: Verify independent layers, continuous automation and signal sidechain
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          SLICES_OUTPUT: recovery-browser-evidence/vertical-slices.json
+        run: node scripts/slices-browser-check.mjs
+
       - name: Inventory UI controls
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         run: node scripts/inventory-ui-controls.mjs recovery-browser-evidence/ui-controls.json

@@ -1,4 +1,6 @@
 import { evaluateAutomationAtBeat, scheduleMasterAutomation } from './masterAutomation';
+import { scheduleParameterLane } from './parameterAutomation';
+import { prepareSidechainModule, requiresSidechain, isSidechainReady, reconcileSidechains, removeSidechain } from './sidechainGraph';
 export { evaluateAutomationAtBeat } from './masterAutomation';
 import { projectSeconds, projectBeat, runtimeClockPosition, runtimeAudioTime, runtimeWindowEnd, metronomeEvents, runtimeNoteDuration, tempoAtBeat, scheduleTempoSyncedReturns } from './runtimeTiming';
 import { assertPluginExecutable } from './pluginDependencies';
@@ -185,6 +187,14 @@ export interface RetiringInsertChainEntry {
 }
 
 export interface TrackChannelRuntime {
+  sidechainNode?: AudioWorkletNode;
+  sidechainSource?: AudioNode;
+  sidechainSignature?: string;
+  sidechainReductionDb?: number;
+  sidechainError?: string;
+  parameterGain?: GainNode;
+  parameterFilter?: BiquadFilterNode;
+  parameterTargets?: Set<string>;
   trackId: string;
   inputNode: GainNode;
   voiceSum: OrderedAudioSum;
@@ -272,6 +282,8 @@ export function routedKickBeats(project:AbletonProjectState,receiver:AbletonTrac
 }
 
 interface AudioBusGraph {
+  outputTrackIds?: ReadonlySet<string>;
+  includeStemReturns?: boolean;
   acidMonoVoices?:Map<string,AcidMonoVoiceState>;
   dryBus: GainNode;
   drySum: OrderedAudioSum;
@@ -299,7 +311,8 @@ export function buildAudioBusGraph(
   ctx: BaseAudioContext,
   tempo: number,
   masterBus: MasterBusConfig,
-  withAnalyser: boolean
+  withAnalyser: boolean,
+  applyMasterProcessing = true
 ): AudioBusGraph {
   const dryBus = ctx.createGain();
   const reverbSendBus = ctx.createGain();
@@ -307,7 +320,7 @@ export function buildAudioBusGraph(
 
   // Headroom Staging: -6.0 dB (0.501) summing bus pad so 8 tracks do not clip dry summing bus
   const sumHeadroomGain = ctx.createGain();
-  sumHeadroomGain.gain.value = 0.501;
+  sumHeadroomGain.gain.value = applyMasterProcessing ? 0.501 : 1;
   dryBus.connect(sumHeadroomGain);
 
   // Master High-Pass (Sub cleanup at 26 Hz)
@@ -397,10 +410,13 @@ export function buildAudioBusGraph(
   panR.connect(delayReturnGain);
 
   // Mastering signal chain: subHpf -> glue compressor -> oversampled waveshaper -> masterGain
-  connectOrderedSources(ctx, [sumHeadroomGain, reverbReturnGain, delayReturnGain], masterSubHpf);
-  masterSubHpf.connect(compressor);
-  compressor.connect(masterLimiter);
-  masterLimiter.connect(masterGain);
+  if (applyMasterProcessing) {
+    connectOrderedSources(ctx, [sumHeadroomGain, reverbReturnGain, delayReturnGain], masterSubHpf);
+    masterSubHpf.connect(compressor); compressor.connect(masterLimiter); masterLimiter.connect(masterGain);
+  } else {
+    masterGain.gain.value = 1;
+    connectOrderedSources(ctx, [sumHeadroomGain, reverbReturnGain, delayReturnGain], masterGain);
+  }
 
   let analyser: AnalyserNode | undefined;
   if (withAnalyser) {
@@ -1436,18 +1452,19 @@ export function getOrCreateTrackChannelRuntime(
     faderGain.connect(muteSoloGate);
     muteSoloGate.connect(panner);
 
+    const included = !bus.outputTrackIds || bus.outputTrackIds.has(track.id);
     if (analyser) {
       panner.connect(analyser);
-      bus.drySum.add(analyser);
+      if (included) bus.drySum.add(analyser);
     } else {
-      bus.drySum.add(panner);
+      if (included) bus.drySum.add(panner);
     }
 
     panner.connect(reverbSendGain);
-    bus.reverbSum.add(reverbSendGain);
+    if (included && bus.includeStemReturns !== false) bus.reverbSum.add(reverbSendGain);
 
     panner.connect(delaySendGain);
-    bus.delaySum.add(delaySendGain);
+    if (included && bus.includeStemReturns !== false) bus.delaySum.add(delaySendGain);
 
     channel = {
       trackId: track.id,
@@ -1640,7 +1657,50 @@ export function getOrCreateTrackChannelRuntime(
     channel.currentCutoffHz = targetCutoff;
   }
 
+  const lanes = track.parameterAutomation?.filter(lane => lane.enabled) || [];
+  if (lanes.length && !channel.parameterGain) {
+    channel.faderGain.disconnect(channel.muteSoloGate);
+    channel.parameterGain = ctx.createGain();
+    channel.faderGain.connect(channel.parameterGain);
+    channel.parameterGain.connect(channel.muteSoloGate);
+  }
+  const hasFilter = lanes.some(lane => lane.target === 'filterCutoffHz');
+  if (hasFilter && !channel.parameterFilter) {
+    channel.parameterGain!.disconnect(channel.muteSoloGate);
+    channel.parameterFilter = ctx.createBiquadFilter();
+    channel.parameterFilter.type = 'lowpass'; channel.parameterFilter.Q.value = .707;
+    channel.parameterGain!.connect(channel.parameterFilter);
+    channel.parameterFilter.connect(channel.muteSoloGate);
+  } else if (!hasFilter && channel.parameterFilter) {
+    channel.parameterGain!.disconnect(channel.parameterFilter); channel.parameterFilter.disconnect();
+    channel.parameterFilter = undefined; channel.parameterGain!.connect(channel.muteSoloGate);
+  }
+  if (!lanes.length && channel.parameterGain) {
+    channel.faderGain.disconnect(channel.parameterGain); channel.parameterGain.disconnect();
+    channel.parameterGain = undefined; channel.faderGain.connect(channel.muteSoloGate);
+  }
   return channel;
+}
+
+/** One target registry shared by live lookahead and the continuous offline graph. */
+export function scheduleTrackParameterAutomation(ctx: BaseAudioContext, bus: AudioBusGraph, project: AbletonProjectState,
+  track: AbletonTrack, fromBeat: number, toBeat: number, atSeconds: number, cancel = true): void {
+  if (!track.parameterAutomation?.length && !bus.trackChannels.get(track.id)?.parameterTargets?.size) return;
+  const channel = getOrCreateTrackChannelRuntime(ctx, bus, track, project);
+  const params = { filterCutoffHz: channel.parameterFilter?.frequency, volumeDb: channel.parameterGain?.gain,
+    pan: channel.panner.pan, reverbSend: channel.reverbSendGain.gain, delaySend: channel.delaySendGain.gain };
+  const active = new Set(track.parameterAutomation?.filter(l => l.enabled).map(l => l.target) || []);
+  const defaults = { filterCutoffHz: 20000, volumeDb: 1, pan: track.mixer.pan,
+    reverbSend: track.mixer.reverbSend, delaySend: track.mixer.delaySend };
+  for (const target of channel.parameterTargets || []) if (!active.has(target as keyof typeof params)) {
+    const key = target as keyof typeof params, param = params[key];
+    if (param) { param.cancelScheduledValues(atSeconds); param.setValueAtTime(defaults[key], atSeconds); }
+  }
+  for (const lane of track.parameterAutomation || []) {
+    const param = params[lane.target];
+    if (lane.enabled && param) scheduleParameterLane(param, lane, project, fromBeat, toBeat, atSeconds, cancel);
+  }
+  channel.parameterTargets = active;
 }
 
 /**
@@ -1898,7 +1958,8 @@ function scheduleTrackVoiceAtTime(
   const velNorm = Math.max(0.05, Math.min(1, note.velocity / 127));
   const velGain = Math.pow(velNorm, 1.35) * instSpec.driveScale;
   const musicalDuration = durationSecondsOverride ?? (project ? MusicalTimeService.noteDurationSeconds(note.time,note.duration,project.tempo,project.tempoMap) : note.duration / beatsPerSecond);
-  const durSec = Math.max(0.045, musicalDuration * instSpec.decayScale);
+  const atom = ['riser','impact','downlifter'].includes(track.layer?.variant || '') ? track.layer!.variant : undefined;
+  const durSec = Math.max(0.045, musicalDuration * (atom ? 1 : instSpec.decayScale));
 
   const rawMixer = track.mixer || {
     volumeDb: 0,
@@ -1931,7 +1992,7 @@ function scheduleTrackVoiceAtTime(
   const lfoPhase = Math.sin(2 * Math.PI * effLfoRate * time);
   const lfoModFactor = 1 + lfoPhase * effLfoDepth * 0.45;
 
-  const scDepth = Math.max(0, Math.min(1, mixer.sidechainDepth));
+  const scDepth = track.sidechainCompressor?.enabled ? 0 : Math.max(0, Math.min(1, mixer.sidechainDepth));
   const kickBeats = project && instSpec.synthesisRole !== 'kick'
     ? routedKickBeats(project,track,projectBeat(project,projectSeconds(project,note.time)-.18),projectBeat(project,projectSeconds(project,note.time)+durSec)) : [];
   const recent=kickBeats.filter(beat=>beat<=note.time).at(-1);
@@ -1974,7 +2035,25 @@ function scheduleTrackVoiceAtTime(
   // immediately affect sustaining audio without waiting for next note event
   const releaseMix = trackChannel.voiceSum.add(voiceEnvelopeGain);
 
-  if (instSpec.synthesisRole === 'kick') {
+  if (atom) {
+    const noise = source(ctx.createBufferSource()); noise.buffer = noiseBuffer; noise.loop = true;
+    const sweep = own(ctx.createBiquadFilter()); sweep.type = 'bandpass'; sweep.Q.value = atom === 'impact' ? .7 : 1.8;
+    const amplitude = own(ctx.createGain());
+    const rising = atom === 'riser';
+    sweep.frequency.setValueAtTime(rising ? 180 : 9000, time);
+    sweep.frequency.exponentialRampToValueAtTime(rising ? 12000 : 120, time + durSec);
+    amplitude.gain.setValueAtTime(rising ? .0001 : .3 * velGain, time);
+    if (rising) amplitude.gain.exponentialRampToValueAtTime(.24 * velGain, time + Math.max(.01, durSec - .02));
+    amplitude.gain.exponentialRampToValueAtTime(.0001, time + durSec);
+    noise.connect(sweep); sweep.connect(amplitude); amplitude.connect(voiceDestination);
+    noise.start(time); noise.stop(time + durSec + .01);
+    if (atom === 'impact') {
+      const body = source(ctx.createOscillator()), bodyGain = own(ctx.createGain());
+      body.type = 'sine'; body.frequency.setValueAtTime(100, time); body.frequency.exponentialRampToValueAtTime(32, time + .24);
+      bodyGain.gain.setValueAtTime(.45 * velGain, time); bodyGain.gain.exponentialRampToValueAtTime(.0001, time + Math.min(.8, durSec));
+      body.connect(bodyGain); bodyGain.connect(voiceDestination); body.start(time); body.stop(time + Math.min(.85, durSec + .01));
+    }
+  } else if (instSpec.synthesisRole === 'kick') {
     // =========================================================================
     // 1. 909 PUNCH KICK + TRANSIENT CLICK + DRUM BUSS WARM SATURATOR
     // =========================================================================
@@ -3381,6 +3460,12 @@ export function synthesizeDeterministicStereoPcm(
  */
 let activeOfflineRender: OfflineAudioContext | null = null;
 
+export interface StemRenderOptions {
+  trackIds: string[];
+  includeReturns: boolean;
+  includeMaster: boolean;
+}
+
 async function renderContinuousAudioBuffer(
   project: AbletonProjectState,
   humanization: HumanizationConfig,
@@ -3390,9 +3475,12 @@ async function renderContinuousAudioBuffer(
   _segmentCount = 1,
   onProgress?: (completedFrames: number, totalFrames: number) => void,
   workingBytesPerFrame = 32,
-  options?: { streaming?: boolean; signal?: AbortSignal },
+  options?: { streaming?: boolean; signal?: AbortSignal; stem?: StemRenderOptions },
 ): Promise<AudioBuffer> {
   assertExecutableInsertLimits(project);
+  if (options?.stem && (!options.stem.trackIds.length || new Set(options.stem.trackIds).size !== options.stem.trackIds.length ||
+    options.stem.trackIds.some(id => !project.tracks.some(t => t.id === id && !t.isGroupTrack)) ||
+    typeof options.stem.includeReturns !== 'boolean' || typeof options.stem.includeMaster !== 'boolean')) throw new Error('STEM_TARGET: select existing musical tracks and explicit processing options');
   if (project.audioSettings?.transport.arrangementMode === 'session')
     throw new Error(
       'SESSION_CAPTURE_REQUIRED: capture the performance and return to Arrangement before offline export',
@@ -3452,11 +3540,18 @@ async function renderContinuousAudioBuffer(
   let renderingPromise: Promise<AudioBuffer> | undefined;
   let bus: AudioBusGraph | undefined;
   try {
-    const activeBus = buildAudioBusGraph(ctx, project.tempo, masterBus, false);
+    if (requiresSidechain(project)) await prepareSidechainModule(ctx);
+    const activeBus = buildAudioBusGraph(ctx, project.tempo, masterBus, false, options?.stem?.includeMaster !== false);
+    if (options?.stem) { activeBus.outputTrackIds = new Set(options.stem.trackIds); activeBus.includeStemReturns = options.stem.includeReturns; }
     bus = activeBus;
+    if (requiresSidechain(project)) {
+      for (const track of project.tracks) getOrCreateTrackChannelRuntime(ctx, activeBus, track, project);
+      reconcileSidechains(ctx, activeBus.trackChannels, project);
+    }
+    for (const track of project.tracks) scheduleTrackParameterAutomation(ctx, activeBus, project, track, 0, totalBeats, 0);
     if(project.tempoMap?.length)scheduleTempoSyncedReturns(activeBus,project,0,0);
     const noise = createNoiseBuffer(ctx);
-    scheduleMasterAutomation(activeBus.masterGain.gain, project, masterBus, 0, totalBeats, 0);
+    if (options?.stem?.includeMaster !== false) scheduleMasterAutomation(activeBus.masterGain.gain, project, masterBus, 0, totalBeats, 0);
     const bps = project.tempo / 60;
     const mutedTrackIds = new Set(
       project.tracks
@@ -3588,6 +3683,7 @@ async function renderContinuousAudioBuffer(
       clearTimeout(timer);
     }
     onProgress?.(frames, frames);
+    for (const channel of activeBus.trackChannels.values()) if (channel.sidechainError) throw new Error(channel.sidechainError);
     return rendered;
   } catch (error) {
     cancelled = true;
@@ -3625,6 +3721,8 @@ async function renderContinuousAudioBuffer(
     // OfflineAudioContext has no close/cancel API. A stalled context retains the guard
     // until it settles or app restart, preventing two full PCM allocations after retry.
     throw error;
+  } finally {
+    for (const channel of bus?.trackChannels.values() || []) removeSidechain(channel);
   }
 }
 
@@ -3719,6 +3817,7 @@ export async function renderArrangementToWavStream(
     totalBars?: number;
     onProgress?: (percent: number) => void;
     signal?: AbortSignal;
+    stem?: StemRenderOptions;
   },
 ) {
   const sampleRate = options?.sampleRate ?? 44100,
@@ -3740,7 +3839,7 @@ export async function renderArrangementToWavStream(
     1,
     (done, total) => options?.onProgress?.((done / total) * 75),
     8,
-    { streaming: true, signal: options?.signal },
+    { streaming: true, signal: options?.signal, stem: options?.stem },
   );
   let written = 0;
   for await (const block of encodeAudioBufferToWavChunks(
@@ -3779,6 +3878,7 @@ export async function renderArrangementToWavBlob(
   bitDepthOrOnProgress: 16 | 24 | 32 | ((progressPercent: number) => void) = 24,
   onProgress?: (progressPercent: number) => void,
   signal?: AbortSignal,
+  stem?: StemRenderOptions,
 ): Promise<{
   blob: Blob;
   durationSeconds: number;
@@ -3801,7 +3901,7 @@ export async function renderArrangementToWavBlob(
     1,
     (done, total) => progress?.(Math.floor((done / total) * 75)),
     8 + (bitDepth / 8) * 4,
-    { signal },
+    { signal, stem },
   );
   const blob = await encodeAudioBufferToWavBlob(
     pcm,
@@ -4139,6 +4239,7 @@ export function detectAudioStripSilenceRegions(
  * Sample-Accurate Lookahead Web Audio Synthesizer & Transport Engine.
  */
 export class ParametricWebAudioEngine {
+  private startRequest = 0;
   private ctx: AudioContext | null = null;
   private bus: AudioBusGraph | null = null;
   private noiseBuffer: AudioBuffer | null = null;
@@ -4393,6 +4494,7 @@ export class ParametricWebAudioEngine {
     const validIds = new Set(this.project.tracks.map((t) => t.id));
     for (const [trackId, ch] of this.bus.trackChannels.entries()) {
       if (!validIds.has(trackId)) {
+        removeSidechain(ch);
         flushRetiringTrackChains(ch);
         for (const proc of ch.insertProcessors) {
           proc.dispose?.();
@@ -4404,6 +4506,7 @@ export class ParametricWebAudioEngine {
           ch.chainInputGain.disconnect();
           ch.chainOutputGain.disconnect();
           ch.faderGain.disconnect();
+          ch.parameterGain?.disconnect(); ch.parameterFilter?.disconnect();
           ch.muteSoloGate.disconnect();
           ch.panner.disconnect();
           ch.reverbSendGain.disconnect();
@@ -4417,6 +4520,7 @@ export class ParametricWebAudioEngine {
     for (const track of this.project.tracks) {
       getOrCreateTrackChannelRuntime(this.ctx, this.bus, track, this.project);
     }
+    if (!requiresSidechain(this.project) || isSidechainReady(this.ctx)) reconcileSidechains(this.ctx, this.bus.trackChannels, this.project);
   }
 
   public updateTrackMixerLive(
@@ -4830,6 +4934,9 @@ export class ParametricWebAudioEngine {
       }
     }
     this.project = project;
+    if (this.isPlaying && this.ctx && requiresSidechain(project) && !isSidechainReady(this.ctx)) {
+      this.emergencyShutdown('Audio processing changed. Press Play to prepare the sidechain compressor.');
+    }
     this.humanization = humanization;
     if (transport) {
       this.transport = transport;
@@ -4952,6 +5059,20 @@ export class ParametricWebAudioEngine {
     }
   }
 
+  public async prepareAndStart(fromStart = false): Promise<boolean> {
+    const request = ++this.startRequest, project = this.project;
+    this.ensureContext();
+    if (!this.ctx || !project) return false;
+    if (requiresSidechain(project)) await prepareSidechainModule(this.ctx);
+    if (request !== this.startRequest || project !== this.project) return false;
+    this.start(fromStart); return this.isPlaying;
+  }
+
+  public getSidechainReductionDb(trackId: string): number | null {
+    const channel = this.bus?.trackChannels.get(trackId);
+    return channel?.sidechainNode && !channel.sidechainError ? channel.sidechainReductionDb ?? 0 : null;
+  }
+
   public start(fromStart = false) {
     if (this.pendingBlockError) throw this.pendingBlockError;
     if (this.project) {
@@ -4959,6 +5080,7 @@ export class ParametricWebAudioEngine {
     }
     this.ensureContext();
     if (!this.ctx) return;
+    if (this.project && requiresSidechain(this.project) && !isSidechainReady(this.ctx)) throw new Error('SIDECHAIN_NOT_READY: use prepared playback to load required audio processing');
     this.syncLiveTrackChannels();
 
     const maxBeats = this.getMaxArrangementBeats();
@@ -4993,6 +5115,7 @@ export class ParametricWebAudioEngine {
   }
 
   public stop() {
+    this.startRequest++;
     // Freeze at the audible clock position, independently of visual rendering or coordinate conversion failures.
     try {
       this.currentBeat = this.getCurrentBeat();
@@ -5228,6 +5351,10 @@ export class ParametricWebAudioEngine {
       return;
     }
 
+    if (requiresSidechain(this.project)) for (const channel of this.bus.trackChannels.values()) if (channel.sidechainError) {
+      this.emergencyShutdown(channel.sidechainError); return;
+    }
+
     const nowPerf = performance.now();
     if (this.lastSchedulerPerfMs > 0) {
       const deltaMs = nowPerf - this.lastSchedulerPerfMs;
@@ -5452,11 +5579,23 @@ export class ParametricWebAudioEngine {
 
     this.scheduleMasterGainWindow(exactBeatNow, nowAudio, maxBeats);
     this.scheduleReturnTimingWindow(exactBeatNow, nowAudio);
+    this.scheduleParameterWindow(exactBeatNow, nowAudio);
 
     if (this.playbackState === 'recovering') {
       this.playbackState = 'playing';
     }
   };
+
+  private scheduleParameterWindow(beat: number, at: number) {
+    if (!this.project || !this.bus || !this.ctx) return;
+    const loop = this.getPlaybackRegion(this.getMaxArrangementBeats());
+    const end = runtimeWindowEnd(this.project, beat, .12, loop);
+    for (const track of this.project.tracks) {
+      scheduleTrackParameterAutomation(this.ctx, this.bus, this.project, track, beat, loop.enabled ? Math.min(end, loop.end) : end, at);
+      if (loop.enabled && end > loop.end) scheduleTrackParameterAutomation(this.ctx, this.bus, this.project, track, loop.start,
+        loop.start + end - loop.end, at + projectSeconds(this.project, loop.end) - projectSeconds(this.project, beat), false);
+    }
+  }
 
   private scheduleReturnTimingWindow(beat: number, at: number) {
     if (!this.project || !this.bus?.delayNodeL || !this.bus.delayNodeR) return;

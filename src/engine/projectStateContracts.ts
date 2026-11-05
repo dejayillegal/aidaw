@@ -1,4 +1,6 @@
 import { assertSongPlan } from './songPlanEngine';
+import { assertParameterLanes } from './parameterAutomation';
+import { assertSidechainRouting } from './sidechainGraph';
 import { assertAudioSettings } from './audioSettingsContracts';
 import {
   classifyAbletonDeviceTag,
@@ -175,11 +177,24 @@ export function assertStructuralProjectState(project: AbletonProjectState): void
   }
 
   const trackIds = new Set<string>();
+  const layerIds = new Set<string>();
   for (const track of project.tracks) {
     if (!track || typeof track.id !== 'string' || !track.id || trackIds.has(track.id)) {
       fail('duplicate or missing track identity');
     }
     trackIds.add(track.id);
+    if (track.parameterAutomation !== undefined) assertParameterLanes(track.parameterAutomation);
+    const layer = track.layer;
+    if (layer) {
+      if (layer.version !== 1 || typeof layer.id !== 'string' || !layer.id || layerIds.has(layer.id) ||
+        layer.family !== track.archetype || typeof layer.variant !== 'string' || !layer.variant ||
+        !Number.isSafeInteger(layer.seed) || layer.seed < 0 || layer.seed > 0xffffffff ||
+        !Number.isFinite(layer.phraseBeats) || layer.phraseBeats <= 0 || layer.phraseBeats > 4096 ||
+        !Array.isArray(layer.registerHz) || layer.registerHz.length !== 2 || !layer.registerHz.every(Number.isFinite) ||
+        layer.registerHz[0] < 0 || layer.registerHz[1] <= layer.registerHz[0] || layer.registerHz[1] > 24000 ||
+        !['legacy-score','procedural-style-v1'].includes(layer.provenance)) fail('invalid or duplicate layer descriptor');
+      layerIds.add(layer.id);
+    }
     if (
       !['midi', 'audio'].includes(track.type) ||
       !Array.isArray(track.clips) ||
@@ -318,6 +333,7 @@ export function assertStructuralProjectState(project: AbletonProjectState): void
       eventIds.add(event.id);
     }
   }
+  assertSidechainRouting(project);
   if (
     project.memoryLocations?.some(
       (p) =>

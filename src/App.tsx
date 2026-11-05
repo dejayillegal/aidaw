@@ -1,6 +1,7 @@
 import { ABLETON_BUILTIN_LIBRARY } from './engine/alsXmlEngine';
 import { chooseTrackDevice, generateTrackLayer, appendEmptyArrangementClip, appendArrangementNote, ensureAuthoringSongPlan, transformSelectedPhrase } from './engine/authoringActions';
 import { prepareProjectChange, applyReviewedProjectChange, type ProjectChangeProposal, type ChangeCategory } from './services/projectChangeReview';
+import { applyProjectCommand, type ProjectCommand, type ProjectCommandPayload } from './services/projectCommands';
 import { ProjectChangeReviewDialog } from './components/ProjectChangeReviewDialog';
 import { ProjectInspector, type EditorSelection, type InspectorTab } from './components/ProjectInspector';
 import { editProjectBaseTempo } from './engine/projectTempoEditing';
@@ -81,7 +82,7 @@ import {
   transformTrackArrangementNotes,
   randomizeTrackNoteVelocities,
 } from './engine/compositionIntelligenceEngine';
-import { renderArrangementToWavBlob, renderArrangementToWavStream, planArrangementWavExport, synthEngine } from './engine/webAudioSynth';
+import { renderArrangementToWavBlob, renderArrangementToWavStream, planArrangementWavExport, synthEngine, type StemRenderOptions } from './engine/webAudioSynth';
 import { TimelineCanvas } from './components/TimelineCanvas';
 import { DeviceRackPanel } from './components/DeviceRackPanel';
 import { MasterSpectrumAnalyzer } from './components/MasterSpectrumAnalyzer';
@@ -118,7 +119,7 @@ import {
 import { StudioStatusBar } from './components/StudioStatusBar';
 import { SelectedTrackAnalysisStrip } from './components/SelectedTrackAnalysisStrip';
 import { NewProjectModal } from './components/NewProjectModal';
-import { createEditableFullTrack, type NewProjectOptions } from './services/projectCreationService';
+import { createEditableFullTrack, extendStyleEnsemble, type NewProjectOptions } from './services/projectCreationService';
 import { UnsupportedPluginModal } from './components/UnsupportedPluginModal';
 import { TrackVelocityRandomizerConfig } from './components/AiComposerIntelligencePanel';
 import {
@@ -570,11 +571,13 @@ export default function App() {
         | 'ghost_prune'
         | 'calibration'
         | 'clip_edit',
-      mutator: (draft: AbletonProjectState) => AbletonProjectState
+      mutator: (draft: AbletonProjectState) => AbletonProjectState,
+      metadata?: { command?: ProjectCommand; actor?: 'user' | 'assist' }
     ) => {
       try {
         const next = studioCommandBus.executeMutation(
-          currentProjectQueueKey, label, category, projectRef.current, mutator, { activeProjectQueueId: commandTargetRef.current }
+          currentProjectQueueKey, label, category, projectRef.current, mutator, { activeProjectQueueId: commandTargetRef.current,
+            expectedRevision: metadata?.command?.expectedRevision, actor: metadata?.actor || metadata?.command?.actor, command: metadata?.command }
         );
         const enriched = enrichProjectWithAnalysis(next, activeFormId);
         projectRef.current = enriched;
@@ -588,6 +591,13 @@ export default function App() {
     },
     [currentProjectQueueKey, activeFormId, activeQueueId]
   );
+
+  const handleTypedProjectCommand = (payload: ProjectCommandPayload) => {
+    const command: ProjectCommand = { version: 1, id: crypto.randomUUID(), projectQueueId: currentProjectQueueKey,
+      expectedRevision: projectRef.current.projectRevision || projectRef.current.revision || 1, actor: 'user', payload };
+    return handleExecuteProjectCommand(payload.type, payload.type.startsWith('edit-') ? 'clip_edit' : 'mixer',
+      draft => applyProjectCommand(draft, command), { command });
+  };
 
   const handleCreateNewProject = async (options: NewProjectOptions) => {
     const loadRevision = ++projectLoadRevision.current;
@@ -653,19 +663,19 @@ export default function App() {
     if(note)setEditorSelection({trackId:selectedTrackId,clipId:clip.id,noteId:note.id});
   };
   const handleGenerateSelectedLayer=()=>handlePreviewProjectCommand('Generate selected layer phrase','clip_edit',draft=>generateTrackLayer(draft,selectedTrackId,activeStrategyId,compositionSeed));
-  const auditionReviewedProject=(candidate?:AbletonProjectState)=>{
+  const auditionReviewedProject=async(candidate?:AbletonProjectState)=>{
     synthEngine.stop();setIsPlaying(false);
     try {
       const target=candidate?structuredClone(candidate):projectRef.current,settings=projectAudioSettings(target);
       synthEngine.setState(target,settings.humanization,candidate?{...settings.transport,arrangementMode:'arrangement',loopEnabled:false}:settings.transport,settings.masterBus);
-      if(candidate){synthEngine.seek(0);synthEngine.start(false);setIsPlaying(synthEngine.getIsPlaying());return synthEngine.getIsPlaying();}
+      if(candidate){synthEngine.seek(0);const started=await synthEngine.prepareAndStart(false);setIsPlaying(started);return started;}
     }catch(error){setStatusMessage(`Audition blocked: ${error instanceof Error?error.message:String(error)}`);}
     return false;
   };
   const cancelReviewedChange=()=>{auditionReviewedProject();setPendingProposal(null);setStatusMessage('Proposal discarded; editable project unchanged.');};
   const applyReviewedChange=()=>{
     if(!pendingProposal)return;auditionReviewedProject();
-    const next=handleExecuteProjectCommand(pendingProposal.label,pendingProposal.category,draft=>applyReviewedProjectChange(commandTargetRef.current,draft,pendingProposal));
+    const next=handleExecuteProjectCommand(pendingProposal.label,pendingProposal.category,draft=>applyReviewedProjectChange(commandTargetRef.current,draft,pendingProposal),{actor:'assist'});
     if(next){const added=next.tracks.find(t=>!pendingProposal.before.tracks.some(old=>old.id===t.id));if(added)handleSelectTrack(added.id);setPendingProposal(null);}
   };
 
@@ -1002,14 +1012,7 @@ export default function App() {
   const handleInjectAllMissingLayers = () => {
     const bars = project.arrangementLengthBars || 64;
     handlePreviewProjectCommand('Compose complete SongPlan', 'clip_edit', draft => {
-      const tracks=[...draft.tracks];
-      for(const archetype of ['kick','rumble','hats','percussion','synth','acid','pad','ride'] as TechnoArchetype[]) {
-        if(!tracks.some(t=>t.archetype===archetype)) {
-          const role=INSTRUMENT_ROLE_TAXONOMY.find(r=>r.archetype===archetype);
-          if(role) tracks.push(createUserTrackFromRole(role.roleCode,tracks.length));
-        }
-      }
-      const base={...draft,tracks,arrangementLengthBars:bars};
+      const base={...extendStyleEnsemble(draft,activeStrategyId,compositionSeed),arrangementLengthBars:bars};
       const plan=ensureAuthoringSongPlan(base,activeStrategyId,compositionSeed);
       return composeSongPlan(base,plan,{fromBeat:0,toBeat:plan.durationBars*4});
     });
@@ -1179,7 +1182,7 @@ export default function App() {
     }));
   };
 
-  const handleSessionLaunch = (slot: number|null, trackId?: string) => {
+  const handleSessionLaunch = async (slot: number|null, trackId?: string) => {
     const now=synthEngine.getSessionLaunchBeat();
     const next=handleExecuteProjectCommand(slot===null?'Queue Session Stop':'Queue Session Launch','clip_edit',draft=>
       queueSessionLaunch(draft,trackId || null,slot,now,draft.session?.quantizationBeats || 4));
@@ -1187,7 +1190,7 @@ export default function App() {
       try {
         const settings=projectAudioSettings(next);
         synthEngine.setState(next,settings.humanization,settings.transport,settings.masterBus);
-        if (!synthEngine.getIsPlaying()) synthEngine.start(false);
+        if (!synthEngine.getIsPlaying()) await synthEngine.prepareAndStart(false);
         setIsPlaying(synthEngine.getIsPlaying());
       } catch(error) {setIsPlaying(false);setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);}
     }
@@ -1219,7 +1222,7 @@ export default function App() {
     handleUpdateHumanization({}, seed);
   };
 
-  const handleTogglePlay = () => {
+  const handleTogglePlay = async () => {
     if (isPlaying) {
       synthEngine.stop();
       setIsPlaying(false);
@@ -1227,7 +1230,7 @@ export default function App() {
     } else {
       try {
         synthEngine.setState(projectRef.current, humanization, transport, masterBus);
-        synthEngine.start(false);
+        await synthEngine.prepareAndStart(false);
         setIsPlaying(synthEngine.getIsPlaying());
       } catch(error) {
         setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);
@@ -1236,7 +1239,7 @@ export default function App() {
     }
   };
 
-  const handlePlayCompleteSequence = () => {
+  const handlePlayCompleteSequence = async () => {
     const next=handleExecuteProjectCommand('Play Complete Arrangement','transport',draft=>{
       const settings=projectAudioSettings(draft);
       return {...draft,audioSettings:{...settings,transport:{...settings.transport,arrangementMode:'arrangement',loopEnabled:false}}};
@@ -1245,7 +1248,7 @@ export default function App() {
     const settings=projectAudioSettings(next);
     try {
       synthEngine.stop();synthEngine.setState(next,settings.humanization,settings.transport,settings.masterBus);
-      synthEngine.seek(0);setPlayheadBeat(0);synthEngine.start(true);setIsPlaying(synthEngine.getIsPlaying());
+      synthEngine.seek(0);setPlayheadBeat(0);await synthEngine.prepareAndStart(true);setIsPlaying(synthEngine.getIsPlaying());
       setStatusMessage(`Loop OFF · Playing complete ${next.arrangementLengthBars || 16}-bar arrangement.`);
     } catch(error) {setIsPlaying(false);setStatusMessage(`Playback blocked: ${error instanceof Error?error.message:String(error)}`);}
   };
@@ -1305,31 +1308,27 @@ export default function App() {
   };
 
   const handleUpdateTrackAutomation = (trackId: string, points: AutomationPoint[]) => {
-    handleExecuteProjectCommand('Update Filter Energy Automation', 'mixer', prev => ({
-      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, automationPoints: points } : t),
-    }));
+    handleTypedProjectCommand({type:'set-filter-envelope',trackId,points});
   };
 
   const handleToggleMute = (trackId: string) => {
-    handleExecuteProjectCommand('Toggle Track Mute', 'mixer', prev => ({
-      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, muted: !t.muted } : t),
-    }));
+    const track = projectRef.current.tracks.find(t=>t.id===trackId);
+    if(track) handleTypedProjectCommand({type:'set-track-mute',trackId,muted:!track.muted});
   };
 
   const handleToggleSolo = (trackId: string) => {
-    handleExecuteProjectCommand('Toggle Track Solo', 'mixer', prev => ({
-      ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, soloed: !t.soloed } : t),
-    }));
+    const track = projectRef.current.tracks.find(t=>t.id===trackId);
+    if(track) handleTypedProjectCommand({type:'set-track-solo',trackId,soloed:!track.soloed});
   };
 
   const handleToggleNoteInTrack = (trackId:string,stepBeat:number,pitch:number,stepDuration=.25,clipId?:string) => {
     handleExecuteProjectCommand('Toggle MIDI Note','clip_edit',draft=>toggleArrangementNote(draft,trackId,stepBeat,pitch,stepDuration,clipId));
   };
   const handleEditArrangementClip = (trackId:string,clipId:string,edit:ArrangementClipEdit) => {
-    handleExecuteProjectCommand(`Clip ${edit.kind}`,'clip_edit',draft=>editArrangementClip(draft,trackId,clipId,edit));
+    handleTypedProjectCommand({type:'edit-clip',trackId,clipId,edit});
   };
   const handleEditArrangementNote = (trackId:string,clipId:string,noteId:string,edit:ArrangementNoteEdit) => {
-    handleExecuteProjectCommand(edit.delete?'Delete MIDI note':'Edit MIDI note','clip_edit',draft=>editArrangementNote(draft,trackId,clipId,noteId,edit));
+    handleTypedProjectCommand({type:'edit-note',trackId,clipId,noteId,edit});
   };
 
   const [barRangeSelection, setBarRangeSelection] = useState<TimelineBarRangeSelection>({
@@ -1587,7 +1586,7 @@ export default function App() {
 
   const handleExportLosslessWav = async (
     bitDepth: 16 | 24 = 24,
-    options?: { stream?: boolean; sampleRate?: 44100 | 48000 | 96000 },
+    options?: { stream?: boolean; sampleRate?: 44100 | 48000 | 96000; stem?: StemRenderOptions },
   ) => {
     if (wavExportAbort.current) return;
     const control = new AbortController();
@@ -1598,7 +1597,8 @@ export default function App() {
       project.arrangementLengthBars || transport.arrangementLengthBars || 16;
     const sampleRate = options?.sampleRate ?? 44100;
     const streaming = options?.stream || usesNativeStreamingFileExport();
-    const exportName = `${project.fileName.replace(/\.(als|xml)$/i, '')}_${project.tempo}bpm_${totalBars}bars_${bitDepth}bit.wav`;
+    const stemName=options?.stem?`_${options.stem.trackIds.map(id=>project.tracks.find(t=>t.id===id)?.name||id).join('_')}_stem`:'';
+    const exportName = `${project.fileName.replace(/\.(als|xml)$/i, '')}${stemName}_${project.tempo}bpm_${totalBars}bars_${bitDepth}bit.wav`;
     const progress = (percent: number) => {
       setWavExportProgress(Math.min(99, Math.floor(percent)));
       setStatusMessage(
@@ -1634,6 +1634,7 @@ export default function App() {
                 totalBars,
                 onProgress: progress,
                 signal: control.signal,
+                stem: options?.stem,
               },
             ),
           control.signal,
@@ -1660,6 +1661,7 @@ export default function App() {
           bitDepth,
           progress,
           control.signal,
+          options?.stem,
         );
         const saved = await saveExportBlob(blob, exportName, control.signal, phase => {
           wavExportPhase.current = phase;
@@ -1968,6 +1970,7 @@ export default function App() {
         </button>}
         {activeTab === 'workbench' && (
           <SoundCraftWorkstation key={currentProjectQueueKey}
+            onCloseWorkspacePanel={()=>setStudioWorkspace('edit')}
             editorSelection={editorSelection}
             onEditorSelectionChange={handleEditorSelection}
             editorRevealToken={editorRevealToken}
@@ -1976,7 +1979,7 @@ export default function App() {
             onAddNote={handleAddNote}
             browserView={browserView}
             onAddGeneratedLayer={roleCode=>handlePreviewProjectCommand('Add layer with phrase','clip_edit',draft=>{const track=createUserTrackFromRole(roleCode,draft.tracks.length);return generateTrackLayer({...draft,tracks:[...draft.tracks,track]},track.id,activeStrategyId,compositionSeed);})}
-            renderInspector={assist=><ProjectInspector project={project} track={selectedTrack} selection={editorSelection} tab={inspectorTab} onTab={setInspectorTab} onSelect={handleEditorSelection} onCreateClip={handleCreateEmptyClip} onAddNote={handleAddNote} onGenerate={handleGenerateSelectedLayer} onEditClip={handleEditArrangementClip} onEditNote={handleEditArrangementNote} onRename={name=>handleExecuteProjectCommand('Rename layer','clip_edit',draft=>({...draft,tracks:draft.tracks.map(t=>t.id===selectedTrackId?{...t,name}:t)}))} comparison={comparisonBase}>{assist}</ProjectInspector>}
+            renderInspector={assist=><ProjectInspector project={project} track={selectedTrack} selection={editorSelection} tab={inspectorTab} onTab={setInspectorTab} onSelect={handleEditorSelection} onCreateClip={handleCreateEmptyClip} onAddNote={handleAddNote} onGenerate={handleGenerateSelectedLayer} onEditClip={handleEditArrangementClip} onEditNote={handleEditArrangementNote} onRename={name=>handleTypedProjectCommand({type:'rename-track',trackId:selectedTrackId,name})} onParameterLanes={lanes=>handleTypedProjectCommand({type:'set-parameter-lanes',trackId:selectedTrackId,lanes})} onSidechain={config=>handleTypedProjectCommand({type:'set-sidechain',trackId:selectedTrackId,config})} exportBusy={isExportingWav} onExportStem={(includeReturns,includeMaster)=>handleExportLosslessWav(24,{stem:{trackIds:[selectedTrackId],includeReturns,includeMaster}})} comparison={comparisonBase}>{assist}</ProjectInspector>}
             activeTab={activeTab}
             studioWorkspace={studioWorkspace}
             activeEditingTool={activeEditingTool}

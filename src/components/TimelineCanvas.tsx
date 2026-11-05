@@ -24,6 +24,7 @@ import {
   RangeClipGeneratorMode,
 } from '../engine/compositionIntelligenceEngine';
 import { evaluateAutomationAtBeat, synthEngine } from '../engine/webAudioSynth';
+import { evaluateParameterLane, PARAMETER_LIMITS } from '../engine/parameterAutomation';
 import { exportClipToMidiFile, downloadMidiFile } from '../engine/midiFileExporter';
 import { projectQueueService } from '../services/projectQueueService';
 import { resolveBeatForEditMode, spotPositionToBeat } from '../services/commandBus';
@@ -479,7 +480,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [isPlaying, playheadBeat]);
+  }, [isPlaying]);
 
   const currentEngineBeat = synthEngine.getCurrentBeat();
   const syncedPlayheadBeat = synthEngine.getIsPlaying()
@@ -852,6 +853,21 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           ctx.stroke();
         });
         ctx.restore();
+      }
+
+      if (transport.showAutomationLanes) {
+        for (const lane of track.parameterAutomation || []) {
+          if (!lane.enabled) continue;
+          const [min,max] = PARAMETER_LIMITS[lane.target];
+          ctx.save(); ctx.strokeStyle = '#06B6D4'; ctx.lineWidth = 1.3; ctx.beginPath();
+          for (let pixel = 0; pixel <= width; pixel += 4) {
+            const beat = arrStartBeat + pixel / width * arrVisibleBeats;
+            const value = (evaluateParameterLane(lane,beat)-min)/(max-min);
+            const py = y+laneHeight-5-value*(laneHeight-18);
+            if (!pixel) ctx.moveTo(pixel,py); else ctx.lineTo(pixel,py);
+          }
+          ctx.stroke();ctx.restore();
+        }
       }
 
       // Render Solo & Solo-Muted Status Badges

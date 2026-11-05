@@ -2501,14 +2501,15 @@ export function moveOrResizeTrackClip(
 export function createUserTrackFromRole(
   roleCode: string,
   trackIndex: number,
-  customName?: string
+  customName?: string,
+  stableTrackId?: string
 ): AbletonTrack {
   const role =
     INSTRUMENT_ROLE_TAXONOMY.find((r) => r.roleCode === roleCode) ||
     INSTRUMENT_ROLE_TAXONOMY.find((r) => r.roleCode === 'E2') ||
     INSTRUMENT_ROLE_TAXONOMY[0];
 
-  const trackId = `track_user_${role.roleCode.toLowerCase()}_${Date.now()}_${trackIndex}`;
+  const trackId = stableTrackId || `track_user_${role.roleCode.toLowerCase()}_${Date.now()}_${trackIndex}`;
   const name = customName?.trim() || `${String(trackIndex + 1).padStart(2, '0')}_${role.defaultTrackName.replace(/^\d+_/, '')}`;
 
   return {
