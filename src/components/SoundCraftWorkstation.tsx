@@ -1,3 +1,4 @@
+import type { EditorSelection } from './ProjectInspector';
 import { StudioBrowser } from './StudioBrowser';
 import type {ArrangementClipEdit,ArrangementNoteEdit} from '../engine/arrangementEditing';
 import React, { useState, useEffect } from 'react';
@@ -44,6 +45,15 @@ import {
 } from 'lucide-react';
 
 export interface SoundCraftWorkstationProps {
+  renderInspector?: (assist:React.ReactNode)=>React.ReactNode;
+  editorSelection?: EditorSelection;
+  onEditorSelectionChange?: (selection:EditorSelection)=>void;
+  editorRevealToken?: number;
+  onOpenLayerBrowser?: ()=>void;
+  onCreateClip?: ()=>void;
+  onAddNote?: ()=>void;
+  browserView?: 'devices'|'tracks';
+  onAddGeneratedLayer?: (roleCode:string)=>void;
   activeTab: 'workbench' | 'xml' | 'python' | 'architecture';
   studioWorkspace: WorkspaceTabId;
   activeEditingTool: StudioEditingTool;
@@ -68,6 +78,7 @@ export interface SoundCraftWorkstationProps {
   activeTotalBars: number;
   activeStrategyId: CompositionStrategyId;
   activeFormId: MacroArrangementFormId;
+  onChangeCompositionSeed?: (seed:number)=>void;
   compositionSeed: number;
   jitterSeed: number;
   // Handlers
@@ -108,7 +119,7 @@ export interface SoundCraftWorkstationProps {
   onRandomizeTrackVelocities: (trackId: string, config: TrackVelocityRandomizerConfig) => void;
   onSelectStrategy: (id: CompositionStrategyId) => void;
   onSelectForm: (id: MacroArrangementFormId) => void;
-  onComposeSingleLayer: (arch: TechnoArchetype) => void;
+  onComposeSingleLayer: (arch: TechnoArchetype, trackId?:string) => void;
   onComposeAllUnlockedLayers: () => void;
   onApplyMidiTool: (trackId: string, toolId: MidiToolTransformationId) => void;
   onInjectPolyrhythmClip: (trackId: string, config: PolyrhythmConfig) => void;
@@ -160,6 +171,7 @@ export interface SoundCraftWorkstationProps {
 }
 
 export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
+  renderInspector, editorSelection, onEditorSelectionChange, editorRevealToken, onOpenLayerBrowser, onCreateClip, onAddNote, browserView, onAddGeneratedLayer,
   activeTab,
   studioWorkspace,
   activeEditingTool,
@@ -184,7 +196,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   activeTotalBars,
   activeStrategyId,
   activeFormId,
-  compositionSeed,
+  compositionSeed, onChangeCompositionSeed,
   jitterSeed,
   onSelectTrack,
   onChangeEditMode,
@@ -348,7 +360,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
   }
 
   if (studioWorkspace === 'browser') {
-    return <StudioBrowser project={project} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} onInsertDevice={onInjectLibraryDevice} onAddTrack={onAddUserTrackFromRole} />;
+    return <StudioBrowser initialView={browserView} onAddGeneratedLayer={onAddGeneratedLayer} project={project} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} onInsertDevice={onInjectLibraryDevice} onAddTrack={onAddUserTrackFromRole} />;
   }
 
   // Full-Viewport Dedicated Workspaces
@@ -442,7 +454,10 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
             selectedTrack={selectedTrack}
             activeStrategyId={activeStrategyId}
             activeFormId={activeFormId}
+            selectedClipId={editorSelection?.trackId===selectedTrackId?editorSelection.clipId:undefined}
+            onSelectClip={clipId=>onEditorSelectionChange?.({trackId:selectedTrackId,clipId})}
             compositionSeed={compositionSeed}
+            onChangeCompositionSeed={onChangeCompositionSeed}
             onSelectStrategy={onSelectStrategy}
             onSelectForm={onSelectForm}
             onComposeSingleLayer={onComposeSingleLayer}
@@ -688,6 +703,12 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
           {/* Arrangement Canvas */}
           <div className="min-h-0 overflow-hidden">
             <TimelineCanvas
+              editorSelection={editorSelection}
+              onEditorSelectionChange={onEditorSelectionChange}
+              editorRevealToken={editorRevealToken}
+              onOpenLayerBrowser={onOpenLayerBrowser}
+              onCreateClip={onCreateClip}
+              onAddNote={onAddNote}
               project={project}
               selectedTrackId={selectedTrackId}
               onSelectTrack={onSelectTrack}
@@ -828,7 +849,10 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
                     selectedTrack={selectedTrack}
                     activeStrategyId={activeStrategyId}
                     activeFormId={activeFormId}
-                    compositionSeed={compositionSeed}
+                    selectedClipId={editorSelection?.trackId===selectedTrackId?editorSelection.clipId:undefined}
+            onSelectClip={clipId=>onEditorSelectionChange?.({trackId:selectedTrackId,clipId})}
+            compositionSeed={compositionSeed}
+            onChangeCompositionSeed={onChangeCompositionSeed}
                     onSelectStrategy={onSelectStrategy}
                     onSelectForm={onSelectForm}
                     onComposeSingleLayer={onComposeSingleLayer}
@@ -870,23 +894,26 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
           } w-80 bg-[#0C0F15] border-l border-[#1C222C] flex-col overflow-hidden`}
         >
           <div className="min-h-11 shrink-0 px-3 bg-[#080A0D] border-b border-[#1C222C] flex items-center justify-between text-[11px] font-mono text-zinc-400">
-            <span className="font-bold text-zinc-300">INSPECTOR &amp; AI</span>
+            <span className="font-bold text-zinc-300">PROJECT INSPECTOR</span>
             <button
               type="button"
               onClick={onCloseRightDock}
-              className="text-zinc-500 hover:text-zinc-300 text-[11px]"
+              className="min-h-11 min-w-11 text-zinc-500 hover:text-zinc-300 text-[11px]"
               title="Close Right Dock"
             >
               ✕
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-3">
-            <AiComposerIntelligencePanel
+            {rightDockOpen && renderInspector?.(<AiComposerIntelligencePanel
               project={project}
               selectedTrack={selectedTrack}
               activeStrategyId={activeStrategyId}
               activeFormId={activeFormId}
-              compositionSeed={compositionSeed}
+              selectedClipId={editorSelection?.trackId===selectedTrackId?editorSelection.clipId:undefined}
+            onSelectClip={clipId=>onEditorSelectionChange?.({trackId:selectedTrackId,clipId})}
+            compositionSeed={compositionSeed}
+            onChangeCompositionSeed={onChangeCompositionSeed}
               onSelectStrategy={onSelectStrategy}
               onSelectForm={onSelectForm}
               onComposeSingleLayer={onComposeSingleLayer}
@@ -900,7 +927,7 @@ export const SoundCraftWorkstation: React.FC<SoundCraftWorkstationProps> = ({
               onSeekBeat={onSeekBeat}
               onRandomizeTrackVelocities={onRandomizeTrackVelocities}
               onApplyMidiQuantizeStrength={onApplyMidiQuantizeStrength}
-            />
+            />)}
           </div>
         </aside>
       </div>

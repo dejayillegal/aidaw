@@ -1,0 +1,21 @@
+import React,{useState} from 'react';
+import type {AbletonProjectState,AbletonTrack} from '../types/ableton';
+import type {ArrangementClipEdit,ArrangementNoteEdit} from '../engine/arrangementEditing';
+import {ArrangementEditInspector} from './ArrangementEditInspector';
+import {ProjectComparison} from './ProjectComparison';
+import {ABLETON_DEVICE_REGISTRY} from '../engine/abletonCapabilityMatrix';
+export interface EditorSelection {trackId:string;clipId?:string;noteId?:string;}
+export type InspectorTab='inspect'|'compare'|'assist';
+export function ProjectInspector({project,track,selection,tab,onTab,onSelect,onCreateClip,onAddNote,onGenerate,onEditClip,onEditNote,onRename,comparison,children}:{project:AbletonProjectState;track?:AbletonTrack;selection?:EditorSelection;tab:InspectorTab;onTab:(t:InspectorTab)=>void;onSelect:(s:EditorSelection)=>void;onCreateClip:()=>void;onAddNote:()=>void;onGenerate:()=>void;onEditClip?:(trackId:string,clipId:string,edit:ArrangementClipEdit)=>void;onEditNote?:(trackId:string,clipId:string,noteId:string,edit:ArrangementNoteEdit)=>void;onRename:(name:string)=>void;comparison?:{label:string;project:AbletonProjectState};children:React.ReactNode}){
+ const[name,setName]=useState('');
+ return <section aria-label="Project inspector" className="space-y-3">
+  <div role="tablist" aria-label="Inspector tools" className="grid grid-cols-3 gap-1">{(['inspect','compare','assist'] as const).map(t=><button key={t} type="button" role="tab" aria-selected={tab===t} onClick={()=>onTab(t)} className={`min-h-11 rounded px-2 text-xs capitalize ${tab===t?'bg-amber-500/15 text-amber-300':'text-zinc-400'}`}>{t}</button>)}</div>
+  {tab==='compare'?comparison?<><p className="text-xs text-zinc-400">Before most recent edit: {comparison.label}</p><ProjectComparison before={comparison.project} after={project}/></>:<p className="text-xs text-zinc-400">No previous edit in this project session. Make an edit, then compare its actual before and after values here.</p>:tab==='assist'?children:track?<>
+   <h2 className="text-sm font-semibold">{track.name}</h2><p className="text-xs text-zinc-400">{track.type} · {track.clips.length} clips · {track.clips.reduce((n,c)=>n+c.notes.length,0)} notes{track.locked?' · Locked':''}</p>
+   <label className="block text-xs">Layer<select aria-label="Inspect layer" value={track.id} onChange={e=>onSelect({trackId:e.target.value})} className="min-h-11 w-full rounded border border-slate-700 bg-[#12161B] px-2">{project.tracks.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+   <form onSubmit={e=>{e.preventDefault();if(name.trim())onRename(name.trim());}} className="flex gap-1"><input aria-label="Layer name" placeholder={track.name} value={name} onChange={e=>setName(e.target.value)} maxLength={160} className="min-h-11 min-w-0 flex-1 rounded border border-slate-700 bg-[#12161B] px-2 text-xs"/><button disabled={track.locked||!name.trim()} className="min-h-11 px-2 text-xs text-amber-300 disabled:opacity-40">Rename</button></form>
+   {track.type==='midi'&&<><div className="flex flex-wrap gap-2"><button type="button" disabled={track.locked} onClick={onCreateClip} className="min-h-11 rounded border border-slate-700 px-2 text-xs disabled:opacity-40">Add MIDI clip</button><button type="button" disabled={track.locked} onClick={onGenerate} className="min-h-11 rounded border border-slate-700 px-2 text-xs text-amber-300 disabled:opacity-40">Preview layer phrase</button></div><ArrangementEditInspector compact onAddNote={onAddNote} track={track} clipId={selection?.trackId===track.id?selection.clipId:undefined} noteId={selection?.trackId===track.id?selection.noteId:undefined} playheadBeat={0} onSelect={(clipId,noteId)=>onSelect({trackId:track.id,clipId,noteId})} onEditClip={onEditClip} onEditNote={onEditNote}/></>}
+   <h3 className="text-xs font-semibold">Device chain</h3>{track.devices.map(d=><div key={d.id} className="rounded border border-slate-700 p-2 text-xs"><p>{d.displayName} {d.bypassed?'· bypassed':''}</p><p className="mt-1 text-[10px] text-cyan-300">{ABLETON_DEVICE_REGISTRY[d.xmlTag]?.status||'preserved-only'}</p></div>)}
+  </>:<p className="text-xs text-zinc-400">Choose a layer to inspect.</p>}
+ </section>;
+}

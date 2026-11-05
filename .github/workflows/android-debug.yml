@@ -107,6 +107,12 @@ jobs:
           SESSION_AUTOMATION_OUTPUT: recovery-browser-evidence/session-automation
         run: node scripts/session-automation-check.mjs
 
+      - name: Verify Inspect Compare and layer instrument authoring
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          AUTHORING_REVIEW_OUTPUT: recovery-browser-evidence/authoring-review
+        run: node scripts/authoring-review-check.mjs
+
       - name: Verify workspace navigation and sound browser
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         env:

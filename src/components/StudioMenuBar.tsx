@@ -56,6 +56,7 @@ interface StudioMenuBarProps {
   onSwitchWorkspace: (tab: 'edit' | 'mix' | 'session' | 'devices' | 'browser' | 'ai' | 'queue') => void;
   onToggleTracks?: () => void;
   onToggleEditor?: () => void;
+  onCompare?: () => void;
   onToggleInspector?: () => void;
   onResetLayout: () => void;
   onOpenXmlInspector: () => void;
@@ -89,7 +90,7 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
   onOpenCompingModal,
   onSwitchWorkspace,
   onResetLayout,
-  onToggleTracks, onToggleEditor, onToggleInspector,
+  onToggleTracks, onToggleEditor, onToggleInspector, onCompare,
   onOpenXmlInspector,
   onOpenPythonExporter,
   onOpenArchitectureModal,
@@ -354,8 +355,9 @@ export const StudioMenuBar: React.FC<StudioMenuBarProps> = ({
               <button type="button" onClick={() => { onSwitchWorkspace('browser'); closeMenu(); }} className="min-h-11 w-full px-3 text-left hover:bg-amber-500/20">Browser</button>
               {[
                 {label:'Track list',action:onToggleTracks},
-                {label:'Clip / device editor',action:onToggleEditor},
-                {label:'Inspector',action:onToggleInspector},
+                {label:'Clip editor',action:onToggleEditor},
+                {label:'Inspect selection',action:onToggleInspector},
+                {label:'Compare last edit',action:onCompare},
               ].map(({label,action})=>action && <button key={label} type="button" onClick={()=>{action();closeMenu();}} className="min-h-11 w-full px-3 text-left hover:bg-amber-500/20">{label}</button>)}
               <div className="h-px bg-[#1F2733] my-1" />
               <button

@@ -6,16 +6,18 @@ import { INSTRUMENT_ROLE_TAXONOMY } from '../engine/compositionIntelligenceEngin
 import type { AbletonProjectState } from '../types/ableton';
 
 interface Props {
+  initialView?: 'devices'|'tracks';
+  onAddGeneratedLayer?: (roleCode:string)=>void;
   project: AbletonProjectState;
   selectedTrackId: string;
   onSelectTrack: (id: string) => void;
   onInsertDevice: (trackId: string, templateId: string) => void;
   onAddTrack?: (roleCode: string) => void;
 }
-export function StudioBrowser({project,selectedTrackId,onSelectTrack,onInsertDevice,onAddTrack}: Props) {
+export function StudioBrowser({initialView='devices',onAddGeneratedLayer,project,selectedTrackId,onSelectTrack,onInsertDevice,onAddTrack}: Props) {
   const [query,setQuery]=useState('');
   const [category,setCategory]=useState('all');
-  const [view,setView]=useState<'devices'|'tracks'>('devices');
+  const [view,setView]=useState<'devices'|'tracks'>(initialView);
   const needle=query.trim().toLocaleLowerCase();
   const devices=useMemo(()=>ABLETON_BUILTIN_LIBRARY.filter(d=>(category==='all'||d.category===category)&&`${d.displayName} ${d.description}`.toLocaleLowerCase().includes(needle)),[category,needle]);
   const roles=INSTRUMENT_ROLE_TAXONOMY.filter(r=>`${r.roleCode} ${r.name}`.toLocaleLowerCase().includes(needle));
@@ -44,9 +46,9 @@ export function StudioBrowser({project,selectedTrackId,onSelectTrack,onInsertDev
           return <article key={d.id} className="rounded-lg border border-[#2a333e] bg-[#12161B] p-4">
             <div className="flex items-start justify-between gap-3"><h2 className="text-sm font-semibold">{d.displayName}</h2><span className="rounded bg-[#1B2128] px-2 py-1 text-[10px] text-cyan-300">{support}</span></div>
             <p className="mt-2 text-xs leading-relaxed text-zinc-400">{contract?.limitations||'Preserved in the project; audio execution is not qualified.'}</p>
-            <button type="button" disabled={!target||support==='unsupported'} onClick={()=>target&&onInsertDevice(target.id,d.id)} className="mt-3 flex min-h-11 items-center gap-2 rounded bg-amber-500/15 px-3 text-xs font-semibold text-amber-300 disabled:opacity-40"><Plus className="h-4 w-4"/>{support==='preserved-only'?'Add preserved device':'Add device'}</button>
+            <button type="button" disabled={!target||!['executable','converted'].includes(support)} onClick={()=>target&&onInsertDevice(target.id,d.id)} className="mt-3 flex min-h-11 items-center gap-2 rounded bg-amber-500/15 px-3 text-xs font-semibold text-amber-300 disabled:opacity-40"><Plus className="h-4 w-4"/>{!['executable','converted'].includes(support)?'Import preservation only':d.category==='instrument'?'Choose instrument':'Add device'}</button>
           </article>;
-        }):roles.map(r=><article key={r.roleCode} className="rounded-lg border border-[#2a333e] bg-[#12161B] p-4"><h2 className="text-sm font-semibold">{r.name}</h2><p className="mt-1 text-xs text-zinc-400">{r.roleCode} · editable instrument track</p><button type="button" disabled={!onAddTrack} onClick={()=>onAddTrack?.(r.roleCode)} className="mt-3 flex min-h-11 items-center gap-2 rounded bg-amber-500/15 px-3 text-xs text-amber-300 disabled:opacity-40"><Plus className="h-4 w-4"/>Add track</button></article>)}
+        }):roles.map(r=><article key={r.roleCode} className="rounded-lg border border-[#2a333e] bg-[#12161B] p-4"><h2 className="text-sm font-semibold">{r.name}</h2><p className="mt-1 text-xs text-zinc-400">{r.roleCode} · editable instrument track</p><button type="button" disabled={!onAddTrack} onClick={()=>onAddTrack?.(r.roleCode)} className="mt-3 flex min-h-11 items-center gap-2 rounded bg-amber-500/15 px-3 text-xs text-amber-300 disabled:opacity-40"><Plus className="h-4 w-4"/>Add track</button>{onAddGeneratedLayer&&<button type="button" onClick={()=>onAddGeneratedLayer(r.roleCode)} className="mt-2 min-h-11 rounded border border-amber-600/40 px-3 text-xs text-amber-300">Preview layer with phrase</button>}</article>)}
       </div>
     </div>
   </section>;

@@ -1,3 +1,4 @@
+import type { EditorSelection } from './ProjectInspector';
 import {pianoPitchRows} from '../engine/arrangementEditing';
 import {ArrangementEditInspector} from './ArrangementEditInspector';
 import type {ArrangementClipEdit,ArrangementNoteEdit} from '../engine/arrangementEditing';
@@ -188,6 +189,12 @@ export function mapBeatToArrangementPlayheadTransform(
 }
 
 interface TimelineCanvasProps {
+  editorSelection?: EditorSelection;
+  onEditorSelectionChange?: (selection:EditorSelection)=>void;
+  editorRevealToken?: number;
+  onOpenLayerBrowser?: ()=>void;
+  onCreateClip?: ()=>void;
+  onAddNote?: ()=>void;
   project: AbletonProjectState;
   selectedTrackId: string;
   onSelectTrack: (trackId: string) => void;
@@ -279,6 +286,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   onConsolidateClipsInRange,
   onDeleteClipsInRange,
   onAddUserTrackFromRole,
+  editorSelection,onEditorSelectionChange,editorRevealToken,onOpenLayerBrowser,onCreateClip,onAddNote,
 }) => {
   const arrangementCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pianoRollCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -334,9 +342,9 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const [editorSelectionTrackId, setEditorSelectionTrackId] =
     useState(selectedTrackId);
   const activeClipId =
-    editorSelectionTrackId === selectedTrackId ? selectedClipId : undefined;
+    (editorSelection?.trackId ?? editorSelectionTrackId) === selectedTrackId ? (editorSelection ? editorSelection.clipId : selectedClipId) : undefined;
   const activeNoteId =
-    editorSelectionTrackId === selectedTrackId ? selectedNoteId : undefined;
+    (editorSelection?.trackId ?? editorSelectionTrackId) === selectedTrackId ? (editorSelection ? editorSelection.noteId : selectedNoteId) : undefined;
   const selectEditorTarget = (
     clipId: string,
     noteId?: string,
@@ -345,6 +353,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     setEditorSelectionTrackId(trackId);
     setSelectedClipId(clipId);
     setSelectedNoteId(noteId);
+    onEditorSelectionChange?.({trackId,clipId,noteId});
   };
   useEffect(() => {
     const cancel = (e: KeyboardEvent) => {
@@ -1754,6 +1763,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-[#0D1015] select-none">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#232a33] bg-[#12161B] px-3 py-2 text-xs">
         <span className="font-semibold">Arrangement · {totalBars} bars</span>
+        <div className="flex gap-1">{onOpenLayerBrowser&&<button type="button" onClick={onOpenLayerBrowser} className="min-h-11 rounded border border-slate-700 px-3">Add layer</button>}{onCreateClip&&<button type="button" disabled={!selectedTrack||selectedTrack.locked||selectedTrack.type!=='midi'} onClick={onCreateClip} className="min-h-11 rounded border border-slate-700 px-3 disabled:opacity-40">Add clip</button>}</div>
         <div className="flex items-center gap-2">
           <button type="button" aria-label="Zoom out timeline" onClick={()=>setArrangementZoom(z=>Math.max(1,z/2))} className="min-h-11 min-w-11 rounded bg-[#1B2128]">−</button>
           <button type="button" onClick={()=>{setArrangementZoom(1);setArrangementScrollBar(0);}} className="min-h-11 rounded bg-[#1B2128] px-3">Fit</button>
@@ -2810,7 +2820,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         </div>
       </div>
 
-      <ArrangementEditInspector track={selectedTrack} clipId={activeClipId} noteId={activeNoteId} playheadBeat={playheadBeat} onSelect={selectEditorTarget} onEditClip={onEditArrangementClip} onEditNote={onEditArrangementNote}/>
+      <ArrangementEditInspector onAddNote={onAddNote} revealToken={editorRevealToken} track={selectedTrack} clipId={activeClipId} noteId={activeNoteId} playheadBeat={playheadBeat} onSelect={selectEditorTarget} onEditClip={onEditArrangementClip} onEditNote={onEditArrangementNote}/>
       <div className="flex shrink-0 items-center gap-2 px-3 text-xs text-slate-300">
         <button type="button" className="min-h-11 px-2 border border-slate-700 rounded" onClick={()=>pianoRollCanvasRef.current?.parentElement?.scrollBy({top:-144,behavior:'auto'})}>Higher keys</button>
         <button type="button" className="min-h-11 px-2 border border-slate-700 rounded" onClick={()=>pianoRollCanvasRef.current?.parentElement?.scrollBy({top:144,behavior:'auto'})}>Lower keys</button>

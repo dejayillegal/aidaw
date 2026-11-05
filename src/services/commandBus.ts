@@ -253,6 +253,11 @@ export class StudioCommandBus {
     return deepCloneProject(tx.afterState);
   }
 
+  public getLatestComparison(projectQueueId: string): {label:string;project:AbletonProjectState}|undefined {
+    const tx=this.undoStacks.get(projectQueueId)?.at(-1);
+    return tx?{label:tx.label,project:deepCloneProject(tx.beforeState)}:undefined;
+  }
+
   public getHistory(projectQueueId: string): ProjectCommandTransaction[] {
     return JSON.parse(JSON.stringify(this.undoStacks.get(projectQueueId) || []));
   }
