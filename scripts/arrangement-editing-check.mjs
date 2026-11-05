@@ -363,6 +363,10 @@ try {
   assert.deepEqual((await read()).project.tracks, expected.tracks);
   await stage("Saved and reopened exact edited layer state");
 
+  // Opening a project remounts its workspace. Reveal the editor through the
+  // actual menu, rather than depending on a previous details element staying open.
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  await page.getByRole("button", { name: "Clip editor", exact: true }).click();
   await page
     .getByLabel("Selected arrangement clip", { exact: true })
     .selectOption("later");
@@ -373,6 +377,7 @@ try {
     true,
   );
   const beforeRegenerate = await read();
+  await page.getByTestId("clip-actions").locator("summary").click();
   await page.getByTestId("bar-range-start-input").fill("4");
   await page.getByTestId("bar-range-end-input").fill("7");
   await page.getByTestId("range-generate-chord-clip-btn").click();
