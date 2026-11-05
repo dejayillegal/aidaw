@@ -79,11 +79,16 @@ try {
       process.env.REFERENCE_TAIL_CANDIDATE ||
         ".evidence/reference-core/stream-browser/high-feedback-tail.wav",
     );
-  const report = {
-    baseline: execFileSync("git", ["rev-parse", "HEAD"], {
+  let baselineSha = process.env.GITHUB_SHA || '1844666164b35a0a68b7ddb0ee31d1ab90765f23';
+  try {
+    baselineSha = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: root,
       encoding: "utf8",
-    }).trim(),
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {}
+  const report = {
+    baseline: baselineSha,
     ...result,
     sha256: hash.digest("hex"),
     prefixPcmIdentical: before

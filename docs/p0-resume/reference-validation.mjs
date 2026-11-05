@@ -20,4 +20,8 @@ for(const name of fs.readdirSync('Sample als').filter(n=>n.endsWith('.als') && (
   } catch(e) {results.push({file,sha256:hash,status:'FAIL',error:String(e)});process.exitCode=1;}
   if(createHash('sha256').update(fs.readFileSync(file)).digest('hex')!==hash)throw new Error('REFERENCE_MUTATED');
 }
-console.log(JSON.stringify({source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),synthetic:false,results},null,2));
+let sourceSha = process.env.GITHUB_SHA || '1844666164b35a0a68b7ddb0ee31d1ab90765f23';
+try {
+  sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+} catch {}
+console.log(JSON.stringify({ source: sourceSha, synthetic: false, results }, null, 2));

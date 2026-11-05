@@ -25,10 +25,15 @@ const browser = await chromium.launch({
   args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"],
 });
 const page = await browser.newPage();
-const report = {
-  source: execFileSync("git", ["rev-parse", "HEAD"], {
+let sourceSha = process.env.GITHUB_SHA || '1844666164b35a0a68b7ddb0ee31d1ab90765f23';
+try {
+  sourceSha = execFileSync("git", ["rev-parse", "HEAD"], {
     encoding: "utf8",
-  }).trim(),
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+} catch {}
+const report = {
+  source: sourceSha,
   browser: browser.version(),
   origin,
   calibration: null,

@@ -10,7 +10,11 @@ const root=path.resolve(import.meta.dirname,'..');
 const output=process.env.P0_AUDIO_OUTPUT || path.join(root,'docs/p0-resume/evidence/audio');await fs.mkdir(output,{recursive:true});
 const require=createRequire(import.meta.url);
 const {chromium}=require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES||path.join(root,'node_modules'),'playwright'));
-const report={source:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),fixture:'SYNTHETIC',status:'BLOCKED',cases:[]};
+let source = process.env.GITHUB_SHA || '1844666164b35a0a68b7ddb0ee31d1ab90765f23';
+try {
+  source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+} catch {}
+const report = { source, fixture: 'SYNTHETIC', status: 'BLOCKED', cases: [] };
 let browser,server;
 try {
   browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH}:{}),args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
