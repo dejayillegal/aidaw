@@ -50,6 +50,14 @@ jobs:
       - name: Install Node Dependencies
         run: npm ci
 
+      - name: Audit dependencies (high and critical threshold)
+        run: |
+          mkdir -p recovery-browser-evidence
+          npm audit --audit-level=high --json > recovery-browser-evidence/dependency-audit.json
+
+      - name: Generate dependency SBOM
+        run: npm sbom --sbom-format cyclonedx > recovery-browser-evidence/sbom.cdx.json
+
       - name: Validate TypeScript & Linting
         run: npm run lint
 
@@ -63,24 +71,47 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
 
       - name: Install isolated browser test runtime
+        id: browser-runtime
         run: |
           browser_runtime="$RUNNER_TEMP/aidaw-browser-runtime"
           npm install --prefix "$browser_runtime" --no-save --package-lock=false playwright@1.62.1
           node "$browser_runtime/node_modules/playwright/cli.js" install --with-deps chromium
           echo "CODEX_PRIMARY_RUNTIME_NODE_MODULES=$browser_runtime/node_modules" >> "$GITHUB_ENV"
 
+      - name: Inventory UI controls
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        run: node scripts/inventory-ui-controls.mjs recovery-browser-evidence/ui-controls.json
+
+      - name: Verify registered plugin audio
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          P0_AUDIO_OUTPUT: recovery-browser-evidence/p0-audio
+        run: node scripts/verify-p0-audio.mjs
+
       - name: Verify real audio rendering and responsive settings
         id: browser-check
-        continue-on-error: true
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         env:
           RECOVERY_BROWSER_OUTPUT: recovery-browser-evidence
-        run: |
-          node scripts/inventory-ui-controls.mjs recovery-browser-evidence/ui-controls.json
-          P0_AUDIO_OUTPUT=recovery-browser-evidence/p0-audio node scripts/verify-p0-audio.mjs
-          node scripts/recovery-browser-check.mjs
-          ARRANGEMENT_EDITING_OUTPUT=recovery-browser-evidence/arrangement-editing node scripts/arrangement-editing-check.mjs
-          REFERENCE_EXPORT_OUTPUT=recovery-browser-evidence/continuous-export node scripts/reference-export-check.mjs
-          REFERENCE_UI_OUTPUT=recovery-browser-evidence/continuous-export-ui node scripts/reference-export-ui-check.mjs
+        run: node scripts/recovery-browser-check.mjs
+
+      - name: Verify arrangement editing
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          ARRANGEMENT_EDITING_OUTPUT: recovery-browser-evidence/arrangement-editing
+        run: node scripts/arrangement-editing-check.mjs
+
+      - name: Verify continuous file rendering
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          REFERENCE_EXPORT_OUTPUT: recovery-browser-evidence/continuous-export
+        run: node scripts/reference-export-check.mjs
+
+      - name: Verify visible continuous export workflow
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          REFERENCE_UI_OUTPUT: recovery-browser-evidence/continuous-export-ui
+        run: node scripts/reference-export-ui-check.mjs
 
       - name: Upload browser evidence
         if: always()
@@ -91,31 +122,44 @@ jobs:
           if-no-files-found: ignore
 
       - name: Generate branded launcher and PWA assets
+        id: icons
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         run: node scripts/generate-png-icons.js
 
       - name: Build Production Web Bundle
+        id: web-build
+        if: ${{ !cancelled() && steps.icons.outcome == 'success' }}
         run: npm run build
 
       - name: Sync Capacitor Android Project without nested APKs
+        id: android-sync
+        if: ${{ !cancelled() && steps.web-build.outcome == 'success' }}
         run: node --input-type=module -e "import { syncCapacitor } from './scripts/build-debug-apk.mjs'; syncCapacitor();"
 
       - name: Grant Execute Permission to Gradle Wrapper
+        if: ${{ !cancelled() && steps.android-sync.outcome == 'success' }}
         run: chmod +x android/gradlew
 
       - name: Build Android Debug APK with Gradle
+        id: apk-build
+        if: ${{ !cancelled() && steps.android-sync.outcome == 'success' }}
         run: |
           cd android
           ./gradlew assembleDebug --stacktrace
 
       - name: Verify APK Structure & Signatures
+        id: apk-verify
+        if: ${{ !cancelled() && steps.apk-build.outcome == 'success' }}
         run: |
           python3 scripts/verify-apk.py android/app/build/outputs/apk/debug/app-debug.apk > android/app/build/outputs/apk/debug/verification.json
 
       - name: Compute APK SHA-256 Checksum
+        if: ${{ !cancelled() && steps.apk-verify.outcome == 'success' }}
         run: |
           sha256sum android/app/build/outputs/apk/debug/app-debug.apk | tee android/app/build/outputs/apk/debug/app-debug.apk.sha256
 
       - name: Upload Debug APK Artifact
+        if: ${{ !cancelled() && steps.apk-verify.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: parametric-techno-daw-unqualified-debug-apk
@@ -124,10 +168,3 @@ jobs:
             android/app/build/outputs/apk/debug/app-debug.apk.sha256
             android/app/build/outputs/apk/debug/verification.json
           retention-days: 30
-
-
-      - name: Enforce browser qualification result
-        if: always() && steps.browser-check.outcome != 'success'
-        run: |
-          echo "Browser acceptance failed; any debug APK is unqualified."
-          exit 1
