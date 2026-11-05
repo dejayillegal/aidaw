@@ -10,7 +10,7 @@
 - Imported/generated take snapshots can carry import wall-clock metadata; same-seed musical determinism excludes those timestamps. Initial comping snapshots and all long-arrangement take semantics require separate qualification.
 - Standardized integrated LUFS/true peak, audible boundary quality, low-end/stereo assessment, capture parity, long-session CPU/RSS and complete cancellation/resource-limit qualification remain incomplete.
 - Strict TypeScript and required ESLint correctness checks now pass, including negative probes. These do not establish complete mutation/interaction coverage, eliminate explicit any, or replace type-aware/security review. ESLint9/Babel7 are pinned for the existing Workbox/Babel7 build pipeline; ESLint9 is upstream-deprecated, so isolating a supported newer lint toolchain remains maintenance work.
-- PWA multiple-tab races, service-worker update/storage schema combinations and physical interruption/recovery remain unqualified.
+- Ordinary current-format cross-tab save/delete conflicts are now guarded and native-tested; cross-version writers, service-worker update/storage schema combinations and physical interruption/recovery remain unqualified. The guard is a revision/checksum protocol between normal application writers, not a claim of adversarial database tamper detection.
 - Seven dependency advisories remain (2 low,5 moderate). No complete security/licensing review or production signing-lineage approval is claimed.
 
 These are real acceptance gaps, not approvals to drop features or erase original projects. Engineering/QA must attach measured evidence before promoting a gate.

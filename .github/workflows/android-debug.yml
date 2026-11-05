@@ -113,6 +113,12 @@ jobs:
           MAPPED_EDITING_OUTPUT: recovery-browser-evidence/mapped-editing
         run: node scripts/mapped-editing-check.mjs
 
+      - name: Verify journal conflicts across browser tabs
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          JOURNAL_CONCURRENCY_OUTPUT: recovery-browser-evidence/journal-concurrency
+        run: node scripts/journal-concurrency-check.mjs
+
       - name: Verify clear dialog and project preservation
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         env:
