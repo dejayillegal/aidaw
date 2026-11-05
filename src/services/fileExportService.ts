@@ -18,32 +18,46 @@ const unsafeFilenameCharacters = /[\\/\x00-\x1f]/g;
 export async function saveExportBlob(
   blob: Blob,
   filename: string,
+  signal?: AbortSignal,
+  onPhase?: (phase: "selecting" | "writing" | "verifying") => void,
 ): Promise<{ verified: boolean; uri?: string }> {
   if (saving) throw new Error("SAVE_BUSY: another save is in progress");
   if (!blob.size) throw new Error("SAVE_EMPTY: no output to save");
   saving = true;
+  const check = () => {
+    if (signal?.aborted) throw new DOMException("Export cancelled", "AbortError");
+  };
   try {
+    check();
     const safeName = filename.replace(unsafeFilenameCharacters, "_");
     if (Capacitor.isNativePlatform()) {
       if (Capacitor.getPlatform() !== "android")
         throw new Error(
           "SAVE_UNSUPPORTED: native file export requires Android",
         );
+      onPhase?.("selecting");
       await nativeExport.begin({
         filename: safeName,
         mimeType: blob.type || "application/octet-stream",
       });
       try {
+        check();
+        onPhase?.("writing");
         for (let offset = 0; offset < blob.size; offset += 192 * 1024) {
+          check();
           const bytes = new Uint8Array(
             await blob.slice(offset, offset + 192 * 1024).arrayBuffer(),
           );
+          check();
           // No whole-file base64 string or argument stack overflow on full arrangements.
           let binary = "";
           for (let i = 0; i < bytes.length; i++)
             binary += String.fromCharCode(bytes[i]);
           await nativeExport.append({ base64: btoa(binary) });
         }
+        check();
+        // Committing/verification cannot be cancelled after the native document closes.
+        onPhase?.("verifying");
         const result = await nativeExport.finish({ sizeBytes: blob.size });
         if (
           result.sizeBytes !== blob.size ||
@@ -57,6 +71,8 @@ export async function saveExportBlob(
         throw error;
       }
     }
+    check();
+    onPhase?.("verifying");
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;

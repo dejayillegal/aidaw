@@ -1,5 +1,7 @@
 # Implemented, pending and strengthening register
 
+Application follow-up: [STARTUP-EXPORT-INTEGRITY.md](STARTUP-EXPORT-INTEGRITY.md) records delayed startup protection, active-score remounting, cancellable Blob saves and Float32 headroom repair, with executed and still-pending verification kept separate. The broader pending table below remains open.
+
 ## Latest-main blocker follow-up — November 5, 2026
 
 Inspected main: `9275da64ca2753d3fee554cfdf7b0a388b65315b` (merged PR25). No open PRs existed when this follow-up began. Main workflow [42048172578](https://github.com/dejayillegal/aidaw/actions/runs/42048172578), job127316743304, failed three required browser flows. Its lint, 41 test files/356 tests, web build, APK build and signature checks passed. These are baseline CI results, not results for this follow-up.

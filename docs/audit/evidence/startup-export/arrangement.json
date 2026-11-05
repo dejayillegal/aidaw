@@ -1,0 +1,71 @@
+{
+  "browser": "151.0.7922.34",
+  "steps": [
+    "Opened canonical two-layer fixture",
+    "Edited the selected later clip, preserving other clips/layers",
+    "Moved a clip and its notes by an exact fractional beat",
+    "Duplicated selected clip through canonical history",
+    "Deleted only bars 2–3, retaining prefix/suffix and sustained continuation",
+    "Dragged and resized the selected note; Escape cancelled without a history entry",
+    "Moved/resized the selected arrangement clip and verified undo/redo",
+    "Saved and reopened exact edited layer state",
+    "Regenerated a selected phrase without overwriting protected edits or the other layer, then undid it",
+    "Exported selected later MIDI, reimported edited ALS and rendered complete WAV",
+    "Consolidated a range, duplicated and split its result, then undid all three operations",
+    "Live edit retired the edited layer while the other sustained and master level stayed constant"
+  ],
+  "errors": [],
+  "live": {
+    "before": {
+      "playing": true,
+      "beat": 1.324172335600907,
+      "master": 1,
+      "voices": [
+        1,
+        1
+      ],
+      "meters": [
+        {
+          "peakDb": -28.2,
+          "rmsDb": -35.5,
+          "faderLinear": 1,
+          "gateLinear": 1,
+          "pan": 0
+        },
+        {
+          "peakDb": -26.6,
+          "rmsDb": -31.3,
+          "faderLinear": 0.8413951416451951,
+          "gateLinear": 1,
+          "pan": 0
+        }
+      ]
+    },
+    "after": {
+      "playing": true,
+      "beat": 3.582312925170068,
+      "master": 1,
+      "voices": [
+        0,
+        1
+      ],
+      "meters": [
+        {
+          "peakDb": -60,
+          "rmsDb": -60,
+          "faderLinear": 1,
+          "gateLinear": 1,
+          "pan": 0
+        },
+        {
+          "peakDb": -36.1,
+          "rmsDb": -43.7,
+          "faderLinear": 0.8413951416451951,
+          "gateLinear": 1,
+          "pan": 0
+        }
+      ]
+    }
+  },
+  "status": "PASS"
+}

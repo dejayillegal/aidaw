@@ -42,7 +42,6 @@ try{
 // Wait for the same saved queue item; a missing/different project still times out.
 await page.waitForFunction(async expectedId=>{
  const {projectQueueService:q}=await import('/src/services/projectQueueService.ts');
- await q.restorePersistedProjects();
  return q.getActiveQueueId()===expectedId && !!q.getActiveItem()?.workingProjectState;
 },committed.id);
 assert.deepEqual(await state(),committed);

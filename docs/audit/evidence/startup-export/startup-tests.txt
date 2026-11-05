@@ -1,0 +1,10 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+ RUN  v5.0.5 /workspace/scratch/4365f41622b9/aidaw
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:40:50
+   Duration  8.43s (tests 48%, environment 23%, import 17%, transform 11%, setup 1%)
+

@@ -140,3 +140,28 @@ it("cleans up native output if synthesis fails and permits the next independent 
     saveExportStream("good.wav", 4, async (write) => write(new Uint8Array(4))),
   ).resolves.toMatchObject({ verified: true });
 });
+
+it('honors Blob cancellation before opening a destination and releases the reservation', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await expect(saveExportBlob(new Blob(['audio']), 'cancel.wav', controller.signal)).rejects.toThrow(/cancel/i);
+  expect(native.begin).not.toHaveBeenCalled();
+  native.finish.mockResolvedValue({uri:'content://retry',sizeBytes:4,sha256:'d'.repeat(64)});
+  await expect(saveExportBlob(new Blob(['next']), 'next.wav')).resolves.toMatchObject({verified:true});
+});
+it('discards a Blob destination cancelled while its native picker was pending', async () => {
+  const controller = new AbortController();
+  native.begin.mockImplementationOnce(async () => { controller.abort(); });
+  await expect(saveExportBlob(new Blob(['audio']), 'cancel.wav', controller.signal)).rejects.toThrow(/cancel/i);
+  expect(native.abort).toHaveBeenCalledOnce();
+  expect(native.append).not.toHaveBeenCalled();
+  expect(native.finish).not.toHaveBeenCalled();
+});
+it('cancels Blob writes between chunks without committing the destination', async () => {
+  const controller = new AbortController();
+  native.append.mockImplementationOnce(async () => { controller.abort(); });
+  await expect(saveExportBlob(new Blob([new Uint8Array(500000)]), 'cancel.wav', controller.signal)).rejects.toThrow(/cancel/i);
+  expect(native.append).toHaveBeenCalledOnce();
+  expect(native.abort).toHaveBeenCalledOnce();
+  expect(native.finish).not.toHaveBeenCalled();
+});

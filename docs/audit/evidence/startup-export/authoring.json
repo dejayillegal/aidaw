@@ -1,0 +1,14 @@
+{
+  "scope": "Native UI Inspect/Compare, instrument replacement, empty/generated layer authoring, review/cancel/audition/apply, undo/reopen; not hardware or full musical-quality qualification",
+  "steps": [
+    "Generated new role is nonempty, scoped, previewable, cancellable and undoable",
+    "Instrument choice auditions real audio and replaces only the instrument after approval",
+    "Selected later phrase previews only its clip; stale proposals cannot overwrite intervening edits",
+    "Inspect and editor share the chosen layer/clip/note; empty clips become real editable notes",
+    "Phone/landscape inspector controls remain reachable and authoring survives native reopen"
+  ],
+  "errors": [],
+  "browser": "151.0.7922.34",
+  "auditionPeakDb": -9.5,
+  "status": "PASS"
+}

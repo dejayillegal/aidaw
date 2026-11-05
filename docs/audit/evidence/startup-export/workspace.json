@@ -1,0 +1,55 @@
+{
+  "scope": "Native browser workspace navigation, canonical track/device insertion, undo/save/reopen and responsive geometry; no Android hardware qualification",
+  "cases": [
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "navigation": "PASS",
+      "settings": "PASS",
+      "projectPreserved": true
+    },
+    {
+      "viewport": {
+        "width": 800,
+        "height": 360
+      },
+      "navigation": "PASS",
+      "settings": "PASS",
+      "projectPreserved": true
+    },
+    {
+      "viewport": {
+        "width": 900,
+        "height": 720
+      },
+      "navigation": "PASS",
+      "settings": "PASS",
+      "projectPreserved": true
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "navigation": "PASS",
+      "settings": "PASS",
+      "projectPreserved": true
+    },
+    {
+      "name": "browser-edit-undo-redo-save-reopen",
+      "status": "PASS",
+      "trackAdded": true,
+      "deviceAdded": true
+    },
+    {
+      "name": "tempo-control-map-and-undo",
+      "status": "PASS",
+      "bpm": 143.25
+    }
+  ],
+  "errors": [],
+  "browser": "151.0.7922.34",
+  "status": "PASS"
+}

@@ -49,7 +49,6 @@ try{
 // Wait for the same saved queue item; a missing/different project still times out.
 await page.waitForFunction(async expectedId=>{
  const {projectQueueService:q}=await import('/src/services/projectQueueService.ts');
- await q.restorePersistedProjects();
  return q.getActiveQueueId()===expectedId && !!q.getActiveItem()?.workingProjectState;
 },baseline.id);
 assert.deepEqual((await read()).project.tracks,saved.tracks);stage('Phone/landscape inspector controls remain reachable and authoring survives native reopen');
