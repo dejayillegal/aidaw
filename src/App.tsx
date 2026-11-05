@@ -1,3 +1,8 @@
+import { ABLETON_BUILTIN_LIBRARY } from './engine/alsXmlEngine';
+import { chooseTrackDevice, generateTrackLayer, appendEmptyArrangementClip, appendArrangementNote, ensureAuthoringSongPlan, transformSelectedPhrase } from './engine/authoringActions';
+import { prepareProjectChange, applyReviewedProjectChange, type ProjectChangeProposal, type ChangeCategory } from './services/projectChangeReview';
+import { ProjectChangeReviewDialog } from './components/ProjectChangeReviewDialog';
+import { ProjectInspector, type EditorSelection, type InspectorTab } from './components/ProjectInspector';
 import { editProjectBaseTempo } from './engine/projectTempoEditing';
 import { clearArrangementContent } from './engine/clearArrangement';
 import { ClearArrangementDialog, type ClearArrangementDialogHandle } from './components/ClearArrangementDialog';
@@ -274,7 +279,8 @@ export default function App() {
     return enrichProjectWithAnalysis(parsed, 'hypnotic_longform');
   });
 
-  const compositionSeed = project.lastGenerationIdentity?.compositionSeed ?? project.generationSeed ?? initialCompositionSeed;
+  const [requestedCompositionSeed,setRequestedCompositionSeed]=useState<number>();
+  const compositionSeed = requestedCompositionSeed ?? project.songPlan?.seed ?? project.generationSeed ?? project.lastGenerationIdentity?.compositionSeed ?? initialCompositionSeed;
   const jitterSeed = project.humanizationSeed ?? project.lastGenerationIdentity?.humanizationSeed ?? compositionSeed + 79;
   const settings = useMemo(() => projectAudioSettings(project), [project.audioSettings, project.arrangementLengthBars]);
   const humanization = settings.humanization;
@@ -303,6 +309,11 @@ export default function App() {
   );
 
   // SoundCraft Workstation & Dock Layout States
+  const [pendingProposal,setPendingProposal]=useState<ProjectChangeProposal|null>(null);
+  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('inspect');
+  const [editorSelection,setEditorSelection]=useState<EditorSelection>();
+  const [editorRevealToken,setEditorRevealToken]=useState(0);
+  const [browserView,setBrowserView]=useState<'devices'|'tracks'>('devices');
   const [studioWorkspace, setStudioWorkspace] = useState<WorkspaceTabId>('edit');
   const [activeEditingTool, setActiveEditingTool] = useState<StudioEditingTool>('smart');
   const [spectrumOverlayMode, setSpectrumOverlayMode] = useState<SpectrumOverlayMode>('off');
@@ -338,6 +349,7 @@ export default function App() {
 
   const handleSelectTrack = useCallback((trackId: string) => {
     setSelectedTrackId(trackId);
+    setEditorSelection(previous=>previous?.trackId===trackId?previous:{trackId});
   }, []);
 
   const [queueItems, setQueueItems] = useState<QueuedProjectRecord[]>(() =>
@@ -354,7 +366,7 @@ export default function App() {
   const [isTouchSettingsOpen, setIsTouchSettingsOpen] = useState<boolean>(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
   const [touchConfig, setTouchConfig] = useState<TouchInteractionConfig>(DEFAULT_TOUCH_CONFIG);
-  const [, setCommandBusTick] = useState<number>(0);
+  const [commandBusTick, setCommandBusTick] = useState<number>(0);
 
   const handleApplyLayoutPreset = (
     preset: 'edit' | 'mix' | 'session' | 'sound_design' | 'mastering'
@@ -605,6 +617,50 @@ export default function App() {
   };
   const setMasterBus = (update: React.SetStateAction<MasterBusConfig>) => updateAudioSettings('masterBus', update);
   const setTransport = (update: React.SetStateAction<TransportConfig>) => updateAudioSettings('transport', update);
+
+  const handlePreviewProjectCommand = useCallback((label:string,category:ChangeCategory,mutator:(draft:AbletonProjectState)=>AbletonProjectState)=>{
+    try {
+      const proposal=prepareProjectChange(commandTargetRef.current,projectRef.current,label,category,mutator);
+      setPendingProposal(proposal);setStatusMessage(`Preview ready: ${label}. Review before applying.`);
+      return proposal.after;
+    } catch(error){setStatusMessage(`Preview rejected: ${error instanceof Error?error.message:String(error)}`);}
+  },[]);
+  const comparisonBase=useMemo(()=>studioCommandBus.getLatestComparison(currentProjectQueueKey),[currentProjectQueueKey,commandBusTick]);
+  const staleProposal=useMemo(()=>Boolean(pendingProposal&&(pendingProposal.sourceQueueId!==currentProjectQueueKey||pendingProposal.baseline!==JSON.stringify(project))),[pendingProposal,currentProjectQueueKey,project]);
+  useEffect(()=>{setEditorSelection(undefined);setRequestedCompositionSeed(undefined);},[currentProjectQueueKey]);
+  useEffect(()=>{if(!project.tracks.some(t=>t.id===selectedTrackId)){const first=project.tracks[0]?.id||'';setSelectedTrackId(first);setEditorSelection(first?{trackId:first}:undefined);}},[project.tracks,selectedTrackId]);
+  const handleEditorSelection=(selection:EditorSelection)=>{setSelectedTrackId(selection.trackId);setEditorSelection(selection);};
+  const revealEditor=()=>{setActiveTab('workbench');setStudioWorkspace('edit');setBottomDockOpen(false);setEditorRevealToken(n=>n+1);};
+  const revealInspector=(tab:InspectorTab)=>{setActiveTab('workbench');setStudioWorkspace('edit');setRightDockOpen(true);setInspectorTab(tab);};
+  const openLayerBrowser=()=>{setActiveTab('workbench');setBrowserView('tracks');setStudioWorkspace('browser');};
+  const handleCreateEmptyClip=()=>{
+    const next=handleExecuteProjectCommand('Add MIDI clip','clip_edit',draft=>appendEmptyArrangementClip(draft,selectedTrackId,Math.floor(playheadBeat),4));
+    const clip=next?.tracks.find(t=>t.id===selectedTrackId)?.clips.at(-1);
+    if(clip){setEditorSelection({trackId:selectedTrackId,clipId:clip.id});revealEditor();}
+  };
+  const handleAddNote=()=>{
+    const track=projectRef.current.tracks.find(t=>t.id===selectedTrackId),clip=track?.clips.find(c=>c.id===editorSelection?.clipId)??track?.clips[0];
+    if(!clip){setStatusMessage('Add a MIDI clip before adding a note.');return;}
+    const next=handleExecuteProjectCommand('Add MIDI note','clip_edit',draft=>appendArrangementNote(draft,selectedTrackId,clip.id));
+    const note=next?.tracks.find(t=>t.id===selectedTrackId)?.clips.find(c=>c.id===clip.id)?.notes.at(-1);
+    if(note)setEditorSelection({trackId:selectedTrackId,clipId:clip.id,noteId:note.id});
+  };
+  const handleGenerateSelectedLayer=()=>handlePreviewProjectCommand('Generate selected layer phrase','clip_edit',draft=>generateTrackLayer(draft,selectedTrackId,activeStrategyId,compositionSeed));
+  const auditionReviewedProject=(candidate?:AbletonProjectState)=>{
+    synthEngine.stop();setIsPlaying(false);
+    try {
+      const target=candidate?structuredClone(candidate):projectRef.current,settings=projectAudioSettings(target);
+      synthEngine.setState(target,settings.humanization,candidate?{...settings.transport,arrangementMode:'arrangement',loopEnabled:false}:settings.transport,settings.masterBus);
+      if(candidate){synthEngine.seek(0);synthEngine.start(false);setIsPlaying(synthEngine.getIsPlaying());return synthEngine.getIsPlaying();}
+    }catch(error){setStatusMessage(`Audition blocked: ${error instanceof Error?error.message:String(error)}`);}
+    return false;
+  };
+  const cancelReviewedChange=()=>{auditionReviewedProject();setPendingProposal(null);setStatusMessage('Proposal discarded; editable project unchanged.');};
+  const applyReviewedChange=()=>{
+    if(!pendingProposal)return;auditionReviewedProject();
+    const next=handleExecuteProjectCommand(pendingProposal.label,pendingProposal.category,draft=>applyReviewedProjectChange(commandTargetRef.current,draft,pendingProposal));
+    if(next){const added=next.tracks.find(t=>!pendingProposal.before.tracks.some(old=>old.id===t.id));if(added)handleSelectTrack(added.id);setPendingProposal(null);}
+  };
 
   const handleUndo = useCallback(() => {
     const restored = studioCommandBus.undo(currentProjectQueueKey);
@@ -927,158 +983,18 @@ export default function App() {
     return currentXml;
   };
 
-  const handleInjectLayer = useCallback(
-    (
-      archetype: TechnoArchetype,
-      customOneBarPattern?: { time: number; duration: number; pitch: number; velocity: number }[],
-      customClipName?: string,
-      rationaleNote?: string,
-      explicitSeed?: number
-    ) => {
-      const existingTrack = project.tracks.find((t) => t.archetype === archetype);
-      if (existingTrack?.locked) {
-        setStatusMessage(`Track "${existingTrack.name}" is LOCKED. Unlock it first to regenerate.`);
-        return;
-      }
-
-      if(!customOneBarPattern?.length) {
-        handleExecuteProjectCommand('Generate planned layer', 'clip_edit', draft => {
-          let track=draft.tracks.find(t=>t.archetype===archetype);
-          if(!track) {const role=INSTRUMENT_ROLE_TAXONOMY.find(r=>r.archetype===archetype);if(!role)return draft;track=createUserTrackFromRole(role.roleCode,draft.tracks.length);}
-          const plan=draft.songPlan??createSongPlan(draft,draft.generationSeed??explicitSeed??1,activeStrategyId);
-          const next={...track,clips:materializeSongPlanTrack(plan,track),automationPoints:songPlanAutomation(plan,archetype)};
-          return {...draft,songPlan:plan,tracks:draft.tracks.some(t=>t.id===next.id)?draft.tracks.map(t=>t.id===next.id?next:t):[...draft.tracks,next]};
-        });
-        return;
-      }
-
-      const totalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-      const totalBeats = totalBars * 4;
-
-      const nextCompSeed =
-        typeof explicitSeed === 'number'
-          ? explicitSeed
-          : Math.floor(Math.random() * 10000000) + 1;
-      const nextHumSeed = Math.floor(Math.random() * 1000000) + 1;
-
-
-      let updatedXml = TechnoHeuristicEngine.injectTechnoLayerIntoXml(
-        project.rawXmlModified,
-        archetype,
-        project.rootKey,
-        humanization,
-        customOneBarPattern,
-        customClipName,
-        nextCompSeed,
-        totalBars
-      );
-
-      const composed = composeProjectConditionedLayerNotes(
-        project,
-        archetype,
-        activeStrategyId,
-        activeFormId,
-        humanization,
-        nextCompSeed,
-        nextHumSeed,
-        totalBars
-      );
-
-      const finalNotes =
-        customOneBarPattern && customOneBarPattern.length > 0
-          ? TechnoHeuristicEngine.generateHumanizedMidiArray(
-              archetype,
-              project.rootKey,
-              humanization,
-              customOneBarPattern,
-              nextCompSeed,
-              totalBars
-            )
-          : composed.notes;
-
-      const clipLabel =
-        customClipName || `${archetype.toUpperCase()}_${activeStrategyId}_v${nextCompSeed % 100}`;
-      updatedXml = syncTrackNotesToXml(
-        updatedXml,
-        '',
-        archetype,
-        clipLabel,
-        finalNotes,
-        totalBeats
-      );
-
-      const rawNextState = parseAbletonXmlDom(
-        updatedXml,
-        project.fileName,
-        project.rawXmlOriginal
-      );
-      const preserved = preserveTrackStates(rawNextState, project);
-
-      const contextualAuto = generateContextualAutomationPoints(
-        archetype,
-        activeFormId,
-        nextCompSeed,
-        totalBars
-      );
-
-      const updatedTracks = preserved.tracks.map((t) => {
-        if (t.archetype !== archetype) return t;
-        return {
-          ...t,
-          clips: t.clips.map((c, idx) =>
-            idx === 0 ? { ...c, name: clipLabel, length: totalBeats, notes: finalNotes } : c
-          ),
-          sessionClips: composed.sessionClips,
-          activeSessionSlot: 0,
-          compositionStrategy: activeStrategyId,
-          automationPoints: contextualAuto,
-        };
-      });
-
-      const identityRecord: GenerationIdentityRecord = {
-        generationId: `gen_${Date.now()}_${nextCompSeed % 1000}`,
-        timestampIso: new Date().toISOString(),
-        projectFingerprint:
-          project.musicalProfile?.projectFingerprint || `${project.fileName}_${project.tempo}`,
-        compositionSeed: nextCompSeed,
-        humanizationSeed: nextHumSeed,
-        strategyId: activeStrategyId,
-        macroFormId: activeFormId,
-        targetArchetype: archetype,
-        noveltyMetrics: composed.novelty,
-        musicalReasoning: rationaleNote || composed.reasoning,
-      };
-
-      const enriched = enrichProjectWithAnalysis(
-        {
-          ...preserved,
-          arrangementLengthBars: totalBars,
-          tracks: updatedTracks,
-          rawXmlModified: updatedXml,
-          lastGenerationIdentity: identityRecord,
-        },
-        activeFormId
-      );
-
-      handleExecuteProjectCommand('Generate Layer', 'clip_edit', () => enriched);
-
-      const injectedTrack = enriched.tracks.find((t) => t.archetype === archetype);
-      if (injectedTrack) {
-        setSelectedTrackId(injectedTrack.id);
-      }
-
-      setStatusMessage(
-        rationaleNote
-          ? `AI Layer (${archetype.toUpperCase()}): ${rationaleNote}`
-          : composed.reasoning
-      );
-    },
-    [project, humanization, activeStrategyId, activeFormId, transport.arrangementLengthBars]
-  );
+  const handleInjectLayer = (archetype:TechnoArchetype,targetTrackId?:string) => {
+    handlePreviewProjectCommand('Generate planned layer','clip_edit',draft=>{
+      let track=targetTrackId?draft.tracks.find(t=>t.id===targetTrackId):draft.tracks.find(t=>t.archetype===archetype);
+      if(targetTrackId&&(!track||track.archetype!==archetype))throw new Error('LAYER_TARGET: selected role does not match the target');
+      if(!track){const role=INSTRUMENT_ROLE_TAXONOMY.find(r=>r.archetype===archetype);if(!role)throw new Error('LAYER_ROLE_UNSUPPORTED');track=createUserTrackFromRole(role.roleCode,draft.tracks.length);draft={...draft,tracks:[...draft.tracks,track]};}
+      return generateTrackLayer(draft,track.id,activeStrategyId,compositionSeed);
+    });
+  };
 
   const handleInjectAllMissingLayers = () => {
     const bars = project.arrangementLengthBars || 64;
-    handleExecuteProjectCommand('Compose complete SongPlan', 'clip_edit', draft => {
+    handlePreviewProjectCommand('Compose complete SongPlan', 'clip_edit', draft => {
       const tracks=[...draft.tracks];
       for(const archetype of ['kick','rumble','hats','percussion','synth','acid','pad','ride'] as TechnoArchetype[]) {
         if(!tracks.some(t=>t.archetype===archetype)) {
@@ -1087,8 +1003,8 @@ export default function App() {
         }
       }
       const base={...draft,tracks,arrangementLengthBars:bars};
-      const plan=draft.songPlan?.durationBars===bars&&draft.songPlan.style===activeStrategyId?draft.songPlan:createSongPlan(base,draft.generationSeed??Math.floor(Math.random()*10000000),activeStrategyId);
-      return composeSongPlan(base,plan);
+      const plan=ensureAuthoringSongPlan(base,activeStrategyId,compositionSeed);
+      return composeSongPlan(base,plan,{fromBeat:0,toBeat:plan.durationBars*4});
     });
   };
 
@@ -1142,43 +1058,11 @@ export default function App() {
   };
 
   // Handler: Inject Ableton Live 12 Built-in Library Device into Track XML
-  const handleInjectLibraryDevice = (trackId: string, templateId: string) => {
-    handleExecuteProjectCommand('Insert Library Device', 'mixer', (prev) => {
-      const targetTrack = prev.tracks.find((t) => t.id === trackId);
-      if (!targetTrack) return prev;
-
-      const updatedXml = injectLibraryDeviceIntoTrackXml(
-        prev.rawXmlModified,
-        trackId,
-        targetTrack.name,
-        templateId
-      );
-
-      const reParsed = parseNativeDeviceEdit(updatedXml, prev.fileName, prev.rawXmlOriginal);
-      const preserved = preserveTrackStates(reParsed, prev);
-
-      const updatedTracks = preserved.tracks.map((t) => {
-        if (t.id !== trackId) return t;
-        const fresh = reParsed.tracks.find((rt) => rt.id === trackId || rt.name === t.name);
-        return {
-          ...t,
-          devices: fresh ? fresh.devices : t.devices,
-        };
-      });
-
-      setStatusMessage(
-        `Injected native Ableton device (${templateId.toUpperCase()}) into ${targetTrack.name} <DeviceChain>.`
-      );
-
-      return enrichProjectWithAnalysis(
-        {
-          ...preserved,
-          tracks: updatedTracks,
-          rawXmlModified: updatedXml,
-        },
-        activeFormId
-      );
-    });
+  const handleInjectLibraryDevice = (trackId:string,templateId:string) => {
+    const template=ABLETON_BUILTIN_LIBRARY.find(t=>t.id===templateId);
+    const mutate=(draft:AbletonProjectState)=>chooseTrackDevice(draft,trackId,templateId);
+    if(template?.category==='instrument')handlePreviewProjectCommand(`Choose instrument: ${template.displayName}`,'mixer',mutate);
+    else handleExecuteProjectCommand('Insert Library Device','mixer',mutate);
   };
 
   // Handler: AI Smart Leveling & Anti-Distortion Mix Calibration
@@ -1194,7 +1078,7 @@ export default function App() {
 
   // Handler: Inject Euclidean Polyrhythm / True Polymeter Clip into Ableton XML
   const handleInjectPolyrhythmClip = (trackId: string, config: PolyrhythmConfig) => {
-    handleExecuteProjectCommand('Generate Polymeter Clip', 'clip_edit', (prev) => {
+    handlePreviewProjectCommand('Generate Polymeter Clip', 'clip_edit', (prev) => {
       const targetTrack = prev.tracks.find((t) => t.id === trackId);
       if (!targetTrack || targetTrack.locked) return prev;
 
@@ -1247,59 +1131,11 @@ export default function App() {
   };
 
   // Handler: Apply Chord Voicing Spread, Key/Scale & Note Grid Division
-  const handleApplyChordGridTransform = (
-    trackId: string,
-    gridDivision: NoteGridDivision,
-    voicingSpread: VoicingSpreadStyle,
-    customRootKey?: string,
-    customScale?: string,
-    stylePrompt?: string
-  ) => {
-    handleExecuteProjectCommand('Transform Chord Grid', 'clip_edit', (prev) => {
-      const targetTrack = prev.tracks.find((t) => t.id === trackId);
-      if (!targetTrack || !targetTrack.clips[0] || targetTrack.locked) return prev;
-
-      const effectiveKey = customRootKey || prev.rootKey;
-      const effectiveScale = customScale || prev.scale;
-      const totalBars = prev.arrangementLengthBars || transport.arrangementLengthBars || 16;
-      const totalBeats = totalBars * 4;
-
-      const { notes: transformedNotes, summary } = applyChordAndGridTransformToNotes(
-        targetTrack.clips[0].notes,
-        effectiveKey,
-        effectiveScale,
-        gridDivision,
-        voicingSpread,
-        targetTrack.archetype,
-        totalBars,
-        compositionSeed
-      );
-
-      const clipName = `${targetTrack.archetype.toUpperCase()}_${effectiveKey}_${gridDivision.replace('/', '_')}_${voicingSpread.toUpperCase()}`;
-      const updatedTracks = prev.tracks.map((t) => {
-        if (t.id !== trackId) return t;
-        return {
-          ...t,
-          clips: t.clips.map((c, idx) =>
-            idx === 0 ? { ...c, name: clipName, notes: transformedNotes } : c
-          ),
-        };
-      });
-
-      setStatusMessage(
-        `${targetTrack.name} · ${summary}${stylePrompt ? ` · Direction: "${stylePrompt}"` : ''}`
-      );
-
-      return enrichProjectWithAnalysis(
-        {
-          ...prev,
-          rootKey: effectiveKey,
-          scale: effectiveScale,
-          tracks: updatedTracks,
-
-        },
-        activeFormId
-      );
+  const handleApplyChordGridTransform = (trackId:string,gridDivision:NoteGridDivision,voicingSpread:VoicingSpreadStyle,customRootKey?:string,customScale?:string) => {
+    handlePreviewProjectCommand('Transform selected chord phrase','clip_edit',draft=>{
+      const track=draft.tracks.find(t=>t.id===trackId),clip=track?.clips.find(c=>c.id===(editorSelection?.trackId===trackId?editorSelection.clipId:undefined))??track?.clips[0];
+      if(!clip||!track)throw new Error('PHRASE_TARGET: choose a MIDI clip');
+      return transformSelectedPhrase(draft,trackId,clip.id,(notes,length)=>applyChordAndGridTransformToNotes(notes,customRootKey||draft.rootKey,customScale||draft.scale,gridDivision,voicingSpread,track.archetype,Math.max(1,length/4),compositionSeed).notes);
     });
   };
 
@@ -1321,41 +1157,13 @@ export default function App() {
     if(project.songPlan) setStatusMessage(`Timeline extent: ${safeBars} bars. Composed score: ${project.songPlan.durationBars} bars. Compose creates material for a changed duration.`);
   };
 
-  const handleApplyMidiTool = (trackId: string, toolId: MidiToolTransformationId) => {
-    const targetTrack = project.tracks.find((t) => t.id === trackId);
-    if (!targetTrack || !targetTrack.clips[0] || targetTrack.locked) return;
-
-    const totalBars = project.arrangementLengthBars || transport.arrangementLengthBars || 16;
-    const totalBeats = totalBars * 4;
-    const nextSeed = Math.floor(Math.random() * 1000000) + 1;
-    const { notes: transformedNotes, description } = applyLive12MidiTool(
-      targetTrack.clips[0].notes,
-      toolId,
-      project.rootKey,
-      targetTrack.archetype,
-      nextSeed,
-      totalBars
-    );
-
-    handleExecuteProjectCommand('Apply MIDI Tool', 'clip_edit', (prev) =>
-      enrichProjectWithAnalysis(
-        {
-          ...prev,
-          tracks: prev.tracks.map((t) =>
-            t.id === trackId
-              ? {
-                  ...t,
-                  clips: t.clips.map((c, idx) =>
-                    idx === 0 ? { ...c, notes: transformedNotes } : c
-                  ),
-                }
-              : t
-          ),
-        },
-        activeFormId
-      )
-    );
-    setStatusMessage(`${targetTrack.name} · ${description}`);
+  const handleApplyMidiTool = (trackId:string,toolId:MidiToolTransformationId) => {
+    handlePreviewProjectCommand(`Transform selected phrase: ${toolId}`,'clip_edit',draft=>{
+      const track=draft.tracks.find(t=>t.id===trackId),clip=track?.clips.find(c=>c.id===(editorSelection?.trackId===trackId?editorSelection.clipId:undefined))??track?.clips[0];
+      if(!clip||!track)throw new Error('PHRASE_TARGET: choose a MIDI clip');
+      if(draft.meterMap?.some(m=>m.numerator!==4||m.denominator!==4))throw new Error('MIDI_TOOL_METER: this phrase tool requires 4/4; existing material is unchanged');
+      return transformSelectedPhrase(draft,trackId,clip.id,(notes,length)=>applyLive12MidiTool(notes,toolId,draft.rootKey,track.archetype,compositionSeed,Math.max(1,length/4)).notes);
+    });
   };
 
   const handleToggleTrackLock = (trackId: string) => {
@@ -1384,40 +1192,6 @@ export default function App() {
       return {...draft,audioSettings:{...settings,transport:{...settings.transport,arrangementMode:'arrangement'}}};
     });
     if(next) {synthEngine.stop();synthEngine.seek(0);setIsPlaying(false);setPlayheadBeat(0);}
-  };
-
-  const handleGenerateAiVariation = async (archetype: TechnoArchetype) => {
-    const aiSeed = Math.floor(Math.random() * 1000000) + 1;
-    const sourceProject = projectRef.current;
-    try {
-      setAiLoadingArchetype(archetype);
-      setStatusMessage(
-        `Synthesizing creative ${archetype.toUpperCase()} sequence via Gemini Techno Brain...`
-      );
-      const res = await fetch('/api/ai/sequence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          archetype,
-          tempo: project.tempo,
-          rootKey: project.rootKey,
-          scale: project.scale,
-          existingTracks: project.tracks.map((t) => t.name),
-        }),
-      });
-
-      const data = await res.json();
-      if (projectRef.current !== sourceProject) { setStatusMessage('Discarded a stale AI response after project edits or switch.'); return; }
-      if (data.notes && Array.isArray(data.notes)) {
-        handleInjectLayer(archetype, data.notes, data.clipName, data.rationale, aiSeed);
-      } else {
-        handleInjectLayer(archetype, undefined, undefined, undefined, aiSeed);
-      }
-    } catch {
-      if (projectRef.current === sourceProject) handleInjectLayer(archetype, undefined, undefined, undefined, aiSeed);
-    } finally {
-      setAiLoadingArchetype(null);
-    }
   };
 
   const handleUpdateHumanization = (partial: Partial<HumanizationConfig>, explicitSeed = jitterSeed) => {
@@ -1512,13 +1286,13 @@ export default function App() {
   };
 
   const handleRandomizeTrackVelocities = (trackId: string, config: TrackVelocityRandomizerConfig) => {
-    handleExecuteProjectCommand('Randomize Track Velocities', 'clip_edit', draft =>
+    handlePreviewProjectCommand('Randomize Track Velocities', 'clip_edit', draft =>
       transformTrackArrangementNotes(draft, trackId, notes => randomizeTrackNoteVelocities(notes, config))
     );
   };
 
   const handleApplyMidiQuantizeStrength = (trackId: string, gridDivision: NoteGridDivision, strengthPct: 50 | 75 | 100) => {
-    handleExecuteProjectCommand(`Quantize Track ${strengthPct}% (${gridDivision})`, 'clip_edit', draft =>
+    handlePreviewProjectCommand(`Quantize Track ${strengthPct}% (${gridDivision})`, 'clip_edit', draft =>
       transformTrackArrangementNotes(draft, trackId, notes => applyMidiQuantizeStrength(notes, gridDivision, strengthPct).notes)
     );
   };
@@ -2106,8 +1880,9 @@ export default function App() {
           setStudioWorkspace(ws);
         }}
         onToggleTracks={() => setLeftDockOpen(v => !v)}
-        onToggleEditor={() => setBottomDockOpen(v => !v)}
-        onToggleInspector={() => setRightDockOpen(v => !v)}
+        onToggleEditor={revealEditor}
+        onToggleInspector={() => revealInspector('inspect')}
+        onCompare={() => revealInspector('compare')}
         onResetLayout={() => handleApplyLayoutPreset('edit')}
         onOpenXmlInspector={() => setActiveTab('xml')}
         onOpenPythonExporter={() => setActiveTab('python')}
@@ -2158,10 +1933,11 @@ export default function App() {
         rightDockOpen={rightDockOpen}
         onSelectTab={(tab) => {
           setActiveTab('workbench');
+          if(tab==='browser')setBrowserView('devices');
           setStudioWorkspace(tab);
         }}
         onToggleLeftDock={() => setLeftDockOpen((v) => !v)}
-        onToggleBottomDock={() => setBottomDockOpen((v) => !v)}
+        onToggleBottomDock={revealEditor}
         onToggleRightDock={() => setRightDockOpen((v) => !v)}
         onApplyLayoutPreset={handleApplyLayoutPreset}
       />
@@ -2172,7 +1948,16 @@ export default function App() {
           Resolve plugin dependencies ({unsupportedPluginCount})
         </button>}
         {activeTab === 'workbench' && (
-          <SoundCraftWorkstation
+          <SoundCraftWorkstation key={currentProjectQueueKey}
+            editorSelection={editorSelection}
+            onEditorSelectionChange={handleEditorSelection}
+            editorRevealToken={editorRevealToken}
+            onOpenLayerBrowser={openLayerBrowser}
+            onCreateClip={handleCreateEmptyClip}
+            onAddNote={handleAddNote}
+            browserView={browserView}
+            onAddGeneratedLayer={roleCode=>handlePreviewProjectCommand('Add layer with phrase','clip_edit',draft=>{const track=createUserTrackFromRole(roleCode,draft.tracks.length);return generateTrackLayer({...draft,tracks:[...draft.tracks,track]},track.id,activeStrategyId,compositionSeed);})}
+            renderInspector={assist=><ProjectInspector project={project} track={selectedTrack} selection={editorSelection} tab={inspectorTab} onTab={setInspectorTab} onSelect={handleEditorSelection} onCreateClip={handleCreateEmptyClip} onAddNote={handleAddNote} onGenerate={handleGenerateSelectedLayer} onEditClip={handleEditArrangementClip} onEditNote={handleEditArrangementNote} onRename={name=>handleExecuteProjectCommand('Rename layer','clip_edit',draft=>({...draft,tracks:draft.tracks.map(t=>t.id===selectedTrackId?{...t,name}:t)}))} comparison={comparisonBase}>{assist}</ProjectInspector>}
             activeTab={activeTab}
             studioWorkspace={studioWorkspace}
             activeEditingTool={activeEditingTool}
@@ -2197,6 +1982,7 @@ export default function App() {
             activeTotalBars={activeTotalBars}
             activeStrategyId={activeStrategyId}
             activeFormId={activeFormId}
+            onChangeCompositionSeed={setRequestedCompositionSeed}
             compositionSeed={compositionSeed}
             jitterSeed={jitterSeed}
             onSelectTrack={handleSelectTrack}
@@ -2229,7 +2015,7 @@ export default function App() {
             onApplyMidiQuantizeStrength={handleApplyMidiQuantizeStrength}
             onSelectStrategy={setActiveStrategyId}
             onSelectForm={setActiveFormId}
-            onComposeSingleLayer={(arch) => handleInjectLayer(arch)}
+            onComposeSingleLayer={handleInjectLayer}
             onComposeAllUnlockedLayers={handleInjectAllMissingLayers}
             onApplyMidiTool={handleApplyMidiTool}
             onInjectPolyrhythmClip={handleInjectPolyrhythmClip}
@@ -2434,6 +2220,8 @@ export default function App() {
           handleExecuteProjectCommand('Apply Queue Changes', 'calibration', () => updatedProject);
         }}
       />
+
+      {pendingProposal&&<ProjectChangeReviewDialog proposal={pendingProposal} stale={staleProposal} onApply={applyReviewedChange} onCancel={cancelReviewedChange} onAudition={auditionReviewedProject}/>}
 
       {/* Studio Command Palette (Cmd/Ctrl+K) */}
       <StudioCommandPalette

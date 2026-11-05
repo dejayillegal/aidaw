@@ -40,14 +40,17 @@ import {
 } from 'lucide-react';
 
 interface AiComposerIntelligencePanelProps {
+  selectedClipId?:string;
+  onSelectClip?: (clipId:string)=>void;
   project: AbletonProjectState;
   selectedTrack?: AbletonTrack;
   activeStrategyId: CompositionStrategyId;
   activeFormId: MacroArrangementFormId;
+  onChangeCompositionSeed?: (seed:number)=>void;
   compositionSeed: number;
   onSelectStrategy: (strategyId: CompositionStrategyId) => void;
   onSelectForm: (formId: MacroArrangementFormId) => void;
-  onComposeSingleLayer: (archetype: TechnoArchetype) => void;
+  onComposeSingleLayer: (archetype: TechnoArchetype, trackId?:string) => void;
   onComposeAllUnlockedLayers: () => void;
   onApplyMidiTool: (trackId: string, toolId: MidiToolTransformationId) => void;
   onInjectPolyrhythmClip?: (trackId: string, config: PolyrhythmConfig) => void;
@@ -104,11 +107,11 @@ const POLYRHYTHM_PRESETS: { label: string; steps: number; pulses: number; rotati
 ];
 
 export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelProps> = ({
-  project,
+  project, selectedClipId,onSelectClip,
   selectedTrack,
   activeStrategyId,
   activeFormId,
-  compositionSeed,
+  compositionSeed, onChangeCompositionSeed,
   onSelectStrategy,
   onSelectForm,
   onComposeSingleLayer,
@@ -157,9 +160,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
   const [customScale, setCustomScale] = useState<string>(project.scale || 'Phrygian');
   const [quantizeStrengthPct, setQuantizeStrengthPct] = useState<50 | 75 | 100>(75);
   const [quantizeGridDivision, setQuantizeGridDivision] = useState<NoteGridDivision>('1/16');
-  const [stylePrompt, setStylePrompt] = useState<string>(
-    'Hypnotic Berghain dark chord stabs with 3/16 dub tension'
-  );
+
 
   const activeEuclideanHits = new Set(
     generateEuclideanSteps(Math.min(polySteps, polyPulses), polySteps, polyRotation)
@@ -251,7 +252,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                 <span className="font-semibold text-slate-100">HIERARCHICAL STRATEGY 3.0</span>
               </div>
               <span className="text-[10px] text-slate-400 tabular-nums">
-                Seed #{compositionSeed % 10000} · {totalBars} Bars
+                Seed #{compositionSeed} · {totalBars} Bars
               </span>
             </div>
 
@@ -270,20 +271,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
               </select>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] text-slate-400 block">Arrangement Macroform:</label>
-              <select
-                value={activeFormId}
-                onChange={(e) => onSelectForm(e.target.value as MacroArrangementFormId)}
-                className="w-full px-2 py-1.5 bg-[#0B0E15] border border-[#283246] rounded text-sky-300 font-semibold text-xs"
-              >
-                {MACRO_ARRANGEMENT_FORMS.map((fm) => (
-                  <option key={fm.id} value={fm.id}>
-                    {fm.name} — {fm.description}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <div className="space-y-1"><label className="block text-[10px] text-slate-400">Composition seed<input aria-label="Composition seed" type="number" min={0} max={4294967295} step={1} key={compositionSeed} defaultValue={compositionSeed} onBlur={e=>{const n=Number(e.target.value);if(e.target.value&&Number.isSafeInteger(n)&&n>=0&&n<=4294967295)onChangeCompositionSeed?.(n);else e.target.value=String(compositionSeed);}} className="min-h-11 w-full rounded border border-slate-700 bg-[#0B0E15] px-2 text-xs"/></label><button type="button" onClick={()=>onChangeCompositionSeed?.(Math.floor(Math.random()*0x100000000))} className="min-h-11 px-2 text-xs text-amber-300">New seed</button><p className="text-[10px] text-slate-400">Offline seeded planner. Style and seed drive the preview; no cloud model is called.</p></div>
           </div>
 
           <button
@@ -302,7 +290,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
             <div className="flex items-center justify-between border-b border-[#202838] pb-1.5">
               <div className="flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="font-semibold text-slate-100">NOVELTY &amp; ALS SAFETY</span>
+                <span className="font-semibold text-slate-100">STRUCTURAL DIAGNOSTICS</span>
               </div>
               <span className="text-[10px] text-emerald-400">
                 {alsReport.isValid ? 'XML CHECKS PASS' : 'CHECK XML'}
@@ -324,15 +312,15 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                   </span>
                 </div>
                 <div className="p-1.5 bg-[#0B0E15] rounded border border-[#1E2636]">
-                  <span className="text-[10px] text-slate-400 block">COMPATIBILITY</span>
+                  <span className="text-[10px] text-slate-400 block">SOURCE SIMILARITY (HEURISTIC)</span>
                   <span className="text-emerald-400 font-semibold">
                     {Math.round(genIdentity.noveltyMetrics.sourceCompatibility * 100)}%
                   </span>
                 </div>
                 <div className="p-1.5 bg-[#0B0E15] rounded border border-[#1E2636]">
-                  <span className="text-[10px] text-slate-400 block">KICK PHASE</span>
+                  <span className="text-[10px] text-slate-400 block">KICK MIDI OVERLAP</span>
                   <span className="text-emerald-400 font-semibold">
-                    {genIdentity.noveltyMetrics.kickCollisionFree ? 'Zero Clash' : 'Guarded'}
+                    {genIdentity.noveltyMetrics.kickCollisionFree ? 'None detected' : 'Detected'}
                   </span>
                 </div>
               </div>
@@ -350,6 +338,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
         </div>
       </div>
 
+      {selectedTrack&&<label className="block rounded border border-slate-700 p-3 text-xs text-slate-300">Phrase target<select aria-label="AI phrase target" value={selectedTrack.clips.find(c=>c.id===selectedClipId)?.id||selectedTrack.clips[0]?.id||''} onChange={e=>onSelectClip?.(e.target.value)} className="mt-1 min-h-11 w-full rounded border border-slate-700 bg-[#0B0E15] px-2">{selectedTrack.clips.map(c=><option key={c.id} value={c.id}>{c.name} · {c.startTime}–{c.startTime+c.length} beats</option>)}</select><span className="mt-1 block text-[10px] text-slate-400">Chord and MIDI phrase tools preview this clip only. Track velocity and quantize actions cover all clips.</span></label>}
       {/* Row 2: ADVANCED EUCLIDEAN POLYRHYTHM & CHORD VOICING / GRID STUDIO */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Euclidean Polyrhythm Generator (7 cols) */}
@@ -510,7 +499,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
               <div className="flex items-center gap-1.5">
                 <Music className="w-3.5 h-3.5 text-purple-400" />
                 <span className="font-semibold text-slate-100">
-                  CHORD VOICING, KEY &amp; AI PROMPT STUDIO
+                  CHORD VOICING &amp; KEY STUDIO
                 </span>
               </div>
               <span className="text-[10px] text-purple-300">
@@ -571,22 +560,8 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
               </div>
             </div>
 
-            {/* AI Style & Chord Prompt Input */}
-            <div>
-              <label className="text-[10px] text-slate-400 block mb-0.5">
-                AI Layer &amp; Chord Direction Prompt:
-              </label>
-              <input
-                type="text"
-                value={stylePrompt}
-                onChange={(e) => setStylePrompt(e.target.value)}
-                placeholder="e.g. Dark Detroit minor 9th wide dub chords on 1/16 offbeats..."
-                className="w-full px-2.5 py-1.5 bg-[#0B0E15] border border-[#283246] rounded text-slate-100 text-xs focus:border-amber-400 outline-none"
-              />
-            </div>
-          </div>
+            <p className="text-[10px] text-slate-400">Explicit key, scale, grid and voicing controls determine the result. Review proposed note changes before applying.</p>
 
-          <div className="flex items-center gap-2">
             <button
               type="button"
               disabled={!selectedTrack || selectedTrack.locked}
@@ -599,7 +574,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                   voicingSpread,
                   customKey,
                   customScale,
-                  stylePrompt
+                  undefined
                 )
               }
               className="flex-1 py-1.5 px-2.5 bg-purple-500 hover:bg-purple-400 disabled:opacity-40 text-slate-950 font-semibold rounded flex items-center justify-center gap-1.5 transition-colors shadow-xs"
@@ -1006,7 +981,7 @@ export const AiComposerIntelligencePanel: React.FC<AiComposerIntelligencePanelPr
                         disabled={track.locked}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onComposeSingleLayer(track.archetype);
+                          onComposeSingleLayer(track.archetype,track.id);
                         }}
                         title="Compose fresh variation for this track"
                         className="p-1 rounded bg-[#1B2436] hover:bg-[#25324A] text-amber-300 border border-[#2E3C56] disabled:opacity-40"

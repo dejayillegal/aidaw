@@ -134,6 +134,7 @@ export async function runTrackWorkflows(page, origin, output) {
   await page.getByRole('button',{name:'View',exact:true}).click();
   await page.getByRole('button',{name:/^AI Composer Studio/}).click();
   await page.getByRole('button',{name:/^Randomize Velocities on/}).click();
+  await page.getByRole('button',{name:'Apply changes',exact:true}).click();
   await page.waitForFunction(async () => {
     const {projectQueueService:q} = await import('/src/services/projectQueueService.ts');
     return q.getItem(q.getActiveQueueId()).workingProjectState.tracks[0].clips.every(c=>c.notes[0].velocity!==80);
@@ -145,6 +146,7 @@ export async function runTrackWorkflows(page, origin, output) {
     before.tracks[0].clips.map(c=>[c.id,c.startTime,c.length,c.notes[0].probability]));
   await page.getByRole('button',{name:'100%',exact:true}).click();
   await page.getByRole('button',{name:/^Apply 100% Quantize/}).click();
+  await page.getByRole('button',{name:'Apply changes',exact:true}).click();
   await page.waitForFunction(async () => {
     const {projectQueueService:q} = await import('/src/services/projectQueueService.ts');
     return q.getItem(q.getActiveQueueId()).workingProjectState.tracks[0].clips[1].notes[0].time===8.25;

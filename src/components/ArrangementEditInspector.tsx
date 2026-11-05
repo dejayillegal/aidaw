@@ -7,6 +7,9 @@ import type {
 } from "../engine/arrangementEditing";
 
 interface Props {
+  compact?: boolean;
+  revealToken?: number;
+  onAddNote?: ()=>void;
   track?: AbletonTrack;
   clipId?: string;
   noteId?: string;
@@ -27,6 +30,7 @@ interface Props {
 const control =
   "min-h-11 w-full min-w-0 rounded border border-slate-700 bg-[#101722] px-2 text-xs text-slate-100";
 export function ArrangementEditInspector({
+  revealToken,onAddNote,compact,
   track,
   clipId,
   noteId,
@@ -35,11 +39,13 @@ export function ArrangementEditInspector({
   onEditClip,
   onEditNote,
 }: Props) {
+  const detailsRef=React.useRef<HTMLDetailsElement>(null);
+  React.useEffect(()=>{if(revealToken&&detailsRef.current){detailsRef.current.open=true;detailsRef.current.scrollIntoView({block:'nearest'});}},[revealToken]);
   if (!track || track.type !== "midi") return null;
   const clip = track.clips.find((c) => c.id === clipId) ?? track.clips[0];
   const note = clip?.notes.find((n) => n.id === noteId) ?? clip?.notes[0];
   return (
-    <details
+    <details ref={detailsRef}
       className="shrink-0 border-y border-slate-700 bg-[#111722] text-slate-200"
       data-testid="arrangement-edit-inspector"
     >
@@ -68,6 +74,7 @@ export function ArrangementEditInspector({
         </label>
         {clip && (
           <>
+            {onAddNote&&<button type="button" disabled={track.locked} onClick={onAddNote} className={control}>Add C4 note</button>}
             <form
               key={`${clip.id}:${clip.startTime}:${clip.length}`}
               onSubmit={(e) => {
@@ -82,9 +89,9 @@ export function ArrangementEditInspector({
             >
               <fieldset
                 disabled={track.locked || !onEditClip}
-                className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end"
+                className={compact?"grid grid-cols-2 gap-2 items-end":"grid grid-cols-2 sm:grid-cols-4 gap-2 items-end"}
               >
-                <label className="text-xs col-span-2 sm:col-span-4 flex min-h-11 items-center gap-2">
+                <label className={`text-xs col-span-2 ${compact?'':'sm:col-span-4'} flex min-h-11 items-center gap-2`}>
                   <input
                     type="checkbox"
                     aria-label="Protect clip during phrase regeneration"
@@ -227,7 +234,7 @@ export function ArrangementEditInspector({
               >
                 <fieldset
                   disabled={track.locked || !onEditNote}
-                  className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 items-end"
+                  className={compact?"grid grid-cols-2 gap-2 items-end":"grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 items-end"}
                 >
                   {[
                     ["time", "Note start beat", note.time, 0, undefined],

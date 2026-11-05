@@ -1,0 +1,12 @@
+{
+  "baseline": "eb9b94eca3d7d082b2447e883d8262e6dcc85723",
+  "fullRegression": "Running; no final PASS claimed yet",
+  "nativeAuthoring": "Prior five-stage checkpoint passed; final stale-audition/source rerun pending",
+  "pythonBuildTests": {
+    "passed": 16
+  },
+  "localTestWatchdogSeconds": 20,
+  "localWorkers": 1,
+  "deviceQualification": "Not performed",
+  "releaseGates": "No whole gate promoted"
+}

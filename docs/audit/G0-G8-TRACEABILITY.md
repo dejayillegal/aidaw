@@ -21,3 +21,6 @@ Status vocabulary: PASS, FAIL, BLOCKED, NOT TESTED. PASS requires all applicable
 [REFERENCE-WORKSPACE-IMPLEMENTATION.md](REFERENCE-WORKSPACE-IMPLEMENTATION.md) records archive identities, source findings, implemented behavior and exact executed checks. Browser runs use native Chromium/Web Audio/IndexedDB. Responsive geometry is not Android installation, touch latency, fold hardware, audio focus or native low-latency qualification.
 
 Release remains blocked. No reference project's QA dashboard or internal heuristic may promote these gates. Preserve original user data, canonical commands and shared live/export semantics while completing the remaining criteria.
+
+
+Authoring follow-up: AUTHORING-REVIEW-EVIDENCE.md records real Inspect/Compare/editor selection, canonical instrument replacement and role generation, reviewed AI actions, stale protection and native audition. These are named subchecks; complete audio editing/DSP/routing/platform gates remain open.

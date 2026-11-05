@@ -498,6 +498,9 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
   });
 
   it('E2E Automation 6: Full App Workstation mounts cleanly on Android/Desktop WebView and executes interactive toolbar & drawer workflows', async () => {
+    // Native dialog behavior is exercised by authoring-review-check.mjs. JSDOM supplies no top layer.
+    HTMLDialogElement.prototype.showModal = function(){this.open=true;};
+    HTMLDialogElement.prototype.close = function(){this.open=false;};
     // Provide JSDOM polyfills for Canvas 2D and ResizeObserver used by timeline & spectrum visualizers
     if (typeof (globalThis as any).ResizeObserver === 'undefined') {
       (globalThis as any).ResizeObserver = class {
@@ -598,9 +601,15 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(fresh.tracks.find(t => t.id === '99')?.type).toBe('audio');
 
     // Exercise the actual full-suite UI handler, XML round trip and undo/redo.
+    await act(async()=>{Array.from(container!.querySelectorAll('button')).find(b=>b.textContent?.trim()==='View')!.click();});
+    await act(async()=>{Array.from(container!.querySelectorAll('button')).find(b=>b.textContent?.includes('AI Composer Studio'))!.click();});
     const compose = Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.includes('Compose Complete Arrangement'))!;
     expect(compose).toBeDefined();
     await act(async () => { compose.click(); });
+    expect(projectQueueService.getItem(newId)!.workingProjectState.tracks).toEqual(fresh.tracks);
+    const applyReviewed=Array.from(container!.querySelectorAll('dialog button')).find(b=>b.textContent?.trim()==='Apply changes')!;
+    expect(applyReviewed).toBeDefined();
+    await act(async()=>{applyReviewed.click();});
     const composed = projectQueueService.getItem(newId)!.workingProjectState;
     expect(composed.tracks.some(t => t.clips.length > 1)).toBe(true);
     expect(composed.tracks.find(t => t.id === '99')).toEqual(fresh.tracks.find(t => t.id === '99'));
@@ -627,7 +636,7 @@ describe('E2E Android 14 APK Instrumentation, Audio Stability Protection & UI Au
     expect(save.mock.calls[0][1]).toMatch(/\.aidaw\.json$/);
     const savedText = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(projectBlob!);
-    });
+    }, 30000);
     await act(async () => { fileButton().click(); });
     await act(async () => { Array.from(container!.querySelectorAll('button')).find(b => b.textContent?.startsWith('New Project'))!.click(); });
     const snapshotInput = container!.querySelector<HTMLInputElement>('input[aria-label="Open saved DAW project"]')!;

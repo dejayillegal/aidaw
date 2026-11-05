@@ -1,0 +1,13 @@
+{
+  "source": "Legacy App insertion/layer-generation logic extracted unchanged for reproduction",
+  "observedFailures": [
+    "Second active instrument appended (2 instead of 1)",
+    "Unknown template accepted through fallback",
+    "Absent-role generation returned 0 notes",
+    "Locked generation did not reject"
+  ],
+  "tests": {
+    "failedBefore": 4
+  },
+  "qualification": "Synthetic regression fixtures, not physical Android"
+}
