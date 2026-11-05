@@ -1,5 +1,32 @@
 # Implemented, pending and strengthening register
 
+## Latest-main blocker follow-up — November 5, 2026
+
+Inspected main: `9275da64ca2753d3fee554cfdf7b0a388b65315b` (merged PR25). No open PRs existed when this follow-up began. Main workflow [42048172578](https://github.com/dejayillegal/aidaw/actions/runs/42048172578), job127316743304, failed three required browser flows. Its lint, 41 test files/356 tests, web build, APK build and signature checks passed. These are baseline CI results, not results for this follow-up.
+
+| Confirmed failure | Root cause and proposed correction | Verification required |
+|---|---|---|
+| Arrangement check line471 fills a hidden range input after WAV export | The timeline remounts; clip actions return to their collapsed default. Reopen through the visible summary before consolidation. Keep consolidation/duplicate/split/undo and live-audio assertions. | Required arrangement browser check on the follow-up SHA |
+| Authoring reload dereferences an undefined active item | The canvas exists before asynchronous IndexedDB recovery finishes. Await recovery of the same saved queue identity before checking exact persisted tracks. | Required authoring check, including exact-state comparison |
+| Workspace reload dereferences an undefined active item | Same startup/recovery race in the browser harness. Await the same saved queue identity, retaining all persisted device/track and tempo/undo assertions. | Required workspace check on the follow-up SHA |
+
+This follow-up changes browser harness synchronization, not application features. No forced clicks, fixed sleeps, skipped assertions or continue-on-error are introduced. A missing or different recovered queue item must still fail. No local shell, browser or physical device runtime is attached to this session; GitHub Actions supplies execution evidence. Follow-up CI results are tracked on the remediation PR; pending is not PASS.
+
+### Remaining work and acceptance boundaries
+
+| Priority / area | Pending implementation or strengthening | Required completion evidence |
+|---|---|---|
+| P0 integration | Resolve any further failures exposed after the three browser blockers; keep every required check failing the job when unsuccessful | Successful full workflow on exact final source, plus review of browser reports |
+| P1 project integrity | Asset packaging/relink, quota failures, cross-version writers, service-worker/schema transitions and interruption recovery | Original-data preservation and save/reopen/failure-matrix evidence |
+| P1 arrangement | Complete audio clips/warp, tools, multiselect, touch gestures and lock/range behavior | Visible canonical edit/undo/save/reopen/export journeys for supported cases |
+| P1 instruments/routing | Sampler/multisampler, racks/macros/modulation, pre/post sends, sidechain and latency fidelity | Audible parameter/routing fixtures and shared live/export comparisons |
+| P1 audio/export | Standardized integrated loudness/true peak, wet capture parity, resource limits and complete cancellation paths | Independent decoded-audio measurements and bounded-resource runs |
+| P1 composition | 200 complete MIDI/audio projects, broader role/style/form coverage and independent listening | Reproducible corpus plus structured producer assessments |
+| P1 responsiveness | 8/16/32-track interaction/audio/heap/RSS and long-session budgets; complete keyboard/focus/error paths | Measured interaction and sustained-load evidence, not screenshots alone |
+| External qualification | Original Tresor recovery input, licensed Live interoperability, physical Android install/upgrade/SAF/audio-focus/fold/lifecycle/load and trusted signing | Exact inputs and qualified operator/device results |
+
+Engineering work remains open where implementation is incomplete. Hardware, missing original input, licensed-host and listening requirements cannot be closed by changing tests or status labels. Current G0–G8 definitions in G0-G8-TRACEABILITY.md remain authoritative. Release remains BLOCKED.
+
 Current timing milestone baseline: ac0a140802446993119df92cde8ae1eabd8198a7 (owner merged PR19 after both CI runs passed). PR18/main CI41989553354 and PR19 PR CI41993320932/push CI41993261447 are historical completed evidence. This is a living source-backed register, not release approval.
 
 | Area | Implemented and evidenced | Pending / incomplete / strengthening required | Status |
