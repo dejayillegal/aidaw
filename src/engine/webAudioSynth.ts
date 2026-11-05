@@ -4901,22 +4901,9 @@ export class ParametricWebAudioEngine {
         now,
         0.03,
       );
-      const threeSixteenthSec = Math.max(
-        0.08,
-        Math.min(0.9, (60 / Math.max(90, tempoAtBeat(project,this.getCurrentBeat()))) * 0.75),
-      );
-      this.bus.delayNodeL.delayTime.setTargetAtTime(
-        threeSixteenthSec,
-        now,
-        0.03,
-      );
-      this.bus.delayNodeR.delayTime.setTargetAtTime(
-        threeSixteenthSec * 2,
-        now,
-        0.03,
-      );
-
-      if(project.tempoMap?.length)scheduleTempoSyncedReturns(this.bus,project,this.getCurrentBeat(),now);
+      // Cancel obsolete map events even when a tempo map is removed. Schedule
+      // the loop seam ahead of the clock instead of correcting it after wrap.
+      this.scheduleReturnTimingWindow(this.getCurrentBeat(),now);
 
       // Immediately sync all persistent per-track channel strips in real time
       try {
@@ -4982,7 +4969,7 @@ export class ParametricWebAudioEngine {
 
     this.anchorBeat = this.currentBeat;
     this.anchorAudioTime = this.ctx.currentTime + 0.02;
-    if(this.bus&&this.project?.tempoMap?.length)scheduleTempoSyncedReturns(this.bus,this.project,this.anchorBeat,this.anchorAudioTime);
+    this.scheduleReturnTimingWindow(this.anchorBeat,this.anchorAudioTime);
     this.lastSchedulerPerfMs = performance.now();
     this.scheduledNoteKeys.clear();
     this.sessionScheduledKeys.clear();
@@ -5280,7 +5267,6 @@ export class ParametricWebAudioEngine {
         const wrappedBeat = exactBeatNow;
         this.anchorBeat = wrappedBeat;
         this.anchorAudioTime = nowAudio;
-        if(this.project.tempoMap?.length)scheduleTempoSyncedReturns(this.bus,this.project,wrappedBeat,nowAudio);
         exactBeatNow = wrappedBeat;
         this.loopGeneration += completedCycles;
         this.scheduledNoteKeys = new Set([...this.scheduledNoteKeys].filter(key =>
@@ -5465,11 +5451,24 @@ export class ParametricWebAudioEngine {
     }
 
     this.scheduleMasterGainWindow(exactBeatNow, nowAudio, maxBeats);
+    this.scheduleReturnTimingWindow(exactBeatNow, nowAudio);
 
     if (this.playbackState === 'recovering') {
       this.playbackState = 'playing';
     }
   };
+
+  private scheduleReturnTimingWindow(beat: number, at: number) {
+    if (!this.project || !this.bus?.delayNodeL || !this.bus.delayNodeR) return;
+    const loop=this.getPlaybackRegion(this.getMaxArrangementBeats());
+    const end=runtimeWindowEnd(this.project,beat,0.12,loop);
+    scheduleTempoSyncedReturns(this.bus,this.project,beat,at,loop.enabled?Math.min(end,loop.end):end);
+    if(loop.enabled && end>loop.end) {
+      scheduleTempoSyncedReturns(this.bus,this.project,loop.start,
+        at+projectSeconds(this.project,loop.end)-projectSeconds(this.project,beat),
+        loop.start+end-loop.end,false);
+    }
+  }
 
   private scheduleMasterGainWindow(exactBeatNow: number, nowAudio: number, maxBeats: number) {
     if (!this.project || !this.bus || !this.masterBus.masterAutomationPoints?.length) return;

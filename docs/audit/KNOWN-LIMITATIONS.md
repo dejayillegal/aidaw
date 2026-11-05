@@ -9,7 +9,7 @@
 - Full control/command/undo/persistence coverage is incomplete. File → Clear Arrangement was repaired in owner-merged PR19 with visible cancel/history/reopen checks; partial pointer/edit tools and other legacy navigation remain inventoried.
 - Imported/generated take snapshots can carry import wall-clock metadata; same-seed musical determinism excludes those timestamps. Initial comping snapshots and all long-arrangement take semantics require separate qualification.
 - Standardized integrated LUFS/true peak, audible boundary quality, low-end/stereo assessment, capture parity, long-session CPU/RSS and complete cancellation/resource-limit qualification remain incomplete.
-- TypeScript checking passes in the repository's current configuration; strict-mode rollout and a complete ESLint/static-analysis gate are outstanding.
+- Strict TypeScript and required ESLint correctness checks now pass, including negative probes. These do not establish complete mutation/interaction coverage, eliminate explicit any, or replace type-aware/security review. ESLint9/Babel7 are pinned for the existing Workbox/Babel7 build pipeline; ESLint9 is upstream-deprecated, so isolating a supported newer lint toolchain remains maintenance work.
 - PWA multiple-tab races, service-worker update/storage schema combinations and physical interruption/recovery remain unqualified.
 - Seven dependency advisories remain (2 low,5 moderate). No complete security/licensing review or production signing-lineage approval is claimed.
 

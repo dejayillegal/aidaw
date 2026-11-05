@@ -51,6 +51,14 @@ describe('runtime tempo/meter scheduling',()=>{
   expect(calls[1].time).toBeCloseTo(4*Math.log(1.5),10);expect(calls[1].value).toBe(.5);
   expect(calls[2].time).toBeCloseTo(4*Math.log(2),10);expect(calls[2].value).toBe(.375);expect(calls[2].kind).toBe('ramp');
  });
+ it('bounds return automation to a scheduling window so loop restarts cannot inherit the next section tempo',()=>{
+  const {p}=fixture();p.tempoMap![0].curve='linear';
+  const calls:{value:number;time:number}[]=[];
+  const param={cancelScheduledValues(){},setValueAtTime(value:number,time:number){calls.push({value,time});},exponentialRampToValueAtTime(value:number,time:number){calls.push({value,time});}};
+  scheduleTempoSyncedReturns({delayNodeL:{delayTime:param},delayNodeR:{delayTime:param}} as any,p,0,10,3);
+  expect(Math.max(...calls.map(c=>c.time))).toBeCloseTo(10+4*Math.log(1.75),10);
+  expect(calls.find(c=>c.time>12)?.value).toBeCloseTo(45/105,10);
+ });
  it('integrates sustained notes through repeated loop tempo segments',()=>{
   const {p}=fixture();const loop={enabled:true,start:3,end:9,span:6};
   // Beat 8..9 is .5s, then 3..4 is 1s, then 4..5 is .5s.

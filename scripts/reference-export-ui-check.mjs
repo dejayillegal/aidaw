@@ -60,7 +60,7 @@ await page.exposeFunction("abortTestDestination", async (id) => {
   f.aborted = true;
 });
 await page.exposeFunction("inspectTestDestination", async (id) => {
-  if (id === 2) await new Promise((resolve) => (verificationRelease = resolve));
+  if (id === 2) await new Promise((resolve) => {(verificationRelease = resolve)});
   return { size: (await fs.stat(files.get(id).filename)).size };
 });
 await page.addInitScript(() => {

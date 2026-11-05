@@ -28,6 +28,8 @@ import { projectQueueService } from '../services/projectQueueService';
 import { resolveBeatForEditMode, spotPositionToBeat } from '../services/commandBus';
 import {
   beatToBarBeatTick,
+  barBeatTickToBeat,
+  musicalBarViewport,
   CANONICAL_PPQ,
   MAX_SUPPORTED_TIMELINE_BARS,
   MusicalTimeService,
@@ -78,6 +80,8 @@ export function mapBeatToMidiGridCoordinates(
     pianoScrollBar?: number;
     followPlayhead?: boolean;
     gridDivision?: NoteGridDivision;
+    meterMap?: AbletonProjectState['meterMap'];
+    ppq?: number;
   }
 ): MidiGridPlayheadSyncMetrics {
   const safeBeat = Number.isFinite(beat) ? Math.max(0, beat) : 0;
@@ -90,14 +94,8 @@ export function mapBeatToMidiGridCoordinates(
   const followPlayhead = options.followPlayhead ?? true;
   const gridDivision = options.gridDivision ?? '1/16';
 
-  const visibleBeats = Math.max(1, zoomBars * 4);
-  const maxPianoStartBar = Math.max(0, totalBars - zoomBars);
-  const effectivePianoBar = followPlayhead
-    ? Math.min(maxPianoStartBar, Math.floor(safeBeat / visibleBeats) * zoomBars)
-    : Math.min(maxPianoStartBar, pianoScrollBar);
-
-  const windowStartBeat = effectivePianoBar * 4;
-  const windowEndBeat = windowStartBeat + visibleBeats;
+  const viewport=musicalBarViewport(safeBeat,totalBars,zoomBars,pianoScrollBar,followPlayhead,options.meterMap,options.ppq);
+  const {visibleBeats,startBeat:windowStartBeat,endBeat:windowEndBeat}=viewport;
   const isInsideWindow = safeBeat >= windowStartBeat && safeBeat <= windowEndBeat;
 
   const stepBeats = gridDivisionToStepBeats(gridDivision);
@@ -115,8 +113,9 @@ export function mapBeatToMidiGridCoordinates(
   const stepStartPixelX = keyColWidth + activeStepIndex * stepWidthPx;
   const stepEndPixelX = stepStartPixelX + stepWidthPx;
 
-  const beatInBar = ((safeBeat % 4) + 4) % 4;
-  const sixteenthIndexInBar = Math.min(16, Math.floor(beatInBar / 0.25 + 1e-6) + 1);
+  const position=beatToBarBeatTick(safeBeat,options.meterMap,options.ppq);
+  const beatInBar=safeBeat-barBeatTickToBeat(position.bar,1,0,options.meterMap,options.ppq);
+  const sixteenthIndexInBar = Math.floor(beatInBar / 0.25 + 1e-6) + 1;
 
   return {
     syncedBeat: safeBeat,
@@ -424,8 +423,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     onChangeBarRangeSelection?.({
       startBar: lo,
       endBar: hi,
-      startBeat: (lo - 1) * 4,
-      endBeat: (hi - 1) * 4,
+      startBeat: barBeatTickToBeat(lo,1,0,project.meterMap,project.ppq),
+      endBeat: barBeatTickToBeat(hi,1,0,project.meterMap,project.ppq),
       trackId: selectedTrackId,
     });
   };
@@ -495,14 +494,10 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   // Compute visible bar window in the Arrangement View based on continuous zoom & scroll
   const visibleArrBars = Math.max(1, Math.min(totalBars, Math.round(totalBars / Math.max(0.25, arrangementZoom))));
   const maxScrollBar = Math.max(0, totalBars - visibleArrBars);
-  const effectiveScrollBar = transport.followPlayhead && arrangementZoom > 1
-    ? Math.min(
-        maxScrollBar,
-        Math.floor(Math.floor(syncedPlayheadBeat / 4) / visibleArrBars) * visibleArrBars
-      )
-    : Math.min(maxScrollBar, arrangementScrollBar);
-  const arrStartBeat = effectiveScrollBar * 4;
-  const arrVisibleBeats = visibleArrBars * 4;
+  const arrangementViewport=musicalBarViewport(syncedPlayheadBeat,totalBars,visibleArrBars,arrangementScrollBar,transport.followPlayhead&&arrangementZoom>1,project.meterMap,project.ppq);
+  const {startBar:effectiveScrollBar,startBeat:arrStartBeat,visibleBeats:arrVisibleBeats}=arrangementViewport;
+  const spotMeter=beatToBarBeatTick(spotPositionToBeat(Math.min(totalBars,spotBar),1,1,project.meterMap,project.ppq),project.meterMap,project.ppq);
+  const spotSubdivisions=Math.max(1,16/spotMeter.denominator);
   const arrEndBeat = arrStartBeat + arrVisibleBeats;
 
   const currentPlayheadSnapshot: PlayheadSmoothingSnapshot = {
@@ -535,6 +530,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     pianoScrollBar,
     followPlayhead: transport.followPlayhead,
     gridDivision: pianoGridDivision,
+    meterMap: project.meterMap,
+    ppq: project.ppq,
   });
 
   const headerHeight = 32;
@@ -579,8 +576,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     ctx.stroke();
 
     // Draw Ableton Loop Brace on Ruler
-    const loopStartBeat = Math.max(0, (transport.loopStartBar - 1) * 4);
-    const loopSpanBeats = transport.loopLengthBars * 4;
+    const loopStartBeat = barBeatTickToBeat(transport.loopStartBar,1,0,project.meterMap,project.ppq);
+    const loopSpanBeats = MusicalTimeService.barsToBeats(transport.loopLengthBars,transport.loopStartBar,project.meterMap,project.ppq);
     const loopEndBeat = Math.min(totalBeats, loopStartBeat + loopSpanBeats);
 
     if (transport.loopEnabled) {
@@ -620,7 +617,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     const labelStep = visibleArrBars > 64 ? 8 : visibleArrBars > 32 ? 4 : visibleArrBars > 16 ? 2 : 1;
     for (let bOffset = 0; bOffset < visibleArrBars; bOffset++) {
       const barIndex = effectiveScrollBar + bOffset;
-      const x = (bOffset / visibleArrBars) * width;
+      const barBeat=barBeatTickToBeat(barIndex+1,1,0,project.meterMap,project.ppq);
+      const x = ((barBeat-arrStartBeat)/arrVisibleBeats)*width;
       ctx.strokeStyle = barIndex % 4 === 0 ? '#28303E' : '#181D27';
       ctx.lineWidth = barIndex % 4 === 0 ? 1.2 : 1;
       ctx.beginPath();
@@ -701,8 +699,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
       // Render Selected Bar-Range Highlight on Selected Track
       if (isSelected) {
-        const rangeStartBeat = (effectiveRangeStartBar - 1) * 4;
-        const rangeEndBeat = (effectiveRangeEndBar - 1) * 4;
+        const rangeStartBeat = barBeatTickToBeat(effectiveRangeStartBar,1,0,project.meterMap,project.ppq);
+        const rangeEndBeat = barBeatTickToBeat(effectiveRangeEndBar,1,0,project.meterMap,project.ppq);
         const visRangeStart = Math.max(arrStartBeat, rangeStartBeat);
         const visRangeEnd = Math.min(arrEndBeat, rangeEndBeat);
         if (visRangeEnd > visRangeStart) {
@@ -785,8 +783,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           ctx.clip();
           ctx.fillStyle = track.soloed ? '#0A0D12' : '#F8FAFC';
           ctx.font = '500 9.5px "JetBrains Mono", monospace';
-          const clipBars = Math.round((Math.max(1 / CANONICAL_PPQ, clip.length) / 4) * 100) / 100;
-          const label = `${clip.name} (${clipBars}B · ${clip.notes.length}n)`;
+          const label = `${clip.name} (${Number(clip.length.toFixed(2))} beats · ${clip.notes.length}n)`;
           ctx.fillText(label, clipX + 5, y + 12);
           ctx.restore();
         }
@@ -1089,6 +1086,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       pianoScrollBar,
       followPlayhead: transport.followPlayhead,
       gridDivision: pianoGridDivision,
+    meterMap: project.meterMap,
+    ppq: project.ppq,
     });
     const {
       visibleBeats,
@@ -1147,8 +1146,10 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     for (let step = 0; step <= totalGridSteps; step++) {
       const x = keyColWidth + (step / totalGridSteps) * gridWidth;
       const beatOffset = step * stepBeats;
-      const isBar = Math.abs(beatOffset % 4) < 0.001;
-      const isBeat = Math.abs(beatOffset % 1) < 0.001;
+      const absBeat=windowStartBeat+beatOffset;
+      const coordinate=beatToBarBeatTick(absBeat,project.meterMap,project.ppq);
+      const isBeat=coordinate.tickInBeat===0;
+      const isBar=isBeat&&coordinate.beatInBar===1;
 
       if (
         isBeat &&
@@ -1169,16 +1170,15 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       ctx.stroke();
 
       if (isBeat && step < totalGridSteps) {
-        const absBeat = windowStartBeat + beatOffset;
-        const barNum = Math.floor(absBeat / 4) + 1;
-        const beatInBar = Math.floor(absBeat % 4) + 1;
+        const barNum=coordinate.bar;
+        const beatInBar=coordinate.beatInBar;
         ctx.fillStyle = isBar ? '#CBD5E1' : '#64748B';
         ctx.font = '500 9px "JetBrains Mono", monospace';
         ctx.fillText(`${barNum}.${beatInBar}`, x + 3, 10);
 
         if (isBar) {
           const barIntensity = humanization.barVarianceIntensity?.[barNum] ?? 1.0;
-          const barWidthPx = (4 / visibleBeats) * gridWidth;
+          const barWidthPx = (MusicalTimeService.barsToBeats(1,barNum,project.meterMap,project.ppq) / visibleBeats) * gridWidth;
           // Draw subtle heatmap header tint and variance badge
           const heatColor =
             barIntensity < 0.45
@@ -1354,7 +1354,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     // Top Ruler or Shift-click: Seek Playhead & Set Loop Start Bar on Shift+Click
     if (y <= headerHeight) {
       onSeekBeat(rawBeat);
-      const targetBar = Math.floor(rawBeat / 4);
+      const targetBar = beatToBarBeatTick(rawBeat,project.meterMap,project.ppq).bar-1;
       setPianoScrollBar(targetBar);
       if (e.shiftKey) {
         onUpdateTransport({ loopStartBar: targetBar + 1 });
@@ -1391,12 +1391,12 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
       } else {
         // Standard Interactive Timeline Mode (Default): Select Track, Seek/Scrub Playhead & Sync Piano Roll Window
         onSeekBeat(rawBeat);
-        setPianoScrollBar(Math.floor(rawBeat / 4));
+        setPianoScrollBar(beatToBarBeatTick(rawBeat,project.meterMap,project.ppq).bar-1);
       }
     } else {
       // Clicked inside Return / Master Lanes at bottom: Seek Playhead
       onSeekBeat(rawBeat);
-      setPianoScrollBar(Math.floor(rawBeat / 4));
+      setPianoScrollBar(beatToBarBeatTick(rawBeat,project.meterMap,project.ppq).bar-1);
     }
   };
 
@@ -1563,12 +1563,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left,
       y = e.clientY - rect.top;
-    const visibleBeats = zoomBars * 4;
-    const maxBar = Math.max(0, totalBars - zoomBars);
-    const start =
-      (transport.followPlayhead
-        ? Math.min(maxBar, Math.floor(playheadBeat / visibleBeats) * zoomBars)
-        : Math.min(maxBar, pianoScrollBar)) * 4;
+    const viewport=mapBeatToMidiGridCoordinates(syncedPlayheadBeat,{canvasWidth:rect.width,zoomBars,totalBars,pianoScrollBar,followPlayhead:transport.followPlayhead,meterMap:project.meterMap,ppq:project.ppq});
+    const {visibleBeats,windowStartBeat:start}=viewport;
     const rows = selectedTrack ? pianoPitchRows(selectedTrack) : [36];
     const height = rect.height - 54;
     const row = Math.max(
@@ -1663,7 +1659,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     const step = gridDivisionToStepBeats(pianoGridDivision);
     const beat =
       editMode === 'spot'
-        ? spotPositionToBeat(spotBar, spotBeat, spotSixteenth)
+        ? spotPositionToBeat(spotBar, spotBeat, spotSixteenth, project.meterMap, project.ppq)
         : editMode === 'slip'
           ? Math.max(0, c.beat)
           : c.start + Math.floor((c.beat - c.start) / step) * step;
@@ -1749,7 +1745,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   );
   const currentBarNumber = posCoord.bar;
   const currentBeatInBar = posCoord.beatInBar;
-  const currentSixteenth = Math.floor((playheadBeat % 1) * 4) + 1;
+  const currentSixteenth = Math.floor(posCoord.tickInBeat / (project.ppq || CANONICAL_PPQ) * 4) + 1;
   const liveAutoVal = Math.round(
     evaluateAutomationAtBeat(selectedTrack?.automationPoints, playheadBeat, totalBeats) * 100
   );
@@ -1796,7 +1792,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                       ? 'bg-amber-500 text-slate-950 font-semibold'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
-                  title={`Scale arrangement duration to ${bars} bars (${bars * 4} beats)`}
+                  title={`Scale arrangement duration to ${bars} bars (${MusicalTimeService.barsToBeats(bars,1,project.meterMap,project.ppq)} beats)`}
                 >
                   {bars}B
                 </button>
@@ -2014,35 +2010,35 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                 min={1}
                 max={totalBars}
                 value={spotBar}
-                onChange={(e) => setSpotBar(Math.max(1, Number(e.target.value)))}
+                onChange={(e) => setSpotBar(Math.max(1, Math.min(totalBars,Math.floor(Number(e.target.value)))))}
                 className="w-10 bg-zinc-950 border border-zinc-700 rounded px-1 text-center text-white"
-                title="Target Bar (1-128)"
+                title={`Target Bar (1-${totalBars})`}
               />
               <span>.</span>
               <input
                 type="number"
                 min={1}
-                max={4}
-                value={spotBeat}
-                onChange={(e) => setSpotBeat(Math.max(1, Math.min(4, Number(e.target.value))))}
+                max={spotMeter.numerator}
+                value={Math.min(spotMeter.numerator,spotBeat)}
+                onChange={(e) => setSpotBeat(Math.max(1, Math.min(spotMeter.numerator, Number(e.target.value))))}
                 className="w-8 bg-zinc-950 border border-zinc-700 rounded px-1 text-center text-white"
-                title="Target Beat (1-4)"
+                title={`Target Beat (1-${spotMeter.numerator})`}
               />
               <span>.</span>
               <input
                 type="number"
                 min={1}
-                max={4}
-                value={spotSixteenth}
+                max={spotSubdivisions}
+                value={Math.min(spotSubdivisions,spotSixteenth)}
                 onChange={(e) =>
-                  setSpotSixteenth(Math.max(1, Math.min(4, Number(e.target.value))))
+                  setSpotSixteenth(Math.max(1, Math.min(spotSubdivisions, Number(e.target.value))))
                 }
                 className="w-8 bg-zinc-950 border border-zinc-700 rounded px-1 text-center text-white"
-                title="Target 16th (1-4)"
+                title={`Target 16th (1-${spotSubdivisions})`}
               />
               <button
                 type="button"
-                onClick={() => onSeekBeat(spotPositionToBeat(spotBar, spotBeat, spotSixteenth))}
+                onClick={() => onSeekBeat(spotPositionToBeat(spotBar, spotBeat, spotSixteenth, project.meterMap, project.ppq))}
                 className="ml-1 px-1.5 py-0.5 rounded bg-sky-500 text-slate-950 font-bold"
               >
                 Jump
@@ -2063,11 +2059,11 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               type="button"
               onClick={() => {
                 onSeekBeat(loc.beat);
-                setPianoScrollBar(Math.floor(loc.beat / 4));
+                setPianoScrollBar(beatToBarBeatTick(loc.beat,project.meterMap,project.ppq).bar-1);
               }}
               className="px-1.5 py-0.5 rounded bg-[#141A24] hover:bg-[#1E2736] border border-[#2A3548] text-slate-200 flex items-center gap-1"
               title={`Jump to Memory Location [${loc.number}] ${loc.name} (Bar ${
-                Math.floor(loc.beat / 4) + 1
+                beatToBarBeatTick(loc.beat,project.meterMap,project.ppq).bar
               })`}
             >
               <span
@@ -2269,7 +2265,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               type="button"
               data-testid="range-split-clip-btn"
               onClick={() => {
-                const atBeat=playheadBeat > 0 ? playheadBeat : (effectiveRangeStartBar - 1) * 4;
+                const atBeat=playheadBeat > 0 ? playheadBeat : barBeatTickToBeat(effectiveRangeStartBar,1,0,project.meterMap,project.ppq);
                 if(onEditArrangementClip && activeClipId) onEditArrangementClip(selectedTrack.id,activeClipId,{kind:'split',atBeat});
                 else onSplitClipAtBeat(selectedTrack.id,atBeat);
               }}
@@ -2639,7 +2635,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
           headerWidthPx={showTrackHeadersMobile ? 250 : 154}
           onSeekPlayhead={(beat) => {
             onSeekBeat(beat);
-            setPianoScrollBar(Math.floor(beat / 4));
+            setPianoScrollBar(beatToBarBeatTick(beat,project.meterMap,project.ppq).bar-1);
           }}
           onOpenCompingAndTransientModal={onOpenCompingAndTransientModal}
         />

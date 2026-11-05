@@ -107,6 +107,12 @@ jobs:
           SESSION_AUTOMATION_OUTPUT: recovery-browser-evidence/session-automation
         run: node scripts/session-automation-check.mjs
 
+      - name: Verify mixed-meter editing workflow
+        if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
+        env:
+          MAPPED_EDITING_OUTPUT: recovery-browser-evidence/mapped-editing
+        run: node scripts/mapped-editing-check.mjs
+
       - name: Verify clear dialog and project preservation
         if: ${{ !cancelled() && steps.browser-runtime.outcome == 'success' }}
         env:

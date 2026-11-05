@@ -602,7 +602,7 @@ try {
     for (let i = 0; i < 150; i++) {
       const value = await liveRead();
       if (predicate(value)) return value;
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => {setTimeout(r, 20)});
     }
     throw new Error(message);
   };

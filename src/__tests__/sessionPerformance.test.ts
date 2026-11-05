@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildStarterAbletonXml, parseAlsXmlString } from '../engine/alsXmlEngine';
 import { StudioCommandBus, queueSessionLaunch, captureSessionPerformance, storeArrangementClipInSession } from '../services/commandBus';
-import { sessionEventsInWindow, evaluatePlayableArrangementEvents, MusicalTimeService } from '../engine/timelineCoordinates';
+import { sessionEventsInWindow, evaluatePlayableArrangementEvents, evaluatePlayableSessionEvents, MusicalTimeService } from '../engine/timelineCoordinates';
+import { insertDeviceIntoChannelStrip } from '../engine/channelStripEngine';
 import { encodeProjectSnapshot, decodeProjectSnapshot } from '../services/projectSnapshotService';
 import { DEFAULT_HUMANIZATION, DEFAULT_MASTER_BUS, DEFAULT_TRANSPORT } from '../engine/projectDefaults';
 function fixture() {
@@ -12,6 +13,23 @@ function fixture() {
   return p;
 }
 describe('independent canonical Session performance',()=>{
+  it('evaluates probability before MIDI processors in both Session and captured Arrangement',()=>{
+    let p=fixture();const id=p.tracks[0].id;
+    const note=p.tracks[0].clips[0].notes[0];
+    p.tracks[0].clips[0]={...p.tracks[0].clips[0],length:4,endTime:4,notes:[
+      {...note,id:'pass',time:0,quantizedTime:0,duration:3,probability:1},
+      {...note,id:'fail',time:1,quantizedTime:1,duration:1,probability:0},
+    ]};
+    p=insertDeviceIntoChannelStrip(p,id,'MidiArpeggiator').project;
+    p=storeArrangementClipInSession(p,id,0,p.tracks[0].clips[0].id);
+    p=queueSessionLaunch(p,id,0,0,1);
+    const live=evaluatePlayableSessionEvents(p,0,4,{singleTrackId:id});
+    const captured=captureSessionPerformance(p,0,4,8);
+    const rendered=evaluatePlayableArrangementEvents(captured,8,12,{singleTrackId:id});
+    expect(live.map(e=>[e.beat,e.note.pitch,e.durationBeats])).toEqual(rendered.map(e=>[e.beat-8,e.note.pitch,e.durationBeats]));
+    // Disabling probability is an inspection mode and still exposes both sources.
+    expect(evaluatePlayableSessionEvents(p,0,4,{singleTrackId:id,includeProbability:false}).some(e=>e.sourceNote.id==='fail')).toBe(true);
+  });
   it('extends captured arrangements by the destination meter, including an exact bar boundary',()=>{
     let p=fixture();
     p.meterMap=[{bar:1,beat:0,numerator:3,denominator:4},{bar:3,beat:6,numerator:7,denominator:8}];

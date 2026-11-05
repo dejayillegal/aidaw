@@ -1,0 +1,63 @@
+{
+  "scope": "Synthetic native Web Audio gain curves and the actual live master bus; not hardware output or complete DSP parity",
+  "cases": [
+    {
+      "name": "native-step-gain",
+      "maxError": 2.79066229014191e-06,
+      "frame": 270974,
+      "budget": 2e-05,
+      "status": "PASS"
+    },
+    {
+      "name": "native-linear-gain",
+      "maxError": 3.1317478499381934e-06,
+      "frame": 244095,
+      "budget": 2e-05,
+      "status": "PASS"
+    },
+    {
+      "name": "native-loop-gain",
+      "maxError": 2.7906622903639544e-06,
+      "frame": 30974,
+      "budget": 2e-05,
+      "status": "PASS"
+    },
+    {
+      "name": "actual-live-master-after-seek",
+      "beat": 6.139954648526077,
+      "actual": 1.2217875719070435,
+      "expected": 1.221793280821698,
+      "error": 5.708914654567465e-06,
+      "budget": 0.0002,
+      "status": "PASS"
+    },
+    {
+      "name": "actual-live-mapped-launch",
+      "launchError": 8.881784197001252e-16,
+      "budget": 0.01,
+      "status": "PASS"
+    },
+    {
+      "name": "native-return-loop-seam-without-js-tick",
+      "delay": 0.375,
+      "expected": 0.375,
+      "status": "PASS"
+    },
+    {
+      "name": "native-return-map-removal",
+      "delay": 0.5,
+      "expected": 0.5,
+      "status": "PASS"
+    },
+    {
+      "name": "session-capture-probability-pcm",
+      "events": 12,
+      "maxError": 0,
+      "rmsError": 0,
+      "status": "PASS"
+    }
+  ],
+  "errors": [],
+  "browser": "153.0.8010.0",
+  "status": "PASS"
+}
