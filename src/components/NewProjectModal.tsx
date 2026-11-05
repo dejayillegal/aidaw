@@ -1,241 +1,101 @@
-import React, { useState } from 'react';
-import { Sparkles, Music, Layers, Clock, Sliders, X, Play } from 'lucide-react';
-import { TechnoSubgenreId } from '../types/ableton';
+import React, { useEffect, useRef, useState } from 'react';
+import { Sparkles, X } from 'lucide-react';
+import type { TechnoSubgenreId } from '../types/ableton';
+import type { NewProjectOptions } from '../services/projectCreationService';
+export type { NewProjectOptions } from '../services/projectCreationService';
 
-export interface NewProjectOptions {
-  title: string;
-  subgenreId: TechnoSubgenreId;
-  bpm: number;
-  durationBars: number; // 32, 64, 128, 180
-  formFamily: 'hypnotic_longform' | 'industrial_assault' | 'deep_dub_evolution' | 'subtractive_raw' | 'acid_modulation';
-  layerDensity: 'compact' | 'standard' | 'full_reference';
-}
+const styles = [
+  { id: 'raw_warehouse', label: 'Raw Warehouse', bpm: 138 },
+  { id: 'berlin_industrial', label: 'Berlin Industrial', bpm: 134 },
+  { id: 'hardgroove', label: 'Hardgroove Tribal', bpm: 142 },
+  { id: 'acid_techno', label: '303 Acid Modular', bpm: 140 },
+  { id: 'dub_techno', label: 'Dub Atmospheric', bpm: 130 },
+  { id: 'driving_rolling', label: 'Driving Peak Time', bpm: 136 },
+];
 
-interface NewProjectModalProps {
+export function NewProjectModal({ isOpen, initialDurationBars = 128, onClose, onCreateProject }: {
   isOpen: boolean;
+  initialDurationBars?: number;
   onClose: () => void;
-  onCreateProject: (options: NewProjectOptions) => void;
-}
-
-export const NewProjectModal: React.FC<NewProjectModalProps> = ({
-  isOpen,
-  onClose,
-  onCreateProject,
-}) => {
+  onCreateProject: (options: NewProjectOptions) => Promise<void>;
+}) {
   const [title, setTitle] = useState('Underground Techno Session');
   const [subgenreId, setSubgenreId] = useState<TechnoSubgenreId>('raw_warehouse');
-  const [bpm, setBpm] = useState<number>(138);
-  const [durationBars, setDurationBars] = useState<number>(128);
-  const [formFamily, setFormFamily] = useState<'hypnotic_longform' | 'industrial_assault' | 'deep_dub_evolution' | 'subtractive_raw' | 'acid_modulation'>('hypnotic_longform');
-  const [layerDensity, setLayerDensity] = useState<'compact' | 'standard' | 'full_reference'>('full_reference');
+  const [bpm, setBpm] = useState(138);
+  const [durationBars, setDurationBars] = useState(initialDurationBars);
+  const [seed, setSeed] = useState(777);
+  const [layerDensity, setLayerDensity] = useState<NewProjectOptions['layerDensity']>('full_reference');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const dialog = useRef<HTMLDivElement>(null);
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setDurationBars(initialDurationBars); setError('');
+    setSeed(Math.floor(Math.random() * 0x100000000));
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.querySelector<HTMLInputElement>('input')?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!submitting.current) onClose(); }
+      if (event.key === 'Tab') {
+        const elements = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') || [])];
+        const first = elements[0], last = elements.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener('keydown', key, true);
+    return () => { document.removeEventListener('keydown', key, true); previous?.focus(); };
+  }, [isOpen, initialDurationBars]);
 
   if (!isOpen) return null;
-
-  const handleSubgenreChange = (sub: TechnoSubgenreId) => {
-    setSubgenreId(sub);
-    switch (sub) {
-      case 'berlin_industrial': setBpm(134); break;
-      case 'raw_warehouse': setBpm(138); break;
-      case 'hardgroove': setBpm(142); break;
-      case 'acid_techno': setBpm(140); break;
-      case 'dub_techno': setBpm(130); break;
-      default: setBpm(136); break;
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onCreateProject({
-      title,
-      subgenreId,
-      bpm,
-      durationBars,
-      formFamily,
-      layerDensity,
-    });
-    onClose();
-  };
-
+  const seconds = durationBars * 240 / bpm;
+  const rounded = Math.round(seconds);
+  const durationText = Number.isFinite(rounded) ? `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}` : '—';
+  const inputClass = 'w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500';
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full text-slate-100 shadow-2xl overflow-hidden my-8">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-800/80 border-b border-slate-700">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-lg font-bold text-white tracking-wide">New Dynamic Ableton Project Generator</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 bg-black/80 p-3 sm:p-5 flex items-center justify-center">
+      <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="new-project-title"
+        className="w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl text-slate-100 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 p-4 bg-slate-900 border-b border-slate-700">
+          <h2 id="new-project-title" className="font-semibold">Create Full Track</h2>
+          <button type="button" aria-label="Close new project" disabled={busy} onClick={onClose} className="min-w-11 min-h-11 grid place-items-center rounded hover:bg-slate-800"><X className="w-5 h-5" /></button>
         </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Project Title */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Project Title
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
-              placeholder="Enter session title..."
-              required
-            />
-          </div>
-
-          {/* Subgenre Selection */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Techno Subgenre & Tempo
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
-              {[
-                { id: 'raw_warehouse', label: 'Raw Warehouse', defaultBpm: 138, desc: 'Hypnotic rolling 909 drums & sub' },
-                { id: 'berlin_industrial', label: 'Berlin Industrial', defaultBpm: 134, desc: 'Berghain dark resonance & noise' },
-                { id: 'hardgroove', label: 'Hardgroove Tribal', defaultBpm: 142, desc: 'Percussive syncopated rides' },
-                { id: 'acid_techno', label: '303 Acid Modular', defaultBpm: 140, desc: 'Resonant diode sweeps & slides' },
-                { id: 'dub_techno', label: 'Dub Atmospheric', defaultBpm: 130, desc: '3/16 echo throws & chord pads' },
-                { id: 'driving_rolling', label: 'Driving Peak Time', defaultBpm: 136, desc: 'Relentless driving bassline' },
-              ].map((style) => (
-                <button
-                  type="button"
-                  key={style.id}
-                  onClick={() => handleSubgenreChange(style.id as TechnoSubgenreId)}
-                  className={`p-3 text-left rounded-lg border text-xs transition ${
-                    subgenreId === style.id
-                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                      : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:border-slate-600'
-                  }`}
-                >
-                  <div className="font-semibold text-white mb-0.5">{style.label}</div>
-                  <div className="text-[10px] text-slate-400">{style.defaultBpm} BPM · {style.desc}</div>
-                </button>
-              ))}
+        <form className="p-4 space-y-5" onSubmit={async event => {
+          event.preventDefault(); if (submitting.current) return;
+          submitting.current = true; setBusy(true); setError('');
+          try { await onCreateProject({ title, subgenreId, bpm, durationBars, seed, layerDensity }); onClose(); }
+          catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+          finally { submitting.current = false; setBusy(false); }
+        }}>
+          <fieldset disabled={busy} className="space-y-5 min-w-0">
+            <label className="block text-sm space-y-2"><span>Project title</span><input required maxLength={160} value={title} onChange={e => setTitle(e.target.value)} className={inputClass} /></label>
+            <div className="space-y-2"><h3 className="text-sm">Techno style</h3><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {styles.map(style => <button type="button" key={style.id} aria-pressed={subgenreId === style.id}
+                onClick={() => { setSubgenreId(style.id as TechnoSubgenreId); setBpm(style.bpm); }}
+                className={`min-h-11 px-3 py-2 rounded border text-left text-xs ${subgenreId === style.id ? 'border-emerald-500 bg-emerald-950' : 'border-slate-600 bg-slate-800'}`}>
+                {style.label}<span className="block text-slate-400">{style.bpm} BPM preset</span>
+              </button>)}
+            </div></div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-2 text-sm"><span>Tempo (BPM)</span><input type="number" min={40} max={240} step={0.5} required value={bpm} onChange={e => setBpm(e.target.valueAsNumber)} className={inputClass} /></label>
+              <label className="space-y-2 text-sm"><span>Duration (bars)</span><input type="number" min={4} max={4096} step={1} required value={durationBars} onChange={e => setDurationBars(e.target.valueAsNumber)} className={inputClass} /></label>
             </div>
-          </div>
-
-          {/* Target Duration */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Arrangement Span & Duration (4/4 @ {bpm} BPM)
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-              {[
-                { bars: 128, label: '128 Bars', badge: 'Recommended', role: 'Full Track' },
-                { bars: 64, label: '64 Bars', badge: 'Extended', role: 'Extended' },
-                { bars: 180, label: '180 Bars', badge: 'Reference', role: 'Reference' },
-                { bars: 32, label: '32 Bars', badge: 'Sketch', role: 'Sketch' },
-              ].map((dur) => {
-                const exactSeconds = (dur.bars * 240) / Math.max(20, bpm);
-                const mins = Math.floor(exactSeconds / 60);
-                const secs = Math.round(exactSeconds % 60);
-                const formattedTime = `${mins}:${secs.toString().padStart(2, '0')}`;
-                return (
-                  <button
-                    type="button"
-                    key={dur.bars}
-                    onClick={() => setDurationBars(dur.bars)}
-                    className={`p-3 text-left rounded-lg border text-xs transition ${
-                      durationBars === dur.bars
-                        ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                        : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="font-bold text-white">{dur.label}</span>
-                      <span className="text-[9px] px-1.5 py-0.5 bg-slate-700/60 rounded text-slate-300">{dur.badge}</span>
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {formattedTime} ({exactSeconds.toFixed(1)}s) · {dur.role}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Form Dynamic Family */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Arrangement Dynamic Form
-            </label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {[
-                { id: 'hypnotic_longform', label: 'Full Techno Plateaus & Drops', desc: 'Staggered layer withdrawals, 2 breakdown plateaus, & peak drops' },
-                { id: 'subtractive_raw', label: 'Subtractive Raw Pressure', desc: 'Sudden kick dropouts & percussion isolation windows' },
-                { id: 'industrial_assault', label: 'Industrial Tension Riser', desc: 'Noise sweeps, distorted ratchets, & relentless drive' },
-                { id: 'acid_modulation', label: '303 Acid Filter Evolution', desc: 'Resonance sweeps, slide articulation, & 16th accent modulation' },
-              ].map((form) => (
-                <button
-                  type="button"
-                  key={form.id}
-                  onClick={() => setFormFamily(form.id as any)}
-                  className={`p-3 text-left rounded-lg border text-xs transition ${
-                    formFamily === form.id
-                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                      : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:border-slate-600'
-                  }`}
-                >
-                  <div className="font-semibold text-white mb-0.5">{form.label}</div>
-                  <div className="text-[10px] text-slate-400">{form.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Layer Density */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Instrument & Role Layer Density
-            </label>
-            <div className="grid grid-cols-3 gap-2.5">
-              {[
-                { id: 'full_reference', label: 'Full Reference Pack', desc: '14-19 Layers (Dual Kick, Rumble, Congas, Hats, Rides, Acid, Pads, Returns)' },
-                { id: 'standard', label: 'Standard Production', desc: '9-12 Layers (Kick, Sub, Perc, Synth, Hats, Rides, Return Reverb)' },
-                { id: 'compact', label: 'Essential Groove', desc: '6-8 Layers (Kick, Rumble, Hats, Lead Synth, Return Echo)' },
-              ].map((den) => (
-                <button
-                  type="button"
-                  key={den.id}
-                  onClick={() => setLayerDensity(den.id as any)}
-                  className={`p-2.5 text-left rounded-lg border text-xs transition ${
-                    layerDensity === den.id
-                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                      : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:border-slate-600'
-                  }`}
-                >
-                  <div className="font-semibold text-white mb-0.5">{den.label}</div>
-                  <div className="text-[10px] text-slate-400">{den.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Footer Submit Button */}
-          <div className="pt-2 flex items-center justify-end space-x-3 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg shadow-lg flex items-center space-x-2 transition"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Generate Complete Project ({durationBars} Bars)</span>
-            </button>
+            <p className="text-xs text-slate-300" aria-live="polite">{durationText} in 4/4 at {bpm} BPM ({Number.isFinite(seconds) ? seconds.toFixed(1) : '—'} seconds), plus effect tails.</p>
+            <div className="flex flex-wrap gap-2">{[32, 64, 128, 180].map(bars => <button type="button" key={bars} aria-pressed={durationBars === bars} onClick={() => setDurationBars(bars)} className="min-h-11 px-3 rounded border border-slate-600 text-xs">{bars} Bars</button>)}</div>
+            <label className="block text-sm space-y-2"><span>Generation seed</span><input type="number" min={0} max={0xffffffff} step={1} required value={seed} onChange={e => setSeed(e.target.valueAsNumber)} className={inputClass} /></label>
+            <div className="space-y-2"><h3 className="text-sm">Instrument layers</h3><div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {([{ id: 'compact', label: 'Essential — 6 tracks' }, { id: 'standard', label: 'Standard — 7 tracks' }, { id: 'full_reference', label: 'Full — 8 tracks' }] as const).map(density => <button type="button" key={density.id} aria-pressed={layerDensity === density.id} onClick={() => setLayerDensity(density.id)} className={`min-h-11 p-2 rounded border text-xs ${layerDensity === density.id ? 'border-emerald-500 bg-emerald-950' : 'border-slate-600'}`}>{density.label}</button>)}
+            </div><p className="text-xs text-slate-400">The selected style plans sections, harmony and independent track phrases. Sketch projects remain available in the File menu.</p></div>
+          </fieldset>
+          {error && <p role="alert" className="text-sm text-rose-300 break-words">{error}</p>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-700 pt-4">
+            <button type="button" disabled={busy} onClick={onClose} className="min-h-11 px-4 rounded border border-slate-600">Cancel</button>
+            <button type="submit" disabled={busy} className="min-h-11 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 rounded text-sm flex items-center gap-2"><Sparkles className="w-4 h-4" />{busy ? 'Creating and saving project…' : `Generate Complete Project (${durationBars} Bars)`}</button>
           </div>
         </form>
       </div>
     </div>
   );
-};
+}
