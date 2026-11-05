@@ -912,3 +912,64 @@ export const STUDIO_COMMAND_DEFINITIONS: StudioCommandDefinition[] = [
     description: 'Propose structured 6-section underground arrangement (Intro, Groove, Hypnotic, Breakdown, Drop, Outro) non-destructively',
   },
 ];
+
+export function substituteUnsupportedDevice(
+  project: AbletonProjectState,
+  trackId: string,
+  deviceId: string,
+  replacementType: 'Operator' | 'Analog' | 'Wavetable' | 'Simpler' | 'EQEight' | 'Reverb' | 'Compressor2'
+): AbletonProjectState {
+  const track = project.tracks.find((t) => t.id === trackId);
+  if (!track) throw new Error(`SUBSTITUTE_DEVICE: track ${trackId} not found`);
+
+  const devIndex = track.devices.findIndex((d) => d.id === deviceId);
+  if (devIndex < 0) throw new Error(`SUBSTITUTE_DEVICE: device ${deviceId} not found on track ${trackId}`);
+
+  const targetDev = track.devices[devIndex];
+  const opaqueXml =
+    targetDev.opaqueSubtreeXml ||
+    targetDev.originalAuPluginXml ||
+    `<${targetDev.xmlTag} Id="${targetDev.id}"/>`;
+
+  const displayMap: Record<string, string> = {
+    Operator: 'Operator (Substituted)',
+    Analog: 'Analog 303 (Substituted)',
+    Wavetable: 'Wavetable Synth (Substituted)',
+    Simpler: 'Simpler Sampler (Substituted)',
+    EQEight: 'EQ Eight (Substituted)',
+    Reverb: 'Hybrid Reverb (Substituted)',
+    Compressor2: 'Compressor (Substituted)',
+  };
+
+  const isInstrument = ['Operator', 'Analog', 'Wavetable', 'Simpler'].includes(replacementType);
+
+  const substitutedDevice: AbletonDevice = {
+    ...targetDev,
+    xmlTag: targetDev.xmlTag, // Preserve original XML tag name for export!
+    displayName: `${displayMap[replacementType] || replacementType} [Orig: ${targetDev.displayName || targetDev.xmlTag}]`,
+    category: isInstrument ? 'instrument' : 'audio_effect',
+    bypassed: false, // Un-bypass so browser DSP plays audio using substituted synth/effect
+    browserDspSupported: true,
+    opaqueSubtreeXml: opaqueXml,
+    substitutedActiveType: replacementType,
+    parameters: [
+      { name: 'SubstitutedActiveType', value: replacementType },
+      { name: 'OriginalPluginTag', value: targetDev.xmlTag },
+      { name: 'Drive', value: 0.5 },
+      { name: 'DryWet', value: 1.0 },
+    ],
+  };
+
+  const updatedDevices = [...track.devices];
+  updatedDevices[devIndex] = substitutedDevice;
+
+  const updatedTracks = project.tracks.map((t) =>
+    t.id === trackId ? { ...t, devices: updatedDevices } : t
+  );
+
+  return {
+    ...project,
+    tracks: updatedTracks,
+    projectRevision: (project.projectRevision || 1) + 1,
+  };
+}

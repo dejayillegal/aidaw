@@ -216,6 +216,10 @@ export interface AbletonDevice {
   selectionReasoning?: string;
   conversionRecord?: DeviceConversionRecord;
   approximationApproved?: boolean;
+  opaqueSubtreeXml?: string;
+  originalAuPluginXml?: string;
+  substitutedActiveType?: string;
+  isUnsupportedPlugin?: boolean;
 }
 
 export interface AbletonLibraryDeviceTemplate {

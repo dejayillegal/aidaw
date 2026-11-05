@@ -33,6 +33,7 @@ import {
 import {
   CONVERTED_DEVICE_TAGS,
   EXECUTABLE_DEVICE_TAGS,
+  UNSUPPORTED_DEVICE_TAGS,
   migrateLegacyDeviceConversionRecord,
   migrateCompatibleUnitConversion,
   syncDeviceConversionRecord,
@@ -2079,7 +2080,12 @@ export function parseAbletonXmlDom(
       };
 
       const isOnManual = devEl.querySelector('IsOn > Manual')?.getAttribute('Value');
-      const bypassed = isOnManual === 'false';
+      const isUnsupportedPlugin =
+        UNSUPPORTED_DEVICE_TAGS.has(tag) ||
+        tag === 'AuPluginDevice' ||
+        tag === 'PluginDevice' ||
+        tag === 'MxDeviceAudioEffect';
+      const bypassed = isOnManual === 'false' || isUnsupportedPlugin;
       const isAutoDuckInjected =
         devEl.getAttribute('Data-Parametric-AutoDuck') === 'true' ||
         devId === '8801' ||
@@ -2096,7 +2102,9 @@ export function parseAbletonXmlDom(
           tag === 'OriginalSimpler' ||
           tag === 'DrumGroupDevice' ||
           tag === 'UltraAnalog' ||
-          tag === 'Drift'
+          tag === 'Drift' ||
+          tag === 'AuPluginDevice' ||
+          tag === 'PluginDevice'
             ? 'instrument'
             : tag === 'MidiChord' || tag === 'MidiArpeggiator'
             ? 'midi_effect'
@@ -2106,7 +2114,9 @@ export function parseAbletonXmlDom(
         parameters: params,
         bypassed,
         isUserCreated: !isGenerated && !isAutoDuckInjected,
-        browserDspSupported: BROWSER_SUPPORTED_DEVICE_TAGS.has(tag),
+        browserDspSupported: !isUnsupportedPlugin && BROWSER_SUPPORTED_DEVICE_TAGS.has(tag),
+        opaqueSubtreeXml: devEl.outerHTML,
+        isUnsupportedPlugin,
       });
     });
 

@@ -108,6 +108,8 @@ import {
 } from './components/StudioEditorToolbar';
 import { StudioStatusBar } from './components/StudioStatusBar';
 import { SelectedTrackAnalysisStrip } from './components/SelectedTrackAnalysisStrip';
+import { NewProjectModal, NewProjectOptions } from './components/NewProjectModal';
+import { UnsupportedPluginModal } from './components/UnsupportedPluginModal';
 import { TrackVelocityRandomizerConfig } from './components/AiComposerIntelligencePanel';
 import {
   projectQueueService,
@@ -245,6 +247,8 @@ export default function App() {
   const [mobileSection, setMobileSection] = useState<MobileDawSection>('arrange');
   const [desktopBottomTab, setDesktopBottomTab] = useState<DesktopBottomTab>('composer');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('berghain-134');
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
+  const [isUnsupportedPluginModalOpen, setIsUnsupportedPluginModalOpen] = useState<boolean>(false);
 
   // Granular Clear Arrangement state
   const [clearOptions, setClearOptions] = useState<ClearArrangementOptions>({
@@ -566,6 +570,46 @@ export default function App() {
     },
     [currentProjectQueueKey, activeFormId, activeQueueId]
   );
+
+  const handleCreateNewProject = useCallback((options: NewProjectOptions) => {
+    try {
+      const seed = Math.floor(Math.random() * 1000000) + 101;
+      const requestedBars = options.durationBars;
+      const templateId = options.subgenreId === 'berlin_industrial' ? 'berghain-134' : 'hypnotic-138';
+      const { xml } = buildStarterAbletonXml(templateId, seed);
+      const parsed = parseAbletonXmlDom(xml, options.title, xml);
+      parsed.tempo = options.bpm;
+      parsed.arrangementLengthBars = requestedBars;
+
+      const styleMap: Record<string, CompositionStrategyId> = {
+        raw_warehouse: 'raw_warehouse',
+        berlin_industrial: 'asymmetric_industrial',
+        hardgroove: 'minimal_groove',
+        acid_techno: 'acid_modulation',
+        dub_techno: 'dub_space',
+        driving_rolling: 'hypnotic_evolving',
+      };
+      const strategy = styleMap[options.subgenreId] || 'hypnotic_evolving';
+      const plan = createSongPlan(parsed, seed, strategy);
+      const composed = composeSongPlan(parsed, plan);
+
+      const formMap: Record<string, MacroArrangementFormId> = {
+        hypnotic_longform: 'hypnotic_longform',
+        industrial_assault: 'industrial_assault',
+        deep_dub_evolution: 'deep_dub_evolution',
+        subtractive_raw: 'hypnotic_longform',
+        acid_modulation: 'industrial_assault',
+      };
+      const macroForm = formMap[options.formFamily] || 'hypnotic_longform';
+      const enriched = enrichProjectWithAnalysis(composed, macroForm);
+
+      handleExecuteProjectCommand('Create Dynamic Full Track', 'clip_edit', () => enriched);
+      setSelectedTrackId(enriched.tracks[0]?.id || '1');
+      setStatusMessage(`Generated complete full track "${options.title}" (${requestedBars} bars, ${options.bpm} BPM).`);
+    } catch (err: any) {
+      setStatusMessage(`Project generation error: ${err.message}`);
+    }
+  }, [handleExecuteProjectCommand]);
 
   const updateAudioSettings = <K extends keyof ProjectAudioSettings>(key: K, update: React.SetStateAction<ProjectAudioSettings[K]>) => {
     handleExecuteProjectCommand(`Update ${key}`, 'mixer', draft => {
@@ -2087,6 +2131,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleUndo, handleRedo]);
 
+  const unsupportedPluginCount = useMemo(() => {
+    let count = 0;
+    project.tracks.forEach((track) => {
+      track.devices.forEach((dev) => {
+        if (
+          dev.xmlTag === 'AuPluginDevice' ||
+          dev.xmlTag === 'PluginDevice' ||
+          dev.xmlTag === 'MxDeviceAudioEffect' ||
+          dev.isUnsupportedPlugin === true
+        ) {
+          count++;
+        }
+      });
+    });
+    return count;
+  }, [project.tracks]);
+
   return (
     <div className="studio-shell h-dvh w-full overflow-hidden grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] bg-[#080A0D] text-[#F1F5F9] select-none font-sans">
       {/* 1. TOP 28px SOUNDCRAFT STUDIO MENU BAR */}
@@ -2099,9 +2160,13 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onNewProject={() => { void handleLoadStarterTemplate(selectedTemplateId, 16, 'sketch'); }}
+        onNewProject={() => setIsNewProjectModalOpen(true)}
         onCreateProjectWithMode={(mode, bars) => {
-          void handleLoadStarterTemplate(selectedTemplateId, bars, mode);
+          if (mode === 'full-track' || bars >= 32) {
+            setIsNewProjectModalOpen(true);
+          } else {
+            void handleLoadStarterTemplate(selectedTemplateId, bars, mode);
+          }
         }}
         onReportStatus={setStatusMessage}
         onSaveProject={() => { void handleSaveProjectSnapshot(); }}
@@ -2501,6 +2566,42 @@ export default function App() {
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
         onReportStatus={setStatusMessage}
+      />
+
+  const [isUnsupportedPluginModalOpen, setIsUnsupportedPluginModalOpen] = useState<boolean>(false);
+
+  const unsupportedPluginCount = useMemo(() => {
+    let count = 0;
+    project.tracks.forEach((track) => {
+      track.devices.forEach((dev) => {
+        if (
+          dev.xmlTag === 'AuPluginDevice' ||
+          dev.xmlTag === 'PluginDevice' ||
+          dev.xmlTag === 'MxDeviceAudioEffect' ||
+          dev.isUnsupportedPlugin === true
+        ) {
+          count++;
+        }
+      });
+    });
+    return count;
+  }, [project.tracks]);
+
+      {/* Interactive Dynamic New Project Modal */}
+      <NewProjectModal
+        isOpen={isNewProjectModalOpen}
+        onClose={() => setIsNewProjectModalOpen(false)}
+        onCreateProject={handleCreateNewProject}
+      />
+
+      {/* Unsupported Third-Party Plugin Dependency Management Modal */}
+      <UnsupportedPluginModal
+        isOpen={isUnsupportedPluginModalOpen}
+        onClose={() => setIsUnsupportedPluginModalOpen(false)}
+        project={project}
+        onUpdateProject={(updated) =>
+          handleExecuteProjectCommand('Substitute Unsupported Device', 'clip_edit', () => updated)
+        }
       />
 
       {/* Studio Settings Modal */}

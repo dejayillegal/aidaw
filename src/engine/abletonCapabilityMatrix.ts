@@ -1165,15 +1165,14 @@ export function buildDeviceConversionRecord(device: AbletonDevice, legacyV1 = fa
   };
 }
 
-/** V1 -> V2 unit semantics: only an exact, reproducible old record is eligible. */
-export function migrateCompatibleUnitConversion(device:AbletonDevice):{device:AbletonDevice;migrated:boolean} {
-  const rec=device.conversionRecord;
-  if(!rec||rec.conversionVersion!==1||rec.status!=='valid'||!CONVERTED_DEVICE_TAGS.has(device.xmlTag))return {device,migrated:false};
-  const expected=buildDeviceConversionRecord(device,true);
-  const ordered=(value:unknown):unknown => Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)])):value;
-  const canonical=(value:unknown)=>JSON.stringify(ordered(value));
-  if(canonical(rec)!==canonical(expected))return {device,migrated:false};
-  return {device:{...device,conversionRecord:buildDeviceConversionRecord(device)},migrated:true};
+/** V1 -> V2 unit semantics: converts valid legacy v1 conversion records to v2 conversion schema. */
+export function migrateCompatibleUnitConversion(device: AbletonDevice): { device: AbletonDevice; migrated: boolean } {
+  const rec = device.conversionRecord;
+  if (!rec || rec.conversionVersion >= CURRENT_DEVICE_CONVERSION_VERSION || rec.status !== 'valid' || !CONVERTED_DEVICE_TAGS.has(device.xmlTag)) {
+    return { device, migrated: false };
+  }
+  const upgradedRecord = buildDeviceConversionRecord(device);
+  return { device: { ...device, conversionRecord: upgradedRecord }, migrated: true };
 }
 export function migrateCompatibleProjectUnitConversions(project:AbletonProjectState):{project:AbletonProjectState;migrated:boolean} {
   let migrated=false;

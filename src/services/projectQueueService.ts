@@ -1,4 +1,4 @@
-import { assertProjectState, assertStructuralProjectState } from '../engine/projectStateContracts';
+import { assertProjectState, assertStructuralProjectState, repairProjectNoteIdentities } from '../engine/projectStateContracts';
 import {
   AbletonProjectState,
   BatchWavExportItemResult,
@@ -585,6 +585,11 @@ export class ProjectQueueService {
             candidateProject = mig.project;
             wasMigrated ||= mig.migrated;
           }
+
+          // Deterministically repair legacy note identity defects before project state assertions
+          const noteRepair = repairProjectNoteIdentities(candidateProject);
+          candidateProject = noteRepair.project;
+          wasMigrated ||= noteRepair.repairedNoteCount > 0;
 
           // 7. Run strict project, conversion, capability, and XML validation
           assertProjectState(candidateProject);

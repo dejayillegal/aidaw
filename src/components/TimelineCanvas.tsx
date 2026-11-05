@@ -382,6 +382,37 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   );
   const [newTrackRoleCode, setNewTrackRoleCode] = useState<string>('E2');
 
+  const [foldedGroupIds, setFoldedGroupIds] = useState<Set<string>>(() => {
+    const set = new Set<string>();
+    project.tracks.forEach((t) => {
+      if (t.isGroupTrack && t.isFolded) set.add(t.id);
+    });
+    return set;
+  });
+
+  useEffect(() => {
+    setFoldedGroupIds((prev) => {
+      const next = new Set(prev);
+      project.tracks.forEach((t) => {
+        if (t.isGroupTrack && t.isFolded) next.add(t.id);
+      });
+      return next;
+    });
+  }, [project.tracks]);
+
+  const toggleFoldGroup = (groupId: string) => {
+    setFoldedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const visibleTracks = React.useMemo(() => {
+    return project.tracks.filter((t) => !t.groupId || !foldedGroupIds.has(t.groupId));
+  }, [project.tracks, foldedGroupIds]);
+
   const effectiveRangeStartBar = barRangeSelection?.startBar ?? localRangeStartBar;
   const effectiveRangeEndBar = barRangeSelection?.endBar ?? localRangeEndBar;
 
@@ -512,7 +543,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
   const busRowCount = showReturnLanes ? 3 : 0; // Return A (Reverb), Return B (3/16 Delay), Master Bus
   const totalArrangementHeight =
     headerHeight +
-    Math.max(4, project.tracks.length) * laneHeight +
+    Math.max(4, visibleTracks.length) * laneHeight +
     busRowCount * returnLaneHeight;
 
   // Draw Upper Arrangement Timeline + Loop Brace + Polymeter Markers + Return/Master Lanes
@@ -625,7 +656,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     const anySoloActive = project.tracks.some((t) => t.soloed);
 
     // Draw Track Lanes
-    project.tracks.forEach((track, idx) => {
+    visibleTracks.forEach((track, idx) => {
       const y = headerHeight + idx * laneHeight;
       const isSelected = track.id === selectedTrack?.id;
       const isSoloMuted = anySoloActive && !track.soloed;
@@ -1332,8 +1363,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     }
 
     const clickedIdx = Math.floor((y - headerHeight) / laneHeight);
-    if (clickedIdx >= 0 && clickedIdx < project.tracks.length) {
-      const targetTrack = project.tracks[clickedIdx];
+    if (clickedIdx >= 0 && clickedIdx < visibleTracks.length) {
+      const targetTrack = visibleTracks[clickedIdx];
       if (isInitialDown && targetTrack.id !== selectedTrack?.id) {
         onSelectTrack(targetTrack.id);
       }
@@ -1376,7 +1407,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left,
       y = e.clientY - rect.top;
-    const track = project.tracks[Math.floor((y - headerHeight) / laneHeight)];
+    const track = visibleTracks[Math.floor((y - headerHeight) / laneHeight)];
     const beat = arrStartBeat + (x / Math.max(1, rect.width)) * arrVisibleBeats;
     const clip =
       y > headerHeight && track?.type === 'midi'
@@ -2345,10 +2376,13 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               <span className="truncate">ACT · SOLO · VOL</span>
             </div>
 
-            {project.tracks.map((track, idx) => {
+            {visibleTracks.map((track, idx) => {
               const isSelected = track.id === selectedTrack?.id;
               const anySoloActive = project.tracks.some((t) => t.soloed);
               const isSoloMuted = anySoloActive && !track.soloed;
+              const isGroup = Boolean(track.isGroupTrack);
+              const isChild = Boolean(track.groupId);
+              const isFolded = foldedGroupIds.has(track.id);
               const mixer = track.mixer || {
                 volumeDb: 0,
                 pan: 0,
@@ -2367,6 +2401,8 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                   onClick={() => onSelectTrack(track.id)}
                   style={{ height: `${laneHeight}px` }}
                   className={`px-2.5 flex items-center justify-between gap-1.5 border-b border-[#1E2530] cursor-pointer transition-colors shrink-0 ${
+                    isChild ? 'pl-5 border-l-2 border-[#283246]' : ''
+                  } ${
                     track.soloed
                       ? isSelected
                         ? 'bg-[#2A2210] border-amber-500/40'
@@ -2378,7 +2414,20 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                       : 'bg-[#10141C] hover:bg-[#151A24]'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    {isGroup && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFoldGroup(track.id);
+                        }}
+                        className="w-4 h-4 rounded bg-[#1B2230] hover:bg-[#283246] border border-[#2E3B52] text-[#F59E0B] flex items-center justify-center text-[9px] font-bold shrink-0"
+                        title={isFolded ? 'Unfold Group Track' : 'Fold Group Track'}
+                      >
+                        {isFolded ? '►' : '▼'}
+                      </button>
+                    )}
                     <div
                       className="w-1.5 h-7 rounded-sm shrink-0"
                       style={{ backgroundColor: track.soloed ? '#F59E0B' : track.muted ? '#475569' : track.hexColor }}
@@ -2389,9 +2438,16 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                           ? 'text-amber-300'
                           : isSoloMuted
                           ? 'text-slate-500'
+                          : isGroup
+                          ? 'text-amber-200'
                           : 'text-slate-100'
                       }`}>
                         <span>{track.name}</span>
+                        {isGroup && (
+                          <span className="px-1 py-0.2 text-[8px] bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold rounded">
+                            GRP {isFolded ? '(FOLD)' : ''}
+                          </span>
+                        )}
                         {track.soloed && (
                           <span className="px-1 py-0.2 text-[8px] bg-amber-400 text-slate-950 font-bold rounded">SOLO</span>
                         )}
@@ -2542,7 +2598,7 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
               onPointerCancel={e=>finishArrangementPointer(e,true)}
               className="w-full h-full block cursor-pointer touch-none"
             />
-            {clipPreview&&<div data-testid="clip-drag-preview" className="absolute border-2 border-amber-300 bg-amber-400/20 pointer-events-none" style={{left:(clipPreview.start-arrStartBeat)/arrVisibleBeats*arrangementWidthPx,width:Math.max(2,clipPreview.length/arrVisibleBeats*arrangementWidthPx),top:headerHeight+project.tracks.findIndex(t=>t.id===clipPreview.trackId)*laneHeight+3,height:laneHeight-6}}/>}
+            {clipPreview&&<div data-testid="clip-drag-preview" className="absolute border-2 border-amber-300 bg-amber-400/20 pointer-events-none" style={{left:(clipPreview.start-arrStartBeat)/arrVisibleBeats*arrangementWidthPx,width:Math.max(2,clipPreview.length/arrVisibleBeats*arrangementWidthPx),top:headerHeight+visibleTracks.findIndex(t=>t.id===clipPreview.trackId)*laneHeight+3,height:laneHeight-6}}/>}
             {arrangementPlayheadTransform.isVisible && (
               <div
                 data-testid="arrangement-smooth-playhead"

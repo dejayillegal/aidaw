@@ -14,6 +14,88 @@ import {
 import type { AbletonProjectState } from '../types/ableton';
 
 /**
+ * Deterministically repairs missing or duplicate note identities across all tracks and clips,
+ * guaranteeing stable, unique IDs without altering pitch, timing, velocity, duration,
+ * probability, or clip ownership.
+ */
+export function repairProjectNoteIdentities(project: AbletonProjectState): {
+  project: AbletonProjectState;
+  repairedNoteCount: number;
+} {
+  if (!project || !Array.isArray(project.tracks)) {
+    return { project, repairedNoteCount: 0 };
+  }
+
+  let repairedNoteCount = 0;
+  const projectNoteIds = new Set<string>();
+
+  const updatedTracks = project.tracks.map((track) => {
+    const updatedClips = (track.clips || []).map((clip) => {
+      const clipNoteIds = new Set<string>();
+      const updatedNotes = (clip.notes || []).map((note, idx) => {
+        const needsRepair =
+          !note.id ||
+          typeof note.id !== 'string' ||
+          clipNoteIds.has(note.id) ||
+          projectNoteIds.has(note.id);
+
+        let finalId = note.id;
+        if (needsRepair) {
+          repairedNoteCount++;
+          finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
+          let suffix = 1;
+          while (projectNoteIds.has(finalId) || clipNoteIds.has(finalId)) {
+            finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}_${suffix++}`;
+          }
+        }
+
+        clipNoteIds.add(finalId);
+        projectNoteIds.add(finalId);
+
+        return needsRepair ? { ...note, id: finalId } : note;
+      });
+
+      return { ...clip, notes: updatedNotes };
+    });
+
+    const updatedSessionClips = (track.sessionClips || []).map((clip) => {
+      const clipNoteIds = new Set<string>();
+      const updatedNotes = (clip.notes || []).map((note, idx) => {
+        const needsRepair =
+          !note.id ||
+          typeof note.id !== 'string' ||
+          clipNoteIds.has(note.id) ||
+          projectNoteIds.has(note.id);
+
+        let finalId = note.id;
+        if (needsRepair) {
+          repairedNoteCount++;
+          finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}`;
+          let suffix = 1;
+          while (projectNoteIds.has(finalId) || clipNoteIds.has(finalId)) {
+            finalId = `${clip.id}_n${idx}_p${note.pitch}_t${Math.round(note.time * 1000)}_${suffix++}`;
+          }
+        }
+
+        clipNoteIds.add(finalId);
+        projectNoteIds.add(finalId);
+
+        return needsRepair ? { ...note, id: finalId } : note;
+      });
+
+      return { ...clip, notes: updatedNotes };
+    });
+
+    return { ...track, clips: updatedClips, sessionClips: updatedSessionClips };
+  });
+
+  return {
+    project: { ...project, tracks: updatedTracks },
+    repairedNoteCount,
+  };
+}
+
+/**
  * Validates the structural project shape, track/clip/note identities, timing maps,
  * Session performance contract, and source device parameters BEFORE conversion record validation.
  */
@@ -260,7 +342,7 @@ export function assertProjectConversionState(project: AbletonProjectState): void
       }
       if (!dev.bypassed) {
         const supportClass = classifyAbletonDeviceTag(dev.xmlTag);
-        if (supportClass === 'unsupported' && !dev.isUserCreated) {
+        if (supportClass === 'unsupported' && !dev.isUserCreated && !dev.browserDspSupported) {
           fail(
             `UNSUPPORTED_DEVICE: ${track.name} contains unsupported device <${dev.xmlTag}> (${dev.id})`
           );
